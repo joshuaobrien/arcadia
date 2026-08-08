@@ -100,3 +100,27 @@ test('Lidarr read routes validate queries and return normalized adapter data', a
   assert.equal(missingTerm.statusCode, 400)
   assert.equal(invalidLimit.statusCode, 400)
 })
+
+test('production app serves static assets and preserves API 404 responses', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'needle-static-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await mkdir(join(root, 'assets'))
+  await writeFile(join(root, 'index.html'), '<main>Needle runtime</main>')
+  await writeFile(join(root, 'assets', 'app.js'), 'console.log("needle")')
+  const app = buildApp({ staticRoot: root, lidarr: null, logger: false })
+  t.after(() => app.close())
+
+  const rootResponse = await app.inject({ method: 'GET', url: '/' })
+  const assetResponse = await app.inject({ method: 'GET', url: '/assets/app.js' })
+  const clientRoute = await app.inject({ method: 'GET', url: '/acquire' })
+  const missingApi = await app.inject({ method: 'GET', url: '/api/does-not-exist' })
+
+  assert.equal(rootResponse.statusCode, 200)
+  assert.match(rootResponse.body, /Needle runtime/)
+  assert.equal(assetResponse.statusCode, 200)
+  assert.match(assetResponse.body, /console\.log/)
+  assert.equal(clientRoute.statusCode, 200)
+  assert.match(clientRoute.body, /Needle runtime/)
+  assert.equal(missingApi.statusCode, 404)
+  assert.equal(missingApi.json().error.code, 'not-found')
+})
