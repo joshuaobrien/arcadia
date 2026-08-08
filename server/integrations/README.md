@@ -5,7 +5,7 @@ Needle owns wanted state, sync intent, search selections, transfer correlation, 
 | Port | Adapter | Notes |
 | --- | --- | --- |
 | `CatalogLookupPort` | Lidarr, MusicBrainz | MusicBrainz IDs are cross-provider identities; provider IDs remain opaque. |
-| `MusicAutomationPort` | Lidarr | Commands are asynchronous and version-sensitive. Lidarr's queue aggregates its configured download clients. |
+| `AcquisitionAutomationPort` | Lidarr | Wanted state, searches, queue, and history only. It has no library mutation operations. |
 
 Search, transfer, import, and notification ports will be defined when their first adapters are implemented. Their provider constraints remain recorded below to inform those designs.
 
@@ -18,8 +18,7 @@ Search, transfer, import, and notification ports will be defined when their firs
 5. Normalized states always retain `rawState`. SABnzbd post-processing, qBittorrent seeding, and Soulseek queueing are not interchangeable.
 6. Unsupported controls fail before making a remote request. The UI reads adapter capabilities rather than guessing from provider type.
 7. Needle persists its own ledger. qBittorrent has no durable deleted-transfer history, Prowlarr search handles expire, and slskd records can be cleared.
-8. Cancelling active work and removing its provider record are separate actions. Data deletion is never implied and always requires `deleteData: true`.
-9. List operations are cursor-paginated even when an upstream API uses page numbers. The adapter owns cursor translation.
+8. List operations are cursor-paginated even when an upstream API uses page numbers. The adapter owns cursor translation.
 
 `AcquisitionJob` belongs to Needle's domain rather than an integration. It links provider operations without making provider records authoritative.
 
@@ -28,9 +27,10 @@ Search, transfer, import, and notification ports will be defined when their firs
 ### Lidarr
 
 - `/api/v1`, authenticated with `X-Api-Key`.
-- Artist/release lookup and monitoring are catalog-aware.
-- Searches, refreshes, rescans, and downloaded-album scans are runtime command jobs. Command names and payloads must be version-gated.
-- Queue removal may optionally remove the underlying client item or blocklist the release. Pause/resume belongs to the actual transfer client.
+- Artist/release lookup and wanted-state monitoring are catalog-aware.
+- Artist and release searches are runtime command jobs. Command names and payloads must be version-gated.
+- Lidarr may dispatch downloads into staging, but does not import, move, retag, or delete canonical library files.
+- Queue removal, blocklisting, rescans, and downloaded-folder imports are deliberately absent from the Needle adapter.
 
 Needle configures the adapter through `LIDARR_URL` and `LIDARR_API_KEY`. The URL is the Lidarr origin or configured URL base, without `/api/v1`.
 
@@ -44,7 +44,7 @@ The server currently exposes the read model at:
 - `GET /api/services/lidarr/queue?limit=...&cursor=...`
 - `GET /api/services/lidarr/history?limit=...&cursor=...&since=...`
 
-The adapter also implements artist creation, release monitoring, verified Lidarr command submission, command polling, and queue removal. These mutations are not exposed over HTTP until Needle's acquisition workflow can persist intent and operation results.
+The adapter also implements artist creation, wanted-state monitoring, acquisition search submission, and command polling. These mutations are not exposed over HTTP until Needle's acquisition workflow can persist intent and operation results.
 
 ### Prowlarr
 

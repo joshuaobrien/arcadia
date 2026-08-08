@@ -100,7 +100,7 @@ test('Lidarr queue maps paging, states, nested catalog data, and provider paths'
   assert.deepEqual(page.items[0].statusMessages, ['Tracked', 'Waiting for import'])
 })
 
-test('Lidarr sends exact album monitoring and search command payloads', async () => {
+test('Lidarr sends exact wanted-state and acquisition-search payloads', async () => {
   const requests = []
   const adapter = mockAdapter(async (input, init) => {
     requests.push({ url: new URL(input), init })
@@ -109,8 +109,8 @@ test('Lidarr sends exact album monitoring and search command payloads', async ()
   })
 
   const release = { adapterId: 'lidarr', nativeId: 'album:id:9' }
-  await adapter.setReleaseMonitored(release, false, context)
-  const command = await adapter.startCommand('search-release', release, context)
+  await adapter.setReleaseWanted(release, false, context)
+  const command = await adapter.startSearch({ kind: 'release', release }, context)
 
   assert.equal(requests[0].init.method, 'PUT')
   assert.deepEqual(JSON.parse(requests[0].init.body), { albumIds: [9], monitored: false })
@@ -135,22 +135,17 @@ test('Lidarr maps provider failures to typed errors without exposing credentials
   )
 })
 
-test('Lidarr accepts successful empty mutation responses and rejects invalid cursors locally', async () => {
+test('Lidarr rejects invalid cursors without contacting the provider', async () => {
   let requests = 0
   const adapter = mockAdapter(async () => {
     requests += 1
     return new Response(null, { status: 200 })
   })
 
-  await adapter.removeQueueItem(
-    { adapterId: 'lidarr', nativeId: 'queue:id:4' },
-    { removeFromClient: true, blocklist: false },
-    context,
-  )
   await assert.rejects(
     () => adapter.listQueue({ cursor: 'not-a-cursor', limit: 25 }, context),
     (error) => error instanceof AdapterError && error.code === 'invalid-request',
   )
 
-  assert.equal(requests, 1)
+  assert.equal(requests, 0)
 })
