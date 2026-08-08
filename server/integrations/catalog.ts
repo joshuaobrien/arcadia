@@ -12,6 +12,7 @@ export interface CatalogArtist {
 export interface CatalogRelease {
   ref: ProviderRef
   artistRef: ProviderRef
+  artistName?: string
   title: string
   releaseDate?: string
   releaseType?: string

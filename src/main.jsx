@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import {
   Album,
@@ -21,6 +21,7 @@ import {
   Play,
   Plus,
   Radio,
+  RefreshCw,
   Search,
   Settings,
   Shuffle,
@@ -77,11 +78,52 @@ const releases = [
   },
 ]
 
-const jobs = [
-  { title: 'Bright Future', artist: 'Adrianne Lenker', source: 'Soulseek', progress: 72, meta: 'FLAC · 284 MB', state: 'Downloading' },
-  { title: 'No Hands', artist: 'Joey Valence & Brae', source: 'Soulseek', progress: 100, meta: 'MP3 V0 · 96 MB', state: 'Matching' },
-  { title: 'Lives Outgrown', artist: 'Beth Gibbons', source: 'Torrent', progress: 38, meta: 'FLAC · 318 MB', state: 'Downloading' },
-]
+async function getJson(path, signal) {
+  const response = await fetch(path, { signal })
+  const body = await response.json()
+  if (!response.ok) throw new Error(body.error?.message ?? `Request failed (${response.status})`)
+  return body
+}
+
+function useLidarrReadModel() {
+  const [status, setStatus] = useState(null)
+  const [queue, setQueue] = useState([])
+  const [history, setHistory] = useState([])
+  const [error, setError] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  const refresh = useCallback(async (signal) => {
+    setLoading(true)
+    setError(null)
+    try {
+      const nextStatus = await getJson('/api/services/lidarr', signal)
+      setStatus(nextStatus)
+      if (!nextStatus.configured || nextStatus.health?.state !== 'available') {
+        setQueue([])
+        setHistory([])
+        return
+      }
+      const [queuePage, historyPage] = await Promise.all([
+        getJson('/api/services/lidarr/queue?limit=25', signal),
+        getJson('/api/services/lidarr/history?limit=25', signal),
+      ])
+      setQueue(queuePage.items)
+      setHistory(historyPage.items)
+    } catch (requestError) {
+      if (requestError.name !== 'AbortError') setError(requestError.message)
+    } finally {
+      if (!signal?.aborted) setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    refresh(controller.signal)
+    return () => controller.abort()
+  }, [refresh])
+
+  return { status, queue, history, error, loading, refresh: () => refresh() }
+}
 
 const syncItems = [
   { title: 'Imaginal Disk', artist: 'Magdalena Bay', detail: '15 tracks · FLAC · direct copy', size: '624 MB', action: 'ADD' },
@@ -107,7 +149,7 @@ function Cover({ release, size = 'normal' }) {
   )
 }
 
-function Sidebar({ view, setView }) {
+function Sidebar({ view, setView, lidarr }) {
   const items = [
     ['home', Home, 'Device'],
     ['library', Library, 'Library'],
@@ -131,8 +173,8 @@ function Sidebar({ view, setView }) {
         ))}
       </nav>
       <div className="system-status">
-        <div><span className="pulse" /> ONLINE</div>
-        <small>5/5 adapters</small>
+        <div><span className={`pulse ${lidarr.status?.health?.state ?? 'offline'}`} /> LIDARR</div>
+        <small>{lidarr.loading ? 'checking' : !lidarr.status?.configured ? 'not configured' : lidarr.status.health?.state}</small>
       </div>
     </header>
   )
@@ -220,26 +262,84 @@ function Job({ job }) {
   )
 }
 
-function ActivityView() {
+function EmptyIntegration({ status, error, loading }) {
+  const message = loading
+    ? 'Reading Lidarr'
+    : error ?? (!status?.configured ? 'Lidarr is not configured' : 'Lidarr is unavailable')
+  return <div className="integration-empty"><Radio size={23}/><strong>{message}</strong><small>Acquisition data remains unavailable until the connection is active.</small></div>
+}
+
+function bytes(value) {
+  if (!Number.isFinite(value)) return 'size unknown'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let size = value
+  let unit = 0
+  while (size >= 1024 && unit < units.length - 1) { size /= 1024; unit += 1 }
+  return `${size.toFixed(unit > 1 ? 1 : 0)} ${units[unit]}`
+}
+
+function ActivityView({ lidarr }) {
+  const active = lidarr.queue.filter(item => !['completed', 'failed'].includes(item.state))
+  const failed = lidarr.queue.filter(item => item.state === 'failed')
+  const queueJobs = lidarr.queue.map(item => ({
+    title: item.title,
+    artist: item.artist?.name ?? item.release?.artistName ?? 'Unmatched release',
+    source: item.protocol ?? 'Lidarr',
+    progress: item.bytesTotal ? Math.round(((item.bytesTotal - (item.bytesRemaining ?? item.bytesTotal)) / item.bytesTotal) * 100) : 0,
+    meta: bytes(item.bytesTotal),
+    state: item.state.replace('-', ' '),
+  }))
   return (
     <section className="page-view">
-      <div className="page-title"><div><p className="eyebrow">Unified queue</p><h1>Activity</h1><p>Acquisition, matching, and import status</p></div><button className="outline-btn"><SlidersHorizontal size={17}/> Filters</button></div>
-      <div className="stats-row"><div><span>Active now</span><b>3</b><small>2 downloading, 1 matching</small></div><div><span>Completed today</span><b>7</b><small>2.8 GB added</small></div><div><span>Needs attention</span><b className="warn">1</b><small>Metadata review</small></div></div>
-      <div className="queue-panel"><div className="queue-title"><h2>In progress</h2><span>3 items</span></div>{jobs.map((job) => <Job key={job.title} job={job}/>)}</div>
-      <div className="review-card"><div className="review-art cover cover-green"><span>TIGER'S<br/>BLOOD</span><small>WAXAHATCHEE</small></div><div><p className="eyebrow peach">Review required</p><h2>2 possible metadata matches</h2><p><strong>Tigers Blood</strong> · edition unresolved · import paused</p></div><button className="primary">Review match <ChevronRight size={17}/></button></div>
+      <div className="page-title"><div><p className="eyebrow">Lidarr acquisition</p><h1>Activity</h1><p>Download queue and acquisition history</p></div><button className="outline-btn" onClick={lidarr.refresh}><RefreshCw size={16}/> Refresh</button></div>
+      <div className="stats-row"><div><span>Active</span><b>{active.length}</b><small>current queue</small></div><div><span>Recent events</span><b>{lidarr.history.length}</b><small>latest history page</small></div><div><span>Failed</span><b className={failed.length ? 'warn' : ''}>{failed.length}</b><small>queue attention</small></div></div>
+      {!lidarr.status?.configured || lidarr.status?.health?.state !== 'available' || lidarr.error
+        ? <EmptyIntegration {...lidarr}/>
+        : <>
+          <div className="queue-panel"><div className="queue-title"><h2>Queue</h2><span>{queueJobs.length} items</span></div>{queueJobs.length ? queueJobs.map((job, index) => <Job key={`${job.title}-${index}`} job={job}/>) : <p className="empty-row">Queue empty</p>}</div>
+          <div className="history-panel"><div className="queue-title"><h2>Recent history</h2><span>{lidarr.history.length} events</span></div>{lidarr.history.map(item => <div className="history-row" key={item.ref.nativeId}><span>{item.eventType}</span><div><strong>{item.release?.title ?? item.artist?.name ?? 'Unmatched acquisition'}</strong><small>{item.artist?.name ?? item.underlyingDownloadRef ?? 'Lidarr'}</small></div><time>{new Date(item.occurredAt).toLocaleString()}</time></div>)}</div>
+        </>}
     </section>
   )
 }
 
-function DiscoverView({ setSelected }) {
-  const suggestions = [...releases].reverse()
+function DiscoverView({ lidarr }) {
+  const [term, setTerm] = useState('')
+  const [results, setResults] = useState({ artists: [], releases: [] })
+  const [searching, setSearching] = useState(false)
+  const [searchError, setSearchError] = useState(null)
+
+  async function searchCatalog(event) {
+    event.preventDefault()
+    const query = term.trim()
+    if (!query) return
+    setSearching(true)
+    setSearchError(null)
+    try {
+      const encoded = encodeURIComponent(query)
+      const [artists, catalogReleases] = await Promise.all([
+        getJson(`/api/services/lidarr/artists?term=${encoded}`),
+        getJson(`/api/services/lidarr/releases?term=${encoded}`),
+      ])
+      setResults({ artists, releases: catalogReleases })
+    } catch (requestError) {
+      setSearchError(requestError.message)
+    } finally {
+      setSearching(false)
+    }
+  }
+
   return (
     <section className="page-view">
-      <div className="page-title discover-title"><div><p className="eyebrow">Connected sources</p><h1>Acquire</h1></div></div>
-      <div className="mood-row"><button>Electronic <span>↗</span></button><button>Jazz <span>↗</span></button><button>Folk <span>↗</span></button><button>Experimental <span>↗</span></button></div>
-      <div className="section-heading"><div><p className="eyebrow">Similar to Broadcast</p><h2>Related releases</h2></div><button>Refresh <Shuffle size={16}/></button></div>
-      <div className="release-grid discover-grid">{suggestions.map(r => <ReleaseCard key={r.title} release={r} setSelected={setSelected}/>)}</div>
-      <div className="radar-card"><div className="radar-icon"><Radio size={26}/></div><div><p className="eyebrow peach">Release monitor</p><h2>3 new releases</h2><p>Metadata refresh: 2 hours ago</p></div><button className="light-btn">View releases</button></div>
+      <div className="page-title discover-title"><div><p className="eyebrow">Lidarr catalog / read only</p><h1>Acquire</h1><p>Resolve artists and releases before acquisition intent is recorded.</p></div><div className={`connection-plate ${lidarr.status?.health?.state ?? 'offline'}`}><span>CONNECTION</span><b>{lidarr.status?.configured ? lidarr.status.health?.state : 'not configured'}</b><small>{lidarr.status?.health?.version ?? 'Lidarr API v1'}</small></div></div>
+      <form className="acquisition-search" onSubmit={searchCatalog}><Search size={19}/><input value={term} onChange={event => setTerm(event.target.value)} placeholder="artist or release" disabled={!lidarr.status?.configured}/><button className="primary" disabled={searching || !lidarr.status?.configured}>{searching ? 'Searching' : 'Search Lidarr'}</button></form>
+      {searchError && <div className="inline-error">{searchError}</div>}
+      {!lidarr.status?.configured || lidarr.status?.health?.state !== 'available'
+        ? <EmptyIntegration {...lidarr}/>
+        : <div className="catalog-results">
+          <section><div className="result-heading"><h2>Artists</h2><span>{results.artists.length}</span></div>{results.artists.length ? results.artists.map(artist => <article className="catalog-row" key={artist.ref.nativeId}><div className="catalog-object disc-object"><i/></div><div><strong>{artist.name}</strong><small>{artist.disambiguation ?? artist.musicBrainzArtistId ?? 'Lidarr catalog'}</small></div><code>ARTIST</code></article>) : <p className="empty-row">No search results</p>}</section>
+          <section><div className="result-heading"><h2>Releases</h2><span>{results.releases.length}</span></div>{results.releases.length ? results.releases.map(release => <article className="catalog-row" key={release.ref.nativeId}><div className="catalog-object case-object"><i/></div><div><strong>{release.title}</strong><small>{release.artistName ?? release.releaseType ?? release.musicBrainzReleaseGroupId}</small></div><code>{release.releaseDate?.slice(0,4) ?? 'RELEASE'}</code></article>) : <p className="empty-row">No search results</p>}</section>
+        </div>}
     </section>
   )
 }
@@ -291,6 +391,7 @@ function App() {
   const [view, setView] = useState('home')
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState(null)
+  const lidarr = useLidarrReadModel()
   const filteredReleases = useMemo(() => releases.filter(r => `${r.title} ${r.artist}`.toLowerCase().includes(query.toLowerCase())), [query])
   return (
     <div className="app-shell">
@@ -299,11 +400,11 @@ function App() {
         <div className="floating-headphones"><i/><i/><b/></div>
         <div className="floating-cable"><i/><span/></div>
       </div>
-      <Sidebar view={view} setView={setView}/>
+      <Sidebar view={view} setView={setView} lidarr={lidarr}/>
       <div className="content-shell"><Topbar query={query} setQuery={setQuery}/><main>
         {view === 'home' && <HomeView setSelected={setSelected} setView={setView} filteredReleases={filteredReleases}/>} 
-        {view === 'activity' && <ActivityView/>}
-        {view === 'discover' && <DiscoverView setSelected={setSelected}/>} 
+        {view === 'activity' && <ActivityView lidarr={lidarr}/>}
+        {view === 'discover' && <DiscoverView lidarr={lidarr}/>}
         {view === 'library' && <LibraryView setSelected={setSelected}/>} 
         {view === 'wanted' && <SyncView/>}
       </main></div>

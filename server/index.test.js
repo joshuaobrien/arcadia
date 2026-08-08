@@ -67,3 +67,36 @@ test('Lidarr API reports an unconfigured adapter without making a request', asyn
   assert.equal(artists.statusCode, 503)
   assert.equal(artists.json().error.code, 'unavailable')
 })
+
+test('Lidarr read routes validate queries and return normalized adapter data', async (t) => {
+  const calls = []
+  const lidarr = {
+    probe: async () => ({ adapterId: 'lidarr', kind: 'lidarr', state: 'available', checkedAt: '2026-08-08T00:00:00Z', latencyMs: 4, version: '2.14.3' }),
+    lookupArtists: async (term) => {
+      calls.push(['artists', term])
+      return [{ ref: { adapterId: 'lidarr', nativeId: 'artist:mbid:one' }, name: 'Nujabes' }]
+    },
+    lookupReleases: async (term) => {
+      calls.push(['releases', term])
+      return [{ ref: { adapterId: 'lidarr', nativeId: 'album:mbid:two' }, artistRef: { adapterId: 'lidarr', nativeId: 'artist:mbid:one' }, artistName: 'Nujabes', title: 'Modal Soul' }]
+    },
+    listQueue: async () => ({ items: [], nextCursor: undefined }),
+    listHistory: async () => ({ items: [], nextCursor: undefined }),
+  }
+  const app = buildApp({ lidarr, logger: false })
+  t.after(() => app.close())
+
+  const status = await app.inject({ method: 'GET', url: '/api/services/lidarr' })
+  const artists = await app.inject({ method: 'GET', url: '/api/services/lidarr/artists?term=Nujabes' })
+  const releases = await app.inject({ method: 'GET', url: '/api/services/lidarr/releases?term=Modal%20Soul' })
+  const missingTerm = await app.inject({ method: 'GET', url: '/api/services/lidarr/artists' })
+  const invalidLimit = await app.inject({ method: 'GET', url: '/api/services/lidarr/queue?limit=101' })
+
+  assert.equal(status.statusCode, 200)
+  assert.equal(status.json().health.version, '2.14.3')
+  assert.equal(artists.json()[0].name, 'Nujabes')
+  assert.equal(releases.json()[0].artistName, 'Nujabes')
+  assert.deepEqual(calls, [['artists', 'Nujabes'], ['releases', 'Modal Soul']])
+  assert.equal(missingTerm.statusCode, 400)
+  assert.equal(invalidLimit.statusCode, 400)
+})

@@ -170,11 +170,29 @@ export function buildApp(options = {}) {
     const health = await lidarrRoute(reply, (adapter, context) => adapter.probe(context))
     return reply.sent ? undefined : { configured: true, health }
   })
-  app.get('/api/services/lidarr/artists', async (request, reply) => lidarrRoute(
+  app.get('/api/services/lidarr/artists', {
+    schema: {
+      querystring: {
+        type: 'object',
+        required: ['term'],
+        additionalProperties: false,
+        properties: { term: { type: 'string', minLength: 1, maxLength: 200 } },
+      },
+    },
+  }, async (request, reply) => lidarrRoute(
     reply,
     (adapter, context) => adapter.lookupArtists(String(request.query?.term ?? ''), context),
   ))
-  app.get('/api/services/lidarr/releases', async (request, reply) => lidarrRoute(
+  app.get('/api/services/lidarr/releases', {
+    schema: {
+      querystring: {
+        type: 'object',
+        required: ['term'],
+        additionalProperties: false,
+        properties: { term: { type: 'string', minLength: 1, maxLength: 200 } },
+      },
+    },
+  }, async (request, reply) => lidarrRoute(
     reply,
     (adapter, context) => adapter.lookupReleases(String(request.query?.term ?? ''), context),
   ))
@@ -186,14 +204,26 @@ export function buildApp(options = {}) {
     reply,
     (adapter, context) => adapter.listRoots(context),
   ))
-  app.get('/api/services/lidarr/queue', async (request, reply) => lidarrRoute(
+  app.get('/api/services/lidarr/queue', {
+    schema: { querystring: pageQuerySchema() },
+  }, async (request, reply) => lidarrRoute(
     reply,
     (adapter, context) => adapter.listQueue({
       cursor: request.query?.cursor,
       limit: Math.min(100, Math.max(1, Number(request.query?.limit) || 25)),
     }, context),
   ))
-  app.get('/api/services/lidarr/history', async (request, reply) => lidarrRoute(
+  app.get('/api/services/lidarr/history', {
+    schema: {
+      querystring: {
+        ...pageQuerySchema(),
+        properties: {
+          ...pageQuerySchema().properties,
+          since: { type: 'string', minLength: 1, maxLength: 40 },
+        },
+      },
+    },
+  }, async (request, reply) => lidarrRoute(
     reply,
     (adapter, context) => adapter.listHistory(request.query?.since, {
       cursor: request.query?.cursor,
@@ -202,6 +232,17 @@ export function buildApp(options = {}) {
   ))
 
   return app
+}
+
+function pageQuerySchema() {
+  return {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      cursor: { type: 'string', minLength: 1, maxLength: 100 },
+      limit: { type: 'integer', minimum: 1, maximum: 100, default: 25 },
+    },
+  }
 }
 
 const isEntryPoint = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)

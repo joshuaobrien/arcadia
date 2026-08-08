@@ -519,3 +519,32 @@ main { max-width:1240px;padding:26px 28px 50px;perspective:none; }
 .page-title { border-bottom:1px solid #85877f;padding-bottom:10px; }.page-title h1 { font-size:24px; }.library-toolbar { border-color:#85877f; }.library-toolbar button { color:#4f534d;font-family:'IBM Plex Mono'; }.library-toolbar button.active { color:#253d50;border-color:#3f5870; }
 .album-modal { color:#20211f;background:#c8c8c0;border:1px solid #55574f;border-radius:0;box-shadow:8px 9px rgba(31,32,29,.45); }.album-header { background:#aeb7be;border-color:#686d71; }.album-header h1,.album-header h2 { color:#20211f;text-shadow:none; }.track-list button { color:#5e625c;border-color:#9a9c93; }.track-list button strong { color:#20211f; }
 @media(max-width:720px){.app-shell{padding-top:106px}.sidebar{height:52px}.topbar{top:52px;height:54px}.console-workbench{grid-template-columns:1fr}.welcome-row::after{display:none}.device-body{grid-template-columns:130px 1fr;padding:8px}.mode-select{display:grid;grid-template-columns:1fr 1fr}.mode-tile{border-right:1px solid #8a8c84;border-bottom:1px solid #8a8c84}.compact-releases{grid-template-columns:1fr}.compact-releases .release-card{border-right:0;border-bottom:1px solid #96988f}}
+
+/* Live acquisition instruments */
+.pulse.offline,.pulse.unavailable { background:#856168;box-shadow:none; }
+.pulse.degraded { background:#aa9363;box-shadow:0 0 6px rgba(170,147,99,.45); }
+.connection-plate { min-width:175px;padding:8px 10px;display:grid;grid-template-columns:1fr auto;align-items:end;background:#c4c4bc;border:1px solid #73766e;box-shadow:inset 1px 1px #f2f1ea,inset -1px -1px #92948b; }
+.connection-plate span { grid-column:1/-1;color:#61655f;font-size:7px;letter-spacing:.12em; }
+.connection-plate b { color:#665056;font-size:10px;text-transform:uppercase; }.connection-plate.available b { color:#345c49; }
+.connection-plate small { color:#6b6f68;font-size:7px; }
+.acquisition-search { height:43px;margin:0 0 18px;padding:5px 5px 5px 11px;display:flex;align-items:center;gap:9px;background:#bdbdb5;border:1px solid #6f716a;box-shadow:inset 1px 1px #eeeeE7,inset -1px -1px #90928a; }
+.acquisition-search input { height:29px;min-width:0;flex:1;padding:0 9px;color:#20211f;background:#ecebe4;border:1px solid #7b7d75;outline:0;font-family:'IBM Plex Mono';font-size:10px;box-shadow:inset 1px 1px #aaaC9f; }
+.acquisition-search input:focus { border-color:#3f5870;box-shadow:inset 0 0 0 1px #3f5870; }
+.acquisition-search button:disabled,.acquisition-search input:disabled { cursor:not-allowed;opacity:.55; }
+.integration-empty { min-height:180px;padding:28px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#555a54;background:#c5c5bd;border:1px solid #777970;box-shadow:inset 1px 1px #f2f1e9,inset -1px -1px #96988f;text-align:center; }
+.integration-empty svg { margin-bottom:11px;color:#536a7e; }.integration-empty strong { color:#282b27;font-size:10px; }.integration-empty small { max-width:390px;margin-top:6px;font-size:8px; }
+.inline-error { margin:-8px 0 16px;padding:7px 9px;color:#4d282e;background:#cbb7b8;border:1px solid #896369;font-size:8px; }
+.catalog-results { display:grid;grid-template-columns:1fr 1fr;gap:12px; }
+.catalog-results>section,.history-panel { background:#c5c5bd;border:1px solid #6f7169;box-shadow:inset 1px 1px #f1f0e8,inset -1px -1px #90928a; }
+.result-heading,.history-panel>.queue-title { height:29px;margin:0;padding:0 8px;display:flex;align-items:center;justify-content:space-between;color:#f2f2ec;background:#3f5870;border-bottom:1px solid #263d50; }
+.result-heading h2,.history-panel>.queue-title h2 { margin:0;color:inherit;font-family:'IBM Plex Mono';font-size:9px;letter-spacing:.03em; }
+.result-heading span,.history-panel>.queue-title span { color:#d9e0e5;font-size:7px; }
+.catalog-row { min-height:62px;padding:7px 9px;display:grid;grid-template-columns:48px 1fr auto;align-items:center;gap:10px;border-bottom:1px solid #93958d; }
+.catalog-row:last-child { border-bottom:0; }.catalog-row>div:nth-child(2) { min-width:0;display:flex;flex-direction:column; }.catalog-row strong { overflow:hidden;color:#20221f;font-size:9px;text-overflow:ellipsis;white-space:nowrap; }.catalog-row small { margin-top:4px;overflow:hidden;color:#5d615b;font-size:7px;text-overflow:ellipsis;white-space:nowrap; }.catalog-row code { padding:2px 4px;color:#3f4740;background:#b3b4ab;border:1px solid #85877f;font-family:'IBM Plex Mono';font-size:6px; }
+.catalog-object { width:42px;height:42px;position:relative;filter:drop-shadow(2px 3px #75776f); }
+.disc-object { border-radius:50%;background:conic-gradient(#82909a,#c7c1a6,#738b84,#a28587,#82909a);border:1px solid #555b5d;transform:rotateX(55deg); }.disc-object::before { content:'';position:absolute;inset:36%;border-radius:50%;background:#c5c5bd;border:2px solid #626861; }.disc-object i { position:absolute;inset:7%;border:1px solid rgba(255,255,255,.3);border-radius:50%; }
+.case-object { width:37px;height:42px;margin-left:2px;background:linear-gradient(90deg,#b1b5b2 0 12%,#e1dfd5 13% 86%,#8e9391 87%);border:1px solid #656a68;transform:perspective(100px) rotateY(-8deg); }.case-object::before { content:'';position:absolute;inset:5px;background:linear-gradient(135deg,#536f83,#a78e69);border:1px solid #6c706c; }.case-object i { position:absolute;left:3px;top:2px;bottom:2px;border-left:1px solid rgba(255,255,255,.65); }
+.empty-row { min-height:62px;margin:0;padding:21px 12px;color:#686c66;font-size:8px;text-align:center; }
+.history-panel { margin-top:12px; }
+.history-row { min-height:48px;padding:6px 9px;display:grid;grid-template-columns:105px 1fr auto;align-items:center;gap:10px;border-bottom:1px solid #96988f; }.history-row:last-child { border:0; }.history-row>span { padding:2px 4px;color:#2c4338;background:#aebeb3;border:1px solid #778b7f;font-size:6px;text-align:center;text-transform:uppercase; }.history-row>div { display:flex;min-width:0;flex-direction:column; }.history-row strong { overflow:hidden;font-size:8px;text-overflow:ellipsis;white-space:nowrap; }.history-row small,.history-row time { margin-top:3px;color:#62665f;font-size:7px; }
+@media(max-width:720px){.catalog-results{grid-template-columns:1fr}.connection-plate{display:none}.acquisition-search{height:auto;flex-wrap:wrap}.acquisition-search input{flex-basis:70%}.history-row{grid-template-columns:75px 1fr}.history-row time{display:none}}
