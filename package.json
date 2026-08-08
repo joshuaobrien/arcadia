@@ -22,6 +22,8 @@
   },
   "devDependencies": {
     "@types/node": "22.15.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
     "lucide-react": "latest",
     "react": "latest",
     "react-dom": "latest",
