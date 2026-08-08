@@ -55,6 +55,29 @@ test('status API returns the device profile and filesystem state', async (t) => 
   assert.equal(body.library.mounted, true)
 })
 
+test('library tracks API returns a stable paginated canonical inventory', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'needle-library-api-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await mkdir(join(root, 'Artist', 'Album'), { recursive: true })
+  await writeFile(join(root, 'Artist', 'Album', '01 First.flac'), 'not real audio')
+  await writeFile(join(root, 'Artist', 'Album', '02 Second.mp3'), 'not real audio')
+  const app = buildApp({ libraryPath: root, lidarr: null, logger: false })
+  t.after(() => app.close())
+
+  const first = await app.inject({ method: 'GET', url: '/api/library/tracks?limit=1' })
+  const second = await app.inject({ method: 'GET', url: `/api/library/tracks?limit=1&cursor=${first.json().nextCursor}` })
+
+  assert.equal(first.statusCode, 200)
+  assert.equal(first.json().configured, true)
+  assert.equal(first.json().mounted, true)
+  assert.equal(first.json().total, 2)
+  assert.equal(first.json().items[0].relativePath, 'Artist/Album/01 First.flac')
+  assert.equal(first.json().items[0].metadataStatus, 'unreadable')
+  assert.equal(first.json().nextCursor, '1')
+  assert.equal(second.json().items[0].relativePath, 'Artist/Album/02 Second.mp3')
+  assert.equal(second.json().nextCursor, undefined)
+})
+
 test('Lidarr API reports an unconfigured adapter without making a request', async (t) => {
   const app = buildApp({ lidarr: null, logger: false })
   t.after(() => app.close())
