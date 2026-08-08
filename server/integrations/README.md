@@ -1,15 +1,13 @@
-# Service boundaries
+# Integration boundaries
 
 Needle owns wanted state, sync intent, search selections, transfer correlation, and transfer history. External services are capability adapters rather than domain authorities.
 
-| Port | Initial adapters | Notes |
+| Port | Adapter | Notes |
 | --- | --- | --- |
 | `CatalogLookupPort` | Lidarr, MusicBrainz | MusicBrainz IDs are cross-provider identities; provider IDs remain opaque. |
 | `MusicAutomationPort` | Lidarr | Commands are asynchronous and version-sensitive. Lidarr's queue aggregates its configured download clients. |
-| `ReleaseSearchPort` | Prowlarr, slskd | Prowlarr searches synchronously. slskd retains asynchronous search jobs. |
-| `TransferClientPort` | qBittorrent, SABnzbd, slskd | Payloads remain protocol-specific. Controls are exposed through runtime capabilities. |
-| `LibraryImportPort` | beets, Lidarr | Import paths are provider-local and require explicit path mappings. |
-| `NotificationPort` | ntfy | Notifications report Needle state; they do not own workflow state. |
+
+Search, transfer, import, and notification ports will be defined when their first adapters are implemented. Their provider constraints remain recorded below to inform those designs.
 
 ## Adapter rules
 
@@ -23,7 +21,7 @@ Needle owns wanted state, sync intent, search selections, transfer correlation, 
 8. Cancelling active work and removing its provider record are separate actions. Data deletion is never implied and always requires `deleteData: true`.
 9. List operations are cursor-paginated even when an upstream API uses page numbers. The adapter owns cursor translation.
 
-`AcquisitionJob` is the durable Needle workflow. It links any number of provider search jobs to a selected candidate, transfer, and import operation. Provider polling updates this record; provider records do not replace it.
+`AcquisitionJob` belongs to Needle's domain rather than an integration. It links provider operations without making provider records authoritative.
 
 ## Provider-specific constraints
 

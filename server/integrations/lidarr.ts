@@ -1,23 +1,27 @@
 import type {
   AddArtistRequest,
-  AdapterHealth,
   AutomationCommandKind,
   AutomationHistoryItem,
   AutomationProfile,
   AutomationQueueItem,
+  AutomationQueueState,
   AutomationRoot,
+  MusicAutomationPort,
+  RemoteJob,
+} from './automation.js'
+import type {
   CatalogArtist,
   CatalogLookupPort,
   CatalogRelease,
-  MusicAutomationPort,
+} from './catalog.js'
+import type {
+  AdapterHealth,
   OperationContext,
   Page,
   PageRequest,
   ProviderRef,
-  RemoteJob,
   ServicePath,
-  TransferState,
-} from './contracts.js'
+} from './common.js'
 import { AdapterError } from './errors.js'
 
 type JsonObject = Record<string, unknown>
@@ -532,7 +536,7 @@ function protocol(value: unknown): 'torrent' | 'usenet' | undefined {
   return undefined
 }
 
-function transferState(value: JsonObject): TransferState {
+function transferState(value: JsonObject): AutomationQueueState {
   const state = `${optionalString(value.trackedDownloadState) ?? ''} ${optionalString(value.status) ?? ''}`.toLowerCase()
   if (state.includes('importpending') || state.includes('import pending')) return 'post-processing'
   if (state.includes('importing')) return 'post-processing'

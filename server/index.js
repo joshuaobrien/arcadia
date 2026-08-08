@@ -2,8 +2,8 @@ import Fastify from 'fastify'
 import { readdir, statfs } from 'node:fs/promises'
 import { extname, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createLidarrAdapterFromEnv } from './services/lidarr.ts'
-import { isAdapterError } from './services/errors.ts'
+import { createLidarrAdapterFromEnv } from './integrations/lidarr.ts'
+import { isAdapterError } from './integrations/errors.ts'
 
 const AUDIO_EXTENSIONS = new Set([
   '.aac',

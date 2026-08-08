@@ -1,4 +1,4 @@
-import type { AdapterErrorCode, AdapterErrorDetails } from './contracts.js'
+import type { AdapterErrorCode, AdapterErrorDetails } from './common.js'
 
 export class AdapterError extends Error implements AdapterErrorDetails {
   readonly code: AdapterErrorCode

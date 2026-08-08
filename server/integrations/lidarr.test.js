@@ -3,6 +3,7 @@ import test from 'node:test'
 import { AdapterError } from './errors.ts'
 import { LidarrAdapter } from './lidarr.ts'
 
+// Shared operation context makes outbound correlation assertions deterministic.
 const context = { operationId: 'operation-123' }
 
 function json(value, init = {}) {
