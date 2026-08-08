@@ -1,14 +1,14 @@
 import type {
+  AcquisitionAutomationPort,
+  AcquisitionHistoryItem,
+  AcquisitionProfile,
+  AcquisitionQueueItem,
+  AcquisitionQueueState,
+  AcquisitionRoot,
+  AcquisitionSearchTarget,
   AddArtistRequest,
-  AutomationCommandKind,
-  AutomationHistoryItem,
-  AutomationProfile,
-  AutomationQueueItem,
-  AutomationQueueState,
-  AutomationRoot,
-  MusicAutomationPort,
   RemoteJob,
-} from './automation.js'
+} from './acquisition.js'
 import type {
   CatalogArtist,
   CatalogLookupPort,
@@ -47,13 +47,7 @@ interface PagingResource {
   records: JsonObject[]
 }
 
-const commandNames: Partial<Record<AutomationCommandKind, string>> = {
-  'refresh-artist': 'RefreshArtist',
-  'search-artist': 'ArtistSearch',
-  'search-release': 'AlbumSearch',
-}
-
-export class LidarrAdapter implements CatalogLookupPort, MusicAutomationPort {
+export class LidarrAdapter implements CatalogLookupPort, AcquisitionAutomationPort {
   readonly adapterId: string
   readonly kind = 'lidarr' as const
 
@@ -126,7 +120,7 @@ export class LidarrAdapter implements CatalogLookupPort, MusicAutomationPort {
     return albums.map((album) => this.#album(album))
   }
 
-  async listProfiles(context: OperationContext): Promise<readonly AutomationProfile[]> {
+  async listProfiles(context: OperationContext): Promise<readonly AcquisitionProfile[]> {
     const [quality, metadata] = await Promise.all([
       this.#request<JsonObject[]>('qualityprofile', {}, context),
       this.#request<JsonObject[]>('metadataprofile', {}, context),
@@ -137,7 +131,7 @@ export class LidarrAdapter implements CatalogLookupPort, MusicAutomationPort {
     ]
   }
 
-  async listRoots(context: OperationContext): Promise<readonly AutomationRoot[]> {
+  async listRoots(context: OperationContext): Promise<readonly AcquisitionRoot[]> {
     const roots = await this.#request<JsonObject[]>('rootfolder', {}, context)
     return roots.map((root) => ({
       ref: this.#ref('root', number(root.id)),
@@ -177,28 +171,19 @@ export class LidarrAdapter implements CatalogLookupPort, MusicAutomationPort {
     return this.#artist(artist)
   }
 
-  async setReleaseMonitored(release: ProviderRef, monitored: boolean, context: OperationContext): Promise<void> {
+  async setReleaseWanted(release: ProviderRef, wanted: boolean, context: OperationContext): Promise<void> {
     const albumId = this.#numericId(release, 'album')
     await this.#request('album/monitor', {
       method: 'PUT',
-      body: { albumIds: [albumId], monitored },
+      body: { albumIds: [albumId], monitored: wanted },
     }, context)
   }
 
-  async startCommand(kind: AutomationCommandKind, target: ProviderRef | ServicePath, context: OperationContext): Promise<RemoteJob> {
-    const name = commandNames[kind]
-    if (!name || 'providerPath' in target) {
-      throw this.#error('unsupported', `Lidarr command ${kind} is not implemented`, false)
-    }
-
-    let body: JsonObject
-    if (kind === 'search-release') {
-      body = { name, albumIds: [this.#numericId(target, 'album')] }
-    } else if (kind === 'search-artist') {
-      body = { name, artistId: this.#numericId(target, 'artist') }
-    } else {
-      body = { name, artistIds: [this.#numericId(target, 'artist')], isNewArtist: false }
-    }
+  async startSearch(target: AcquisitionSearchTarget, context: OperationContext): Promise<RemoteJob> {
+    const kind = target.kind === 'release' ? 'search-release' : 'search-artist'
+    const body: JsonObject = target.kind === 'release'
+      ? { name: 'AlbumSearch', albumIds: [this.#numericId(target.release, 'album')] }
+      : { name: 'ArtistSearch', artistId: this.#numericId(target.artist, 'artist') }
 
     const command = await this.#request<JsonObject>('command', { method: 'POST', body }, context)
     return this.#command(command, kind)
@@ -210,7 +195,7 @@ export class LidarrAdapter implements CatalogLookupPort, MusicAutomationPort {
     return this.#command(command)
   }
 
-  async listQueue(page: PageRequest, context: OperationContext): Promise<Page<AutomationQueueItem>> {
+  async listQueue(page: PageRequest, context: OperationContext): Promise<Page<AcquisitionQueueItem>> {
     const pageNumber = this.#pageNumber(page)
     const response = await this.#request<PagingResource>('queue', {
       page: pageNumber,
@@ -227,7 +212,7 @@ export class LidarrAdapter implements CatalogLookupPort, MusicAutomationPort {
     }
   }
 
-  async listHistory(since: string | undefined, page: PageRequest, context: OperationContext): Promise<Page<AutomationHistoryItem>> {
+  async listHistory(since: string | undefined, page: PageRequest, context: OperationContext): Promise<Page<AcquisitionHistoryItem>> {
     const pageNumber = this.#pageNumber(page)
     const response = await this.#request<PagingResource>('history', {
       page: pageNumber,
@@ -243,21 +228,6 @@ export class LidarrAdapter implements CatalogLookupPort, MusicAutomationPort {
       items: records.map((record) => this.#historyItem(record)),
       nextCursor: reachedSince ? undefined : nextCursor(response),
     }
-  }
-
-  async removeQueueItem(
-    item: ProviderRef,
-    options: { removeFromClient: boolean; blocklist: boolean },
-    context: OperationContext,
-  ): Promise<void> {
-    const id = this.#numericId(item, 'queue')
-    await this.#request(`queue/${id}`, {
-      method: 'DELETE',
-      removeFromClient: options.removeFromClient,
-      blocklist: options.blocklist,
-      skipRedownload: false,
-      changeCategory: false,
-    }, context)
   }
 
   #artist(value: JsonObject): CatalogArtist {
@@ -291,7 +261,7 @@ export class LidarrAdapter implements CatalogLookupPort, MusicAutomationPort {
     }
   }
 
-  #profile(value: JsonObject, kind: AutomationProfile['kind']): AutomationProfile {
+  #profile(value: JsonObject, kind: AcquisitionProfile['kind']): AcquisitionProfile {
     return {
       ref: this.#ref(`profile:${kind}`, number(value.id)),
       name: string(value.name),
@@ -299,7 +269,7 @@ export class LidarrAdapter implements CatalogLookupPort, MusicAutomationPort {
     }
   }
 
-  #queueItem(value: JsonObject): AutomationQueueItem {
+  #queueItem(value: JsonObject): AcquisitionQueueItem {
     const size = optionalNumber(value.size)
     const sizeleft = optionalNumber(value.sizeleft)
     const messages = array(value.statusMessages).flatMap((message) => {
@@ -324,7 +294,7 @@ export class LidarrAdapter implements CatalogLookupPort, MusicAutomationPort {
     }
   }
 
-  #historyItem(value: JsonObject): AutomationHistoryItem {
+  #historyItem(value: JsonObject): AcquisitionHistoryItem {
     return {
       ref: this.#ref('history', number(value.id)),
       eventType: string(value.eventType),
@@ -336,7 +306,7 @@ export class LidarrAdapter implements CatalogLookupPort, MusicAutomationPort {
     }
   }
 
-  #command(value: JsonObject, requestedKind?: AutomationCommandKind): RemoteJob {
+  #command(value: JsonObject, requestedKind?: RemoteJob['kind']): RemoteJob {
     const rawName = optionalString(value.name) ?? ''
     const kind = requestedKind ?? commandKind(rawName)
     const rawState = optionalString(value.status) ?? 'unknown'
@@ -536,7 +506,7 @@ function protocol(value: unknown): 'torrent' | 'usenet' | undefined {
   return undefined
 }
 
-function transferState(value: JsonObject): AutomationQueueState {
+function transferState(value: JsonObject): AcquisitionQueueState {
   const state = `${optionalString(value.trackedDownloadState) ?? ''} ${optionalString(value.status) ?? ''}`.toLowerCase()
   if (state.includes('importpending') || state.includes('import pending')) return 'post-processing'
   if (state.includes('importing')) return 'post-processing'
@@ -560,12 +530,10 @@ function remoteJobState(value: string): RemoteJob['state'] {
   }
 }
 
-function commandKind(value: string): AutomationCommandKind | 'unknown' {
+function commandKind(value: string): RemoteJob['kind'] {
   switch (value.toLowerCase()) {
     case 'artistsearch': return 'search-artist'
     case 'albumsearch': return 'search-release'
-    case 'refreshartist': return 'refresh-artist'
-    case 'downloadedalbumsscan': return 'scan-download-folder'
     default: return 'unknown'
   }
 }

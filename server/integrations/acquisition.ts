@@ -10,13 +10,13 @@ import type {
   ServicePath,
 } from './common.js'
 
-export interface AutomationProfile {
+export interface AcquisitionProfile {
   ref: ProviderRef
   name: string
   kind: 'metadata' | 'quality'
 }
 
-export interface AutomationRoot {
+export interface AcquisitionRoot {
   ref: ProviderRef
   path: ServicePath
   freeBytes?: number
@@ -32,18 +32,15 @@ export interface AddArtistRequest {
   searchAfterAdd: boolean
 }
 
-export type AutomationCommandKind =
-  | 'refresh-artist'
-  | 'rescan-artist'
-  | 'scan-download-folder'
-  | 'search-artist'
-  | 'search-release'
+export type AcquisitionSearchTarget =
+  | { kind: 'artist'; artist: ProviderRef }
+  | { kind: 'release'; release: ProviderRef }
 
 export type RemoteJobState = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'unknown'
 
 export interface RemoteJob {
   ref: ProviderRef
-  kind: AutomationCommandKind | 'unknown'
+  kind: 'search-artist' | 'search-release' | 'unknown'
   state: RemoteJobState
   rawState: string
   startedAt?: IsoDateTime
@@ -51,7 +48,7 @@ export interface RemoteJob {
   message?: string
 }
 
-export type AutomationQueueState =
+export type AcquisitionQueueState =
   | 'queued'
   | 'downloading'
   | 'paused'
@@ -60,14 +57,14 @@ export type AutomationQueueState =
   | 'failed'
   | 'unknown'
 
-export interface AutomationQueueItem {
+export interface AcquisitionQueueItem {
   ref: ProviderRef
   underlyingDownloadRef?: string
   artist?: CatalogArtist
   release?: CatalogRelease
   title: string
   protocol?: Protocol
-  state: AutomationQueueState
+  state: AcquisitionQueueState
   rawState: string
   bytesTotal?: number
   bytesRemaining?: number
@@ -76,7 +73,7 @@ export interface AutomationQueueItem {
   statusMessages: readonly string[]
 }
 
-export interface AutomationHistoryItem {
+export interface AcquisitionHistoryItem {
   ref: ProviderRef
   eventType: string
   occurredAt: IsoDateTime
@@ -86,14 +83,14 @@ export interface AutomationHistoryItem {
   data: Readonly<Record<string, unknown>>
 }
 
-export interface MusicAutomationPort extends ServiceAdapter {
-  listProfiles(context: OperationContext): Promise<readonly AutomationProfile[]>
-  listRoots(context: OperationContext): Promise<readonly AutomationRoot[]>
+/** Acquisition control only. This port never imports, moves, retags, or deletes media files. */
+export interface AcquisitionAutomationPort extends ServiceAdapter {
+  listProfiles(context: OperationContext): Promise<readonly AcquisitionProfile[]>
+  listRoots(context: OperationContext): Promise<readonly AcquisitionRoot[]>
   addArtist(request: AddArtistRequest, context: OperationContext): Promise<CatalogArtist>
-  setReleaseMonitored(release: ProviderRef, monitored: boolean, context: OperationContext): Promise<void>
-  startCommand(kind: AutomationCommandKind, target: ProviderRef | ServicePath, context: OperationContext): Promise<RemoteJob>
+  setReleaseWanted(release: ProviderRef, wanted: boolean, context: OperationContext): Promise<void>
+  startSearch(target: AcquisitionSearchTarget, context: OperationContext): Promise<RemoteJob>
   getCommand(job: ProviderRef, context: OperationContext): Promise<RemoteJob>
-  listQueue(page: PageRequest, context: OperationContext): Promise<Page<AutomationQueueItem>>
-  listHistory(since: IsoDateTime | undefined, page: PageRequest, context: OperationContext): Promise<Page<AutomationHistoryItem>>
-  removeQueueItem(item: ProviderRef, options: { removeFromClient: boolean; blocklist: boolean }, context: OperationContext): Promise<void>
+  listQueue(page: PageRequest, context: OperationContext): Promise<Page<AcquisitionQueueItem>>
+  listHistory(since: IsoDateTime | undefined, page: PageRequest, context: OperationContext): Promise<Page<AcquisitionHistoryItem>>
 }
