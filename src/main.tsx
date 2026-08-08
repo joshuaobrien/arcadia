@@ -74,10 +74,11 @@ interface AcquisitionResponse {
 }
 
 interface LibraryTrack {
-  relativePath: string
-  bytes: number
-  format: string
-  metadataStatus: 'read' | 'unreadable'
+  id?: string
+  relativePath?: string
+  bytes?: number
+  format?: string
+  metadataStatus?: 'read' | 'unreadable'
   title?: string
   artists?: string[]
   albumArtist?: string
@@ -96,9 +97,8 @@ interface LibraryAlbum {
   title: string
   albumArtist: string
   year?: number
-  trackCount: number
-  totalBytes: number
-  formats: string[]
+  trackCount?: number
+  hasArtwork: boolean
 }
 
 interface LibraryPage<T> {
@@ -244,6 +244,7 @@ function useLibrary() {
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [openingAlbum, setOpeningAlbum] = useState<string | null>(null)
+  const [artworkRevision, setArtworkRevision] = useState(0)
   const [error, setError] = useState<string | null>(null)
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
@@ -251,6 +252,7 @@ function useLibrary() {
     setError(null)
     try {
       setPage(await getJson<LibraryPage<LibraryAlbum>>('/api/library/albums?limit=48', signal))
+      setArtworkRevision(current => current + 1)
       setSelectedAlbum(null)
       setTracks([])
     } catch (requestError) {
@@ -287,9 +289,9 @@ function useLibrary() {
       const items: LibraryTrack[] = []
       let cursor: string | undefined
       do {
-        const query = new URLSearchParams({ albumId: album.id, limit: '100' })
+        const query = new URLSearchParams({ limit: '100' })
         if (cursor) query.set('cursor', cursor)
-        const result = await getJson<LibraryPage<LibraryTrack>>(`/api/library/tracks?${query}`)
+        const result = await getJson<LibraryPage<LibraryTrack>>(`/api/library/albums/${album.id}/tracks?${query}`)
         items.push(...result.items)
         cursor = result.nextCursor
       } while (cursor)
@@ -309,6 +311,7 @@ function useLibrary() {
     loading,
     loadingMore,
     openingAlbum,
+    artworkRevision,
     error,
     refresh: () => refresh(),
     loadMore,
@@ -318,6 +321,21 @@ function useLibrary() {
 }
 
 type LibraryModel = ReturnType<typeof useLibrary>
+
+function AlbumArtwork({ album }: { album: LibraryAlbum }) {
+  const [available, setAvailable] = useState(album.hasArtwork)
+  return (
+    <div className="album-case">
+      {available && <img
+        src={`/api/library/albums/${album.id}/artwork`}
+        alt=""
+        loading="lazy"
+        onError={() => setAvailable(false)}
+      />}
+      <i />
+    </div>
+  )
+}
 
 function connectionLabel(lidarr: LidarrReadModel): string {
   if (lidarr.loading) return 'checking'
@@ -504,7 +522,7 @@ function LibraryView({ library }: { library: LibraryModel }) {
     <section>
       <div className="page-heading">
         <div>
-          <p>01 / CANONICAL FILESYSTEM</p>
+          <p>01 / LIBRARY CATALOG</p>
           <h1>{album?.title ?? 'Albums'}</h1>
         </div>
         {album
@@ -514,20 +532,20 @@ function LibraryView({ library }: { library: LibraryModel }) {
           </button>}
       </div>
       {library.error && <div className="error-strip">{library.error}</div>}
-      {library.loading && !page ? <div className="idle-state"><Disc3 size={34} className="spinning" /><span>Reading file metadata</span></div>
+      {library.loading && !page ? <div className="idle-state"><Disc3 size={34} className="spinning" /><span>Reading Jellyfin catalog</span></div>
         : unavailable ? <div className="integration-state">
           <LibraryBig size={21} />
-          <strong>{page.configured ? 'Library path unavailable' : 'Library path not configured'}</strong>
-          <small>{page.configured ? 'The configured filesystem path is not mounted.' : 'Set MUSIC_LIBRARY_PATH and mount the directory read-only.'}</small>
+          <strong>{page.configured ? 'Jellyfin unavailable' : 'Jellyfin not configured'}</strong>
+          <small>{page.configured ? 'The Jellyfin catalog is unavailable.' : 'Set JELLYFIN_URL and JELLYFIN_API_KEY.'}</small>
           <button className="button" onClick={library.refresh}><RefreshCw size={13} /> Retry</button>
         </div>
           : album ? <section className="panel library-panel">
-            <header><h2>{album.albumArtist}</h2><span>{album.trackCount} tracks · {formatBytes(album.totalBytes)}</span></header>
+            <header><h2>{album.albumArtist}</h2><span>{library.tracks.length} tracks</span></header>
             {library.tracks.map(track => (
-              <article className="library-track-row" key={track.relativePath}>
+              <article className="library-track-row" key={track.id ?? track.relativePath}>
                 <b>{track.trackNumber ?? '—'}</b>
                 <div><strong>{track.title}</strong><small>{track.artists?.join(', ') ?? track.relativePath}</small></div>
-                <code>{track.metadataStatus === 'read' ? [track.codec ?? track.format, formatDuration(track.durationSeconds)].join(' · ') : 'TAGS UNREADABLE'}</code>
+                <code>{[track.codec ?? track.format ?? 'AUDIO', formatDuration(track.durationSeconds)].join(' · ')}</code>
                 <span>{formatBytes(track.bytes)}</span>
               </article>
             ))}
@@ -535,10 +553,10 @@ function LibraryView({ library }: { library: LibraryModel }) {
             <div className="album-grid">
               {page?.items.map(item => (
                 <button className="album-card" key={item.id} onClick={() => library.openAlbum(item)} disabled={library.openingAlbum !== null}>
-                  <div className="album-case"><i /></div>
+                  <AlbumArtwork album={item} key={`${item.id}:${library.artworkRevision}`} />
                   <strong>{item.title}</strong>
                   <small>{item.albumArtist}</small>
-                  <footer><span>{item.year ?? '—'}</span><span>{item.trackCount} tracks</span><span>{item.formats.join(' / ')}</span></footer>
+                  <div className="album-meta"><span>{item.year ?? '—'}</span><span>{item.trackCount ? `${item.trackCount} tracks` : 'Album'}</span></div>
                 </button>
               ))}
             </div>
