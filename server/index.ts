@@ -11,6 +11,8 @@ import type { AcquisitionAutomationPort } from './integrations/acquisition.js'
 import type { CatalogLookupPort, CatalogRelease } from './integrations/catalog.js'
 import type { OperationContext } from './integrations/common.js'
 import type { AcquisitionDefaults } from './domain/acquisition.js'
+import { readCanonicalLibrary } from './library.js'
+import type { LibraryInventory } from './library.js'
 
 const AUDIO_EXTENSIONS = new Set([
   '.aac',
@@ -76,6 +78,12 @@ interface HistoryQuery extends PageQuery {
 
 const cache = new Map<string, { createdAt: number; value: MediaScan }>()
 const CACHE_TTL_MS = 30_000
+interface LibraryCacheEntry {
+  completedAt: number | null
+  value: Promise<LibraryInventory>
+}
+const libraryCache = new Map<string, LibraryCacheEntry>()
+const LIBRARY_CACHE_TTL_MS = 5 * 60_000
 const serverDirectory = dirname(fileURLToPath(import.meta.url))
 
 function emptyMedia(): MediaSummary {
@@ -173,6 +181,24 @@ async function cachedScan(path?: string): Promise<MediaScan> {
   return value
 }
 
+async function cachedLibrary(path?: string): Promise<LibraryInventory> {
+  const key = path || '__unconfigured__'
+  const hit = libraryCache.get(key)
+  if (hit && (hit.completedAt === null || Date.now() - hit.completedAt < LIBRARY_CACHE_TTL_MS)) return hit.value
+  const value = readCanonicalLibrary(path)
+  const entry: LibraryCacheEntry = { completedAt: null, value }
+  libraryCache.set(key, entry)
+  value.then(
+    () => {
+      if (libraryCache.get(key) === entry) entry.completedAt = Date.now()
+    },
+    () => {
+      if (libraryCache.get(key) === entry) libraryCache.delete(key)
+    },
+  )
+  return value
+}
+
 export function buildApp(options: BuildAppOptions = {}) {
   const app = Fastify({ logger: options.logger ?? true })
   const walkmanPath = options.walkmanPath ?? process.env.WALKMAN_PATH
@@ -236,6 +262,31 @@ export function buildApp(options: BuildAppOptions = {}) {
     ...(await cachedScan(walkmanPath)),
   }))
   app.get('/api/library', async () => cachedScan(libraryPath))
+  app.get<{ Querystring: PageQuery }>('/api/library/tracks', {
+    schema: {
+      querystring: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          cursor: { type: 'string', pattern: '^(0|[1-9][0-9]*)$', maxLength: 16 },
+          limit: { type: 'integer', minimum: 1, maximum: 100, default: 50 },
+        },
+      },
+    },
+  }, async (request) => {
+    const inventory = await cachedLibrary(libraryPath)
+    const offset = Math.min(inventory.tracks.length, Number(request.query?.cursor) || 0)
+    const limit = request.query?.limit ?? 50
+    const end = Math.min(inventory.tracks.length, offset + limit)
+    return {
+      configured: inventory.configured,
+      mounted: inventory.mounted,
+      scannedAt: inventory.scannedAt,
+      total: inventory.tracks.length,
+      items: inventory.tracks.slice(offset, end),
+      ...(end < inventory.tracks.length ? { nextCursor: String(end) } : {}),
+    }
+  })
   app.get('/api/status', async () => {
     const [device, library] = await Promise.all([
       cachedScan(walkmanPath),
