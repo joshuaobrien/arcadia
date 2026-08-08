@@ -6,7 +6,7 @@ import { dirname, extname, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createLidarrAdapterFromEnv } from './integrations/lidarr.js'
 import { isAdapterError } from './integrations/errors.js'
-import { AcquisitionLedger } from './domain/acquisition-ledger.js'
+import { AcquisitionRepository } from './domain/acquisition-repository.js'
 import type { AcquisitionAutomationPort } from './integrations/acquisition.js'
 import type { CatalogLookupPort, CatalogRelease } from './integrations/catalog.js'
 import type { OperationContext } from './integrations/common.js'
@@ -47,9 +47,10 @@ type LidarrReadAdapter = CatalogLookupPort & Pick<
   'listProfiles' | 'listRoots' | 'listQueue' | 'listHistory'
 >
 
-interface AcquisitionLedgerPort {
-  list: AcquisitionLedger['list']
-  wantRelease: AcquisitionLedger['wantRelease']
+interface AcquisitionRepositoryPort {
+  list: AcquisitionRepository['list']
+  wantRelease: AcquisitionRepository['wantRelease']
+  close?: AcquisitionRepository['close']
 }
 
 interface BuildAppOptions {
@@ -57,7 +58,7 @@ interface BuildAppOptions {
   walkmanPath?: string
   libraryPath?: string
   lidarr?: LidarrReadAdapter | null
-  acquisitionLedger?: AcquisitionLedgerPort | null
+  acquisitionRepository?: AcquisitionRepositoryPort | null
   staticRoot?: string | null
 }
 
@@ -174,9 +175,9 @@ export function buildApp(options: BuildAppOptions = {}) {
   const walkmanPath = options.walkmanPath ?? process.env.WALKMAN_PATH
   const libraryPath = options.libraryPath ?? process.env.MUSIC_LIBRARY_PATH
   const lidarr = options.lidarr === undefined ? createLidarrAdapterFromEnv() : options.lidarr
-  const acquisitionLedger = options.acquisitionLedger === undefined
-    ? process.env.NEEDLE_STATE_PATH ? new AcquisitionLedger(process.env.NEEDLE_STATE_PATH) : null
-    : options.acquisitionLedger
+  const acquisitionRepository = options.acquisitionRepository === undefined
+    ? process.env.NEEDLE_DATABASE_PATH ? new AcquisitionRepository(process.env.NEEDLE_DATABASE_PATH) : null
+    : options.acquisitionRepository
   const staticRoot = options.staticRoot === undefined
     ? process.env.NODE_ENV === 'production' ? resolve(serverDirectory, '../dist') : null
     : options.staticRoot
@@ -189,6 +190,10 @@ export function buildApp(options: BuildAppOptions = {}) {
       }
       return reply.code(404).send({ error: { code: 'not-found', message: 'Route not found' } })
     })
+  }
+
+  if (acquisitionRepository?.close) {
+    app.addHook('onClose', async () => acquisitionRepository.close?.())
   }
 
   async function lidarrRoute<T>(
@@ -239,8 +244,8 @@ export function buildApp(options: BuildAppOptions = {}) {
     }
   })
   app.get('/api/acquisitions', async () => ({
-    configured: acquisitionLedger !== null,
-    items: acquisitionLedger ? await acquisitionLedger.list() : [],
+    configured: acquisitionRepository !== null,
+    items: acquisitionRepository ? acquisitionRepository.list() : [],
   }))
   app.post<{ Body: { release: CatalogRelease } }>('/api/acquisitions', {
     schema: {
@@ -269,13 +274,13 @@ export function buildApp(options: BuildAppOptions = {}) {
       },
     },
   }, async (request, reply) => {
-    if (!acquisitionLedger) return reply.code(503).send({
+    if (!acquisitionRepository) return reply.code(503).send({
       error: {
         code: 'unavailable',
         message: 'Needle acquisition state is not configured',
       },
     })
-    const result = await acquisitionLedger.wantRelease(request.body.release)
+    const result = acquisitionRepository.wantRelease(request.body.release)
     return reply.code(result.created ? 201 : 200).send(result.job)
   })
   app.get('/api/services/lidarr', async (_request, reply) => {

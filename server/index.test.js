@@ -71,9 +71,9 @@ test('Lidarr API reports an unconfigured adapter without making a request', asyn
 test('acquisition API records Needle-owned wanted state without calling Lidarr', async (t) => {
   const calls = []
   const jobs = []
-  const acquisitionLedger = {
-    list: async () => jobs,
-    wantRelease: async (release) => {
+  const acquisitionRepository = {
+    list: () => jobs,
+    wantRelease: (release) => {
       calls.push(release)
       const job = {
         id: 'job-1',
@@ -88,7 +88,7 @@ test('acquisition API records Needle-owned wanted state without calling Lidarr',
       return { job, created: true }
     },
   }
-  const app = buildApp({ acquisitionLedger, lidarr: null, logger: false })
+  const app = buildApp({ acquisitionRepository, lidarr: null, logger: false })
   t.after(() => app.close())
 
   const create = await app.inject({
@@ -114,7 +114,7 @@ test('acquisition API records Needle-owned wanted state without calling Lidarr',
 })
 
 test('acquisition API reports unconfigured state and rejects writes', async (t) => {
-  const app = buildApp({ acquisitionLedger: null, lidarr: null, logger: false })
+  const app = buildApp({ acquisitionRepository: null, lidarr: null, logger: false })
   t.after(() => app.close())
 
   const list = await app.inject({ method: 'GET', url: '/api/acquisitions' })
