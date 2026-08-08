@@ -51,6 +51,24 @@ test('Lidarr lookup uses API v1 auth and returns namespaced catalog references',
   })
 })
 
+test('Lidarr release lookup retains the artist display name', async () => {
+  const adapter = mockAdapter(async () => json([{
+    id: 0,
+    title: 'Modal Soul',
+    foreignAlbumId: 'release-group-mbid',
+    artist: {
+      id: 0,
+      artistName: 'Nujabes',
+      foreignArtistId: 'artist-mbid',
+    },
+  }]))
+
+  const [release] = await adapter.lookupReleases('Modal Soul', context)
+
+  assert.equal(release.artistName, 'Nujabes')
+  assert.deepEqual(release.artistRef, { adapterId: 'lidarr', nativeId: 'artist:mbid:artist-mbid' })
+})
+
 test('Lidarr queue maps paging, states, nested catalog data, and provider paths', async () => {
   const adapter = mockAdapter(async (input) => {
     const url = new URL(input)

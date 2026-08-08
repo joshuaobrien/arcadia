@@ -252,6 +252,7 @@ export class LidarrAdapter implements CatalogLookupPort, AcquisitionAutomationPo
       artistRef: artistId && artistId > 0
         ? this.#ref('artist', artistId)
         : this.#foreignRef('artist', artistMbid),
+      artistName: optionalString(artist?.artistName),
       title: string(value.title),
       releaseDate: optionalString(value.releaseDate),
       releaseType: optionalString(value.albumType),
