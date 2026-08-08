@@ -1,38 +1,114 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import type { FormEvent, ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Activity, Bookmark, Check, Disc3, Radio, RefreshCw, Search } from 'lucide-react'
 import './styles.css'
 
-async function getJson(path, signal) {
+interface ProviderRef {
+  adapterId: string
+  nativeId: string
+}
+
+interface CatalogArtist {
+  ref: ProviderRef
+  name: string
+  disambiguation?: string
+  musicBrainzArtistId?: string
+}
+
+interface CatalogRelease {
+  ref: ProviderRef
+  artistRef: ProviderRef
+  artistName?: string
+  title: string
+  releaseDate?: string
+  releaseType?: string
+  musicBrainzReleaseGroupId?: string
+}
+
+interface LidarrStatus {
+  configured: boolean
+  health?: {
+    state: 'available' | 'degraded' | 'unavailable'
+    version?: string
+  }
+}
+
+interface QueueItem {
+  ref: ProviderRef
+  title: string
+  state: string
+  protocol?: string
+  bytesTotal?: number
+  bytesRemaining?: number
+  artist?: CatalogArtist
+  release?: CatalogRelease
+}
+
+interface HistoryItem {
+  ref: ProviderRef
+  eventType: string
+  occurredAt: string
+  underlyingDownloadRef?: string
+  artist?: CatalogArtist
+  release?: CatalogRelease
+}
+
+interface AcquisitionJob {
+  id: string
+  state: 'wanted'
+  artist?: string
+  release?: string
+  searchRefs: ProviderRef[]
+  createdAt: string
+  updatedAt: string
+}
+
+interface Page<T> {
+  items: T[]
+}
+
+interface AcquisitionResponse {
+  configured: boolean
+  items: AcquisitionJob[]
+}
+
+interface ErrorResponse {
+  error?: { message?: string }
+}
+
+type View = 'catalog' | 'wanted' | 'activity'
+
+async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   const response = await fetch(path, { signal })
-  const body = await response.json()
+  const body = await response.json() as T & ErrorResponse
   if (!response.ok) throw new Error(body.error?.message ?? `Request failed (${response.status})`)
   return body
 }
 
-async function postJson(path, payload) {
+async function postJson<T>(path: string, payload: unknown): Promise<T> {
   const response = await fetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   })
-  const body = await response.json()
+  const body = await response.json() as T & ErrorResponse
   if (!response.ok) throw new Error(body.error?.message ?? `Request failed (${response.status})`)
   return body
 }
 
 function useLidarrReadModel() {
-  const [status, setStatus] = useState(null)
-  const [queue, setQueue] = useState([])
-  const [history, setHistory] = useState([])
-  const [error, setError] = useState(null)
+  const [status, setStatus] = useState<LidarrStatus | null>(null)
+  const [queue, setQueue] = useState<QueueItem[]>([])
+  const [history, setHistory] = useState<HistoryItem[]>([])
+  const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
-  const refresh = useCallback(async (signal) => {
+  const refresh = useCallback(async (signal?: AbortSignal) => {
     setLoading(true)
     setError(null)
     try {
-      const nextStatus = await getJson('/api/services/lidarr', signal)
+      const nextStatus = await getJson<LidarrStatus>('/api/services/lidarr', signal)
       setStatus(nextStatus)
       if (!nextStatus.configured || nextStatus.health?.state !== 'available') {
         setQueue([])
@@ -41,13 +117,13 @@ function useLidarrReadModel() {
       }
 
       const [queuePage, historyPage] = await Promise.all([
-        getJson('/api/services/lidarr/queue?limit=25', signal),
-        getJson('/api/services/lidarr/history?limit=25', signal),
+        getJson<Page<QueueItem>>('/api/services/lidarr/queue?limit=25', signal),
+        getJson<Page<HistoryItem>>('/api/services/lidarr/history?limit=25', signal),
       ])
       setQueue(queuePage.items)
       setHistory(historyPage.items)
     } catch (requestError) {
-      if (requestError.name !== 'AbortError') setError(requestError.message)
+      if (!isAbortError(requestError)) setError(errorMessage(requestError))
     } finally {
       if (!signal?.aborted) setLoading(false)
     }
@@ -62,22 +138,24 @@ function useLidarrReadModel() {
   return { status, queue, history, error, loading, refresh: () => refresh() }
 }
 
+type LidarrReadModel = ReturnType<typeof useLidarrReadModel>
+
 function useAcquisitions() {
   const [configured, setConfigured] = useState(false)
-  const [items, setItems] = useState([])
+  const [items, setItems] = useState<AcquisitionJob[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
-  const [savingRef, setSavingRef] = useState(null)
+  const [error, setError] = useState<string | null>(null)
+  const [savingRef, setSavingRef] = useState<string | null>(null)
 
-  const refresh = useCallback(async (signal) => {
+  const refresh = useCallback(async (signal?: AbortSignal) => {
     setLoading(true)
     setError(null)
     try {
-      const result = await getJson('/api/acquisitions', signal)
+      const result = await getJson<AcquisitionResponse>('/api/acquisitions', signal)
       setConfigured(result.configured)
       setItems(result.items)
     } catch (requestError) {
-      if (requestError.name !== 'AbortError') setError(requestError.message)
+      if (!isAbortError(requestError)) setError(errorMessage(requestError))
     } finally {
       if (!signal?.aborted) setLoading(false)
     }
@@ -89,20 +167,20 @@ function useAcquisitions() {
     return () => controller.abort()
   }, [refresh])
 
-  async function wantRelease(release) {
+  async function wantRelease(release: CatalogRelease) {
     setSavingRef(release.ref.nativeId)
     setError(null)
     try {
-      const job = await postJson('/api/acquisitions', { release })
+      const job = await postJson<AcquisitionJob>('/api/acquisitions', { release })
       setItems(current => current.some(item => item.id === job.id) ? current : [job, ...current])
     } catch (requestError) {
-      setError(requestError.message)
+      setError(errorMessage(requestError))
     } finally {
       setSavingRef(null)
     }
   }
 
-  function includes(release) {
+  function includes(release: CatalogRelease) {
     return items.some(item => item.searchRefs.some(ref => (
       ref.adapterId === release.ref.adapterId && ref.nativeId === release.ref.nativeId
     )))
@@ -120,14 +198,21 @@ function useAcquisitions() {
   }
 }
 
-function connectionLabel(lidarr) {
+type AcquisitionsModel = ReturnType<typeof useAcquisitions>
+
+function connectionLabel(lidarr: LidarrReadModel): string {
   if (lidarr.loading) return 'checking'
   if (lidarr.error) return 'error'
   if (!lidarr.status?.configured) return 'not configured'
   return lidarr.status.health?.state ?? 'unavailable'
 }
 
-function Header({ view, setView, lidarr, acquisitions }) {
+function Header({ view, setView, lidarr, acquisitions }: {
+  view: View
+  setView: (view: View) => void
+  lidarr: LidarrReadModel
+  acquisitions: AcquisitionsModel
+}) {
   return (
     <header className="header">
       <div className="brand">
@@ -154,7 +239,7 @@ function Header({ view, setView, lidarr, acquisitions }) {
   )
 }
 
-function IntegrationState({ lidarr }) {
+function IntegrationState({ lidarr }: { lidarr: LidarrReadModel }) {
   const message = lidarr.loading
     ? 'Reading Lidarr'
     : lidarr.error ?? (!lidarr.status?.configured ? 'Lidarr is not configured' : 'Lidarr is unavailable')
@@ -169,14 +254,14 @@ function IntegrationState({ lidarr }) {
   )
 }
 
-function CatalogView({ lidarr, acquisitions }) {
+function CatalogView({ lidarr, acquisitions }: { lidarr: LidarrReadModel; acquisitions: AcquisitionsModel }) {
   const [term, setTerm] = useState('')
-  const [results, setResults] = useState({ artists: [], releases: [] })
+  const [results, setResults] = useState<{ artists: CatalogArtist[]; releases: CatalogRelease[] }>({ artists: [], releases: [] })
   const [hasSearched, setHasSearched] = useState(false)
   const [searching, setSearching] = useState(false)
-  const [error, setError] = useState(null)
+  const [error, setError] = useState<string | null>(null)
 
-  async function searchCatalog(event) {
+  async function searchCatalog(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const query = term.trim()
     if (!query) return
@@ -185,13 +270,13 @@ function CatalogView({ lidarr, acquisitions }) {
     try {
       const encoded = encodeURIComponent(query)
       const [artists, releases] = await Promise.all([
-        getJson(`/api/services/lidarr/artists?term=${encoded}`),
-        getJson(`/api/services/lidarr/releases?term=${encoded}`),
+        getJson<CatalogArtist[]>(`/api/services/lidarr/artists?term=${encoded}`),
+        getJson<CatalogRelease[]>(`/api/services/lidarr/releases?term=${encoded}`),
       ])
       setResults({ artists, releases })
       setHasSearched(true)
     } catch (requestError) {
-      setError(requestError.message)
+      setError(errorMessage(requestError))
     } finally {
       setSearching(false)
     }
@@ -259,7 +344,7 @@ function CatalogView({ lidarr, acquisitions }) {
   )
 }
 
-function ResultPanel({ title, count, empty, children }) {
+function ResultPanel({ title, count, empty, children }: { title: string; count: number; empty: string; children: ReactNode }) {
   return (
     <section className="panel">
       <header><h2>{title}</h2><span>{count}</span></header>
@@ -268,8 +353,8 @@ function ResultPanel({ title, count, empty, children }) {
   )
 }
 
-function formatBytes(value) {
-  if (!Number.isFinite(value)) return 'size unknown'
+function formatBytes(value?: number): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 'size unknown'
   const units = ['B', 'KB', 'MB', 'GB']
   let size = value
   let unit = 0
@@ -280,7 +365,7 @@ function formatBytes(value) {
   return `${size.toFixed(unit > 1 ? 1 : 0)} ${units[unit]}`
 }
 
-function QueueRow({ item }) {
+function QueueRow({ item }: { item: QueueItem }) {
   const transferred = item.bytesTotal ? item.bytesTotal - (item.bytesRemaining ?? item.bytesTotal) : 0
   const progress = item.bytesTotal ? Math.round((transferred / item.bytesTotal) * 100) : 0
   const artist = item.artist?.name ?? item.release?.artistName
@@ -298,7 +383,7 @@ function QueueRow({ item }) {
   )
 }
 
-function ActivityView({ lidarr, sectionNumber }) {
+function ActivityView({ lidarr, sectionNumber }: { lidarr: LidarrReadModel; sectionNumber: string }) {
   const available = lidarr.status?.configured && lidarr.status.health?.state === 'available' && !lidarr.error
 
   return (
@@ -332,7 +417,7 @@ function ActivityView({ lidarr, sectionNumber }) {
   )
 }
 
-function WantedView({ acquisitions }) {
+function WantedView({ acquisitions }: { acquisitions: AcquisitionsModel }) {
   return (
     <section>
       <div className="page-heading">
@@ -358,7 +443,7 @@ function WantedView({ acquisitions }) {
 }
 
 function App() {
-  const [view, setView] = useState('catalog')
+  const [view, setView] = useState<View>('catalog')
   const lidarr = useLidarrReadModel()
   const acquisitions = useAcquisitions()
 
@@ -374,4 +459,14 @@ function App() {
   )
 }
 
-createRoot(document.getElementById('root')).render(<App />)
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError'
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Unexpected request failure'
+}
+
+const root = document.getElementById('root')
+if (!root) throw new Error('Needle root element is missing')
+createRoot(root).render(<App />)
