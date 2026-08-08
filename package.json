@@ -3,13 +3,16 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "dev": "vite --host 0.0.0.0",
-    "dev:api": "tsx watch server/index.js",
-    "api": "tsx server/index.js",
+    "dev:api": "tsx watch server/index.ts",
+    "api": "tsx server/index.ts",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "test": "node --import tsx --test",
+    "test": "node --import tsx --test server/*.test.* server/**/*.test.*",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

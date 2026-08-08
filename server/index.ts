@@ -1,10 +1,15 @@
 import Fastify from 'fastify'
 import fastifyStatic from '@fastify/static'
+import type { FastifyReply, FastifyServerOptions } from 'fastify'
 import { readdir, statfs } from 'node:fs/promises'
 import { dirname, extname, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createLidarrAdapterFromEnv } from './integrations/lidarr.ts'
-import { isAdapterError } from './integrations/errors.ts'
+import { createLidarrAdapterFromEnv } from './integrations/lidarr.js'
+import { isAdapterError } from './integrations/errors.js'
+import { AcquisitionRepository } from './domain/acquisition-repository.js'
+import type { AcquisitionAutomationPort } from './integrations/acquisition.js'
+import type { CatalogLookupPort, CatalogRelease } from './integrations/catalog.js'
+import type { OperationContext } from './integrations/common.js'
 
 const AUDIO_EXTENSIONS = new Set([
   '.aac',
@@ -21,15 +26,60 @@ const AUDIO_EXTENSIONS = new Set([
   '.wma',
 ])
 
-const cache = new Map()
+interface MediaSummary {
+  tracks: number
+  albums: number
+  artists: number
+  formats: Record<string, number>
+}
+
+interface MediaScan {
+  configured: boolean
+  mounted: boolean
+  path: string | null
+  capacity: { totalBytes: number; freeBytes: number; usedBytes: number } | null
+  media: MediaSummary
+  scannedAt: string | null
+}
+
+type LidarrReadAdapter = CatalogLookupPort & Pick<
+  AcquisitionAutomationPort,
+  'listProfiles' | 'listRoots' | 'listQueue' | 'listHistory'
+>
+
+interface AcquisitionRepositoryPort {
+  list: AcquisitionRepository['list']
+  wantRelease: AcquisitionRepository['wantRelease']
+  close?: AcquisitionRepository['close']
+}
+
+interface BuildAppOptions {
+  logger?: FastifyServerOptions['logger']
+  walkmanPath?: string
+  libraryPath?: string
+  lidarr?: LidarrReadAdapter | null
+  acquisitionRepository?: AcquisitionRepositoryPort | null
+  staticRoot?: string | null
+}
+
+interface PageQuery {
+  cursor?: string
+  limit?: number
+}
+
+interface HistoryQuery extends PageQuery {
+  since?: string
+}
+
+const cache = new Map<string, { createdAt: number; value: MediaScan }>()
 const CACHE_TTL_MS = 30_000
 const serverDirectory = dirname(fileURLToPath(import.meta.url))
 
-function emptyMedia() {
+function emptyMedia(): MediaSummary {
   return { tracks: 0, albums: 0, artists: 0, formats: {} }
 }
 
-export async function scanMediaRoot(configuredPath) {
+export async function scanMediaRoot(configuredPath?: string): Promise<MediaScan> {
   if (!configuredPath) {
     return {
       configured: false,
@@ -42,17 +92,17 @@ export async function scanMediaRoot(configuredPath) {
   }
 
   const root = resolve(configuredPath)
-  const artists = new Set()
-  const albums = new Set()
-  const formats = new Map()
+  const artists = new Set<string>()
+  const albums = new Set<string>()
+  const formats = new Map<string, number>()
   let tracks = 0
 
   try {
     const filesystem = await statfs(root, { bigint: true })
-    const pending = [root]
+    const pending: string[] = [root]
 
     while (pending.length > 0) {
-      const directory = pending.pop()
+      const directory = pending.pop()!
       const entries = await readdir(directory, { withFileTypes: true })
 
       for (const entry of entries) {
@@ -96,7 +146,7 @@ export async function scanMediaRoot(configuredPath) {
       scannedAt: new Date().toISOString(),
     }
   } catch (error) {
-    if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') {
+    if (hasErrorCode(error, 'ENOENT') || hasErrorCode(error, 'ENOTDIR')) {
       return {
         configured: true,
         mounted: false,
@@ -110,7 +160,7 @@ export async function scanMediaRoot(configuredPath) {
   }
 }
 
-async function cachedScan(path) {
+async function cachedScan(path?: string): Promise<MediaScan> {
   const key = path || '__unconfigured__'
   const hit = cache.get(key)
   if (hit && Date.now() - hit.createdAt < CACHE_TTL_MS) return hit.value
@@ -120,11 +170,14 @@ async function cachedScan(path) {
   return value
 }
 
-export function buildApp(options = {}) {
+export function buildApp(options: BuildAppOptions = {}) {
   const app = Fastify({ logger: options.logger ?? true })
   const walkmanPath = options.walkmanPath ?? process.env.WALKMAN_PATH
   const libraryPath = options.libraryPath ?? process.env.MUSIC_LIBRARY_PATH
   const lidarr = options.lidarr === undefined ? createLidarrAdapterFromEnv() : options.lidarr
+  const acquisitionRepository = options.acquisitionRepository === undefined
+    ? process.env.NEEDLE_DATABASE_PATH ? new AcquisitionRepository(process.env.NEEDLE_DATABASE_PATH) : null
+    : options.acquisitionRepository
   const staticRoot = options.staticRoot === undefined
     ? process.env.NODE_ENV === 'production' ? resolve(serverDirectory, '../dist') : null
     : options.staticRoot
@@ -139,19 +192,28 @@ export function buildApp(options = {}) {
     })
   }
 
-  async function lidarrRoute(reply, operation) {
-    if (!lidarr) return reply.code(503).send({
-      error: {
-        code: 'unavailable',
-        adapterId: 'lidarr',
-        message: 'Lidarr is not configured',
-        retryable: false,
-      },
-    })
+  if (acquisitionRepository?.close) {
+    app.addHook('onClose', async () => acquisitionRepository.close?.())
+  }
+
+  async function lidarrRoute<T>(
+    reply: FastifyReply,
+    operation: (adapter: LidarrReadAdapter, context: OperationContext) => Promise<T>,
+  ): Promise<T | undefined> {
+    if (!lidarr) {
+      reply.code(503).send({
+        error: {
+          code: 'unavailable',
+          adapterId: 'lidarr',
+          message: 'Lidarr is not configured',
+          retryable: false,
+        },
+      })
+      return undefined
+    }
     try {
       return await operation(lidarr, {
         operationId: crypto.randomUUID(),
-        signal: reply.request.raw.signal,
       })
     } catch (error) {
       if (!isAdapterError(error)) throw error
@@ -160,7 +222,8 @@ export function buildApp(options = {}) {
           : error.code === 'not-found' ? 404
             : error.code === 'unsupported' ? 501
               : 502
-      return reply.code(status).send({ error: error.toJSON() })
+      reply.code(status).send({ error: error.toJSON() })
+      return undefined
     }
   }
 
@@ -180,12 +243,52 @@ export function buildApp(options = {}) {
       library,
     }
   })
+  app.get('/api/acquisitions', async () => ({
+    configured: acquisitionRepository !== null,
+    items: acquisitionRepository ? acquisitionRepository.list() : [],
+  }))
+  app.post<{ Body: { release: CatalogRelease } }>('/api/acquisitions', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['release'],
+        additionalProperties: false,
+        properties: {
+          release: {
+            type: 'object',
+            required: ['ref', 'artistRef', 'title'],
+            additionalProperties: false,
+            properties: {
+              ref: providerRefSchema(),
+              artistRef: providerRefSchema(),
+              artistName: { type: 'string', minLength: 1, maxLength: 500 },
+              title: { type: 'string', minLength: 1, maxLength: 500 },
+              releaseDate: { type: 'string', minLength: 1, maxLength: 40 },
+              releaseType: { type: 'string', minLength: 1, maxLength: 100 },
+              musicBrainzReleaseGroupId: { type: 'string', minLength: 1, maxLength: 100 },
+              monitored: { type: 'boolean' },
+              images: { type: 'array', maxItems: 20, items: { type: 'string', maxLength: 2000 } },
+            },
+          },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    if (!acquisitionRepository) return reply.code(503).send({
+      error: {
+        code: 'unavailable',
+        message: 'Needle acquisition state is not configured',
+      },
+    })
+    const result = acquisitionRepository.wantRelease(request.body.release)
+    return reply.code(result.created ? 201 : 200).send(result.job)
+  })
   app.get('/api/services/lidarr', async (_request, reply) => {
     if (!lidarr) return { configured: false }
     const health = await lidarrRoute(reply, (adapter, context) => adapter.probe(context))
     return reply.sent ? undefined : { configured: true, health }
   })
-  app.get('/api/services/lidarr/artists', {
+  app.get<{ Querystring: { term: string } }>('/api/services/lidarr/artists', {
     schema: {
       querystring: {
         type: 'object',
@@ -196,9 +299,9 @@ export function buildApp(options = {}) {
     },
   }, async (request, reply) => lidarrRoute(
     reply,
-    (adapter, context) => adapter.lookupArtists(String(request.query?.term ?? ''), context),
+    (adapter, context) => adapter.lookupArtists(request.query.term, context),
   ))
-  app.get('/api/services/lidarr/releases', {
+  app.get<{ Querystring: { term: string } }>('/api/services/lidarr/releases', {
     schema: {
       querystring: {
         type: 'object',
@@ -209,7 +312,7 @@ export function buildApp(options = {}) {
     },
   }, async (request, reply) => lidarrRoute(
     reply,
-    (adapter, context) => adapter.lookupReleases(String(request.query?.term ?? ''), context),
+    (adapter, context) => adapter.lookupReleases(request.query.term, context),
   ))
   app.get('/api/services/lidarr/profiles', async (_request, reply) => lidarrRoute(
     reply,
@@ -219,7 +322,7 @@ export function buildApp(options = {}) {
     reply,
     (adapter, context) => adapter.listRoots(context),
   ))
-  app.get('/api/services/lidarr/queue', {
+  app.get<{ Querystring: PageQuery }>('/api/services/lidarr/queue', {
     schema: { querystring: pageQuerySchema() },
   }, async (request, reply) => lidarrRoute(
     reply,
@@ -228,7 +331,7 @@ export function buildApp(options = {}) {
       limit: Math.min(100, Math.max(1, Number(request.query?.limit) || 25)),
     }, context),
   ))
-  app.get('/api/services/lidarr/history', {
+  app.get<{ Querystring: HistoryQuery }>('/api/services/lidarr/history', {
     schema: {
       querystring: {
         ...pageQuerySchema(),
@@ -258,6 +361,22 @@ function pageQuerySchema() {
       limit: { type: 'integer', minimum: 1, maximum: 100, default: 25 },
     },
   }
+}
+
+function providerRefSchema() {
+  return {
+    type: 'object',
+    required: ['adapterId', 'nativeId'],
+    additionalProperties: false,
+    properties: {
+      adapterId: { type: 'string', minLength: 1, maxLength: 100 },
+      nativeId: { type: 'string', minLength: 1, maxLength: 500 },
+    },
+  }
+}
+
+function hasErrorCode(error: unknown, code: string): boolean {
+  return error instanceof Error && 'code' in error && error.code === code
 }
 
 const isEntryPoint = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)

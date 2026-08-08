@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
-import { buildApp, scanMediaRoot } from './index.js'
+import { buildApp, scanMediaRoot } from './index.ts'
 
 test('scanMediaRoot counts audio files and infers artist/album directories', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'needle-media-'))
@@ -66,6 +66,73 @@ test('Lidarr API reports an unconfigured adapter without making a request', asyn
   assert.deepEqual(status.json(), { configured: false })
   assert.equal(artists.statusCode, 503)
   assert.equal(artists.json().error.code, 'unavailable')
+})
+
+test('acquisition API records Needle-owned wanted state without calling Lidarr', async (t) => {
+  const calls = []
+  const jobs = []
+  const acquisitionRepository = {
+    list: () => jobs,
+    wantRelease: (release) => {
+      calls.push(release)
+      const job = {
+        id: 'job-1',
+        state: 'wanted',
+        artist: release.artistName,
+        release: release.title,
+        searchRefs: [release.ref],
+        createdAt: '2026-08-08T00:00:00Z',
+        updatedAt: '2026-08-08T00:00:00Z',
+      }
+      jobs.push(job)
+      return { job, created: true }
+    },
+  }
+  const app = buildApp({ acquisitionRepository, lidarr: null, logger: false })
+  t.after(() => app.close())
+
+  const create = await app.inject({
+    method: 'POST',
+    url: '/api/acquisitions',
+    payload: {
+      release: {
+        ref: { adapterId: 'lidarr', nativeId: 'album:id:42' },
+        artistRef: { adapterId: 'lidarr', nativeId: 'artist:id:7' },
+        artistName: 'Broadcast',
+        title: 'Tender Buttons',
+      },
+    },
+  })
+  const list = await app.inject({ method: 'GET', url: '/api/acquisitions' })
+
+  assert.equal(create.statusCode, 201)
+  assert.equal(create.json().state, 'wanted')
+  assert.equal(list.statusCode, 200)
+  assert.equal(list.json().configured, true)
+  assert.deepEqual(list.json().items, [create.json()])
+  assert.equal(calls.length, 1)
+})
+
+test('acquisition API reports unconfigured state and rejects writes', async (t) => {
+  const app = buildApp({ acquisitionRepository: null, lidarr: null, logger: false })
+  t.after(() => app.close())
+
+  const list = await app.inject({ method: 'GET', url: '/api/acquisitions' })
+  const create = await app.inject({
+    method: 'POST',
+    url: '/api/acquisitions',
+    payload: {
+      release: {
+        ref: { adapterId: 'lidarr', nativeId: 'album:id:42' },
+        artistRef: { adapterId: 'lidarr', nativeId: 'artist:id:7' },
+        title: 'Tender Buttons',
+      },
+    },
+  })
+
+  assert.deepEqual(list.json(), { configured: false, items: [] })
+  assert.equal(create.statusCode, 503)
+  assert.equal(create.json().error.code, 'unavailable')
 })
 
 test('Lidarr read routes validate queries and return normalized adapter data', async (t) => {
