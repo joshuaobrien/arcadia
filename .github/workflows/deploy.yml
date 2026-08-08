@@ -1,0 +1,56 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Setup Tailscale
+        uses: tailscale/github-action@v2
+        with:
+          oauth-client-id: ${{ secrets.TS_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_CLIENT_SECRET }}
+          tags: tag:ci
+
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Deploy Needle
+        run: |
+          ssh -o StrictHostKeyChecking=no josh@100.112.160.16 \
+            bash -s -- "${{ vars.DEPLOY_PATH }}" <<'EOF'
+          set -euo pipefail
+
+          compose_dir="$1"
+          needle_dir="$compose_dir/needle"
+
+          if [ -z "$compose_dir" ]; then
+            echo "DEPLOY_PATH repository variable is not configured" >&2
+            exit 1
+          fi
+
+          if [ ! -d "$needle_dir/.git" ]; then
+            git clone --branch main https://github.com/joshuaobrien/needle.git "$needle_dir"
+          else
+            git -C "$needle_dir" fetch origin main
+            git -C "$needle_dir" switch main
+            git -C "$needle_dir" merge --ff-only origin/main
+          fi
+
+          cd "$compose_dir"
+          docker compose up -d --build needle
+          docker compose ps needle
+          EOF
