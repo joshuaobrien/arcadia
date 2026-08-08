@@ -11,7 +11,7 @@ import type { AcquisitionAutomationPort } from './integrations/acquisition.js'
 import type { CatalogLookupPort, CatalogRelease } from './integrations/catalog.js'
 import type { OperationContext } from './integrations/common.js'
 import type { AcquisitionDefaults } from './domain/acquisition.js'
-import { readCanonicalLibrary } from './library.js'
+import { libraryAlbumId, listLibraryAlbums, readCanonicalLibrary } from './library.js'
 import type { LibraryInventory } from './library.js'
 
 const AUDIO_EXTENSIONS = new Set([
@@ -74,6 +74,10 @@ interface PageQuery {
 
 interface HistoryQuery extends PageQuery {
   since?: string
+}
+
+interface LibraryTracksQuery extends PageQuery {
+  albumId?: string
 }
 
 const cache = new Map<string, { createdAt: number; value: MediaScan }>()
@@ -262,29 +266,48 @@ export function buildApp(options: BuildAppOptions = {}) {
     ...(await cachedScan(walkmanPath)),
   }))
   app.get('/api/library', async () => cachedScan(libraryPath))
-  app.get<{ Querystring: PageQuery }>('/api/library/tracks', {
+  app.get<{ Querystring: PageQuery }>('/api/library/albums', {
+    schema: { querystring: libraryPageQuerySchema() },
+  }, async (request) => {
+    const inventory = await cachedLibrary(libraryPath)
+    const albums = listLibraryAlbums(inventory.tracks)
+    const offset = Math.min(albums.length, Number(request.query?.cursor) || 0)
+    const limit = request.query?.limit ?? 50
+    const end = Math.min(albums.length, offset + limit)
+    return {
+      configured: inventory.configured,
+      mounted: inventory.mounted,
+      scannedAt: inventory.scannedAt,
+      total: albums.length,
+      items: albums.slice(offset, end),
+      ...(end < albums.length ? { nextCursor: String(end) } : {}),
+    }
+  })
+  app.get<{ Querystring: LibraryTracksQuery }>('/api/library/tracks', {
     schema: {
       querystring: {
-        type: 'object',
-        additionalProperties: false,
+        ...libraryPageQuerySchema(),
         properties: {
-          cursor: { type: 'string', pattern: '^(0|[1-9][0-9]*)$', maxLength: 16 },
-          limit: { type: 'integer', minimum: 1, maximum: 100, default: 50 },
+          ...libraryPageQuerySchema().properties,
+          albumId: { type: 'string', pattern: '^[a-f0-9]{64}$' },
         },
       },
     },
   }, async (request) => {
     const inventory = await cachedLibrary(libraryPath)
-    const offset = Math.min(inventory.tracks.length, Number(request.query?.cursor) || 0)
+    const tracks = request.query.albumId
+      ? inventory.tracks.filter(track => libraryAlbumId(track) === request.query.albumId)
+      : inventory.tracks
+    const offset = Math.min(tracks.length, Number(request.query?.cursor) || 0)
     const limit = request.query?.limit ?? 50
-    const end = Math.min(inventory.tracks.length, offset + limit)
+    const end = Math.min(tracks.length, offset + limit)
     return {
       configured: inventory.configured,
       mounted: inventory.mounted,
       scannedAt: inventory.scannedAt,
-      total: inventory.tracks.length,
-      items: inventory.tracks.slice(offset, end),
-      ...(end < inventory.tracks.length ? { nextCursor: String(end) } : {}),
+      total: tracks.length,
+      items: tracks.slice(offset, end),
+      ...(end < tracks.length ? { nextCursor: String(end) } : {}),
     }
   })
   app.get('/api/status', async () => {
@@ -467,6 +490,17 @@ function pageQuerySchema() {
     properties: {
       cursor: { type: 'string', minLength: 1, maxLength: 100 },
       limit: { type: 'integer', minimum: 1, maximum: 100, default: 25 },
+    },
+  }
+}
+
+function libraryPageQuerySchema() {
+  return {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      cursor: { type: 'string', pattern: '^(0|[1-9][0-9]*)$', maxLength: 16 },
+      limit: { type: 'integer', minimum: 1, maximum: 100, default: 50 },
     },
   }
 }

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { Activity, Bookmark, Check, Disc3, LibraryBig, Radio, RefreshCw, Search } from 'lucide-react'
+import { Activity, ArrowLeft, Bookmark, Check, Disc3, LibraryBig, Radio, RefreshCw, Search } from 'lucide-react'
 import './styles.css'
 
 interface ProviderRef {
@@ -91,12 +91,22 @@ interface LibraryTrack {
   lossless?: boolean
 }
 
-interface LibraryPage {
+interface LibraryAlbum {
+  id: string
+  title: string
+  albumArtist: string
+  year?: number
+  trackCount: number
+  totalBytes: number
+  formats: string[]
+}
+
+interface LibraryPage<T> {
   configured: boolean
   mounted: boolean
   scannedAt: string | null
   total: number
-  items: LibraryTrack[]
+  items: T[]
   nextCursor?: string
 }
 
@@ -228,16 +238,21 @@ function useAcquisitions() {
 type AcquisitionsModel = ReturnType<typeof useAcquisitions>
 
 function useLibrary() {
-  const [page, setPage] = useState<LibraryPage | null>(null)
+  const [page, setPage] = useState<LibraryPage<LibraryAlbum> | null>(null)
+  const [selectedAlbum, setSelectedAlbum] = useState<LibraryAlbum | null>(null)
+  const [tracks, setTracks] = useState<LibraryTrack[]>([])
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
+  const [openingAlbum, setOpeningAlbum] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     setLoading(true)
     setError(null)
     try {
-      setPage(await getJson<LibraryPage>('/api/library/tracks?limit=50', signal))
+      setPage(await getJson<LibraryPage<LibraryAlbum>>('/api/library/albums?limit=48', signal))
+      setSelectedAlbum(null)
+      setTracks([])
     } catch (requestError) {
       if (!isAbortError(requestError)) setError(errorMessage(requestError))
     } finally {
@@ -256,7 +271,7 @@ function useLibrary() {
     setLoadingMore(true)
     setError(null)
     try {
-      const next = await getJson<LibraryPage>(`/api/library/tracks?limit=50&cursor=${page.nextCursor}`)
+      const next = await getJson<LibraryPage<LibraryAlbum>>(`/api/library/albums?limit=48&cursor=${page.nextCursor}`)
       setPage(current => current ? { ...next, items: [...current.items, ...next.items] } : next)
     } catch (requestError) {
       setError(errorMessage(requestError))
@@ -265,7 +280,41 @@ function useLibrary() {
     }
   }
 
-  return { page, loading, loadingMore, error, refresh: () => refresh(), loadMore }
+  async function openAlbum(album: LibraryAlbum) {
+    setOpeningAlbum(album.id)
+    setError(null)
+    try {
+      const items: LibraryTrack[] = []
+      let cursor: string | undefined
+      do {
+        const query = new URLSearchParams({ albumId: album.id, limit: '100' })
+        if (cursor) query.set('cursor', cursor)
+        const result = await getJson<LibraryPage<LibraryTrack>>(`/api/library/tracks?${query}`)
+        items.push(...result.items)
+        cursor = result.nextCursor
+      } while (cursor)
+      setSelectedAlbum(album)
+      setTracks(items)
+    } catch (requestError) {
+      setError(errorMessage(requestError))
+    } finally {
+      setOpeningAlbum(null)
+    }
+  }
+
+  return {
+    page,
+    selectedAlbum,
+    tracks,
+    loading,
+    loadingMore,
+    openingAlbum,
+    error,
+    refresh: () => refresh(),
+    loadMore,
+    openAlbum,
+    closeAlbum: () => setSelectedAlbum(null),
+  }
 }
 
 type LibraryModel = ReturnType<typeof useLibrary>
@@ -449,14 +498,20 @@ function formatDuration(value?: number): string {
 function LibraryView({ library }: { library: LibraryModel }) {
   const page = library.page
   const unavailable = page && (!page.configured || !page.mounted)
+  const album = library.selectedAlbum
 
   return (
     <section>
       <div className="page-heading">
-        <div><p>01 / CANONICAL FILESYSTEM</p><h1>Library</h1></div>
-        <button className="button" onClick={library.refresh} disabled={library.loading}>
-          <RefreshCw size={13} className={library.loading ? 'spinning' : ''} /> Refresh
-        </button>
+        <div>
+          <p>01 / CANONICAL FILESYSTEM</p>
+          <h1>{album?.title ?? 'Albums'}</h1>
+        </div>
+        {album
+          ? <button className="button" onClick={library.closeAlbum}><ArrowLeft size={13} /> Albums</button>
+          : <button className="button" onClick={library.refresh} disabled={library.loading}>
+            <RefreshCw size={13} className={library.loading ? 'spinning' : ''} /> Refresh
+          </button>}
       </div>
       {library.error && <div className="error-strip">{library.error}</div>}
       {library.loading && !page ? <div className="idle-state"><Disc3 size={34} className="spinning" /><span>Reading file metadata</span></div>
@@ -466,29 +521,34 @@ function LibraryView({ library }: { library: LibraryModel }) {
           <small>{page.configured ? 'The configured filesystem path is not mounted.' : 'Set MUSIC_LIBRARY_PATH and mount the directory read-only.'}</small>
           <button className="button" onClick={library.refresh}><RefreshCw size={13} /> Retry</button>
         </div>
-          : <section className="panel library-panel">
-            <header><h2>Tracks</h2><span>{page?.items.length ?? 0} / {page?.total ?? 0}</span></header>
-            {page?.items.length ? page.items.map(track => (
-              <article className="library-row" key={track.relativePath}>
-                <div className="media-object disc"><i /></div>
-                <div className="library-title">
-                  <strong>{track.title}</strong>
-                  <small>{track.artists?.join(', ') ?? track.albumArtist ?? track.relativePath}</small>
-                </div>
-                <div className="library-album">
-                  <strong>{track.album ?? 'Album not tagged'}</strong>
-                  <small>{[track.year, track.trackNumber ? `track ${track.trackNumber}` : null].filter(Boolean).join(' · ')}</small>
-                </div>
+          : album ? <section className="panel library-panel">
+            <header><h2>{album.albumArtist}</h2><span>{album.trackCount} tracks · {formatBytes(album.totalBytes)}</span></header>
+            {library.tracks.map(track => (
+              <article className="library-track-row" key={track.relativePath}>
+                <b>{track.trackNumber ?? '—'}</b>
+                <div><strong>{track.title}</strong><small>{track.artists?.join(', ') ?? track.relativePath}</small></div>
                 <code>{track.metadataStatus === 'read' ? [track.codec ?? track.format, formatDuration(track.durationSeconds)].join(' · ') : 'TAGS UNREADABLE'}</code>
                 <span>{formatBytes(track.bytes)}</span>
               </article>
-            )) : <p className="empty-row">No audio files found</p>}
+            ))}
+          </section> : <>
+            <div className="album-grid">
+              {page?.items.map(item => (
+                <button className="album-card" key={item.id} onClick={() => library.openAlbum(item)} disabled={library.openingAlbum !== null}>
+                  <div className="album-case"><i /></div>
+                  <strong>{item.title}</strong>
+                  <small>{item.albumArtist}</small>
+                  <footer><span>{item.year ?? '—'}</span><span>{item.trackCount} tracks</span><span>{item.formats.join(' / ')}</span></footer>
+                </button>
+              ))}
+            </div>
+            {!page?.items.length && <div className="panel"><p className="empty-row">No audio files found</p></div>}
             {page?.nextCursor && <footer className="library-footer">
               <button className="button" disabled={library.loadingMore} onClick={library.loadMore}>
-                {library.loadingMore ? 'Loading…' : 'Load 50 more'}
+                {library.loadingMore ? 'Loading…' : 'Load 48 more'}
               </button>
             </footer>}
-          </section>}
+          </>}
     </section>
   )
 }
