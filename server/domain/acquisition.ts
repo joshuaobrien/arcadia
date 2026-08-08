@@ -1,0 +1,27 @@
+import type { AdapterErrorDetails, IsoDateTime, ProviderRef } from '../integrations/common.js'
+
+export type AcquisitionState =
+  | 'wanted'
+  | 'searching'
+  | 'selection-required'
+  | 'queued'
+  | 'transferring'
+  | 'importing'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+
+/** Needle-owned workflow record. Provider records may disappear without deleting this job. */
+export interface AcquisitionJob {
+  id: string
+  state: AcquisitionState
+  artist?: string
+  release?: string
+  searchRefs: readonly ProviderRef[]
+  selectedCandidateRef?: ProviderRef
+  transferRef?: ProviderRef
+  importRef?: ProviderRef
+  createdAt: IsoDateTime
+  updatedAt: IsoDateTime
+  error?: AdapterErrorDetails
+}
