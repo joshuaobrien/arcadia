@@ -24,7 +24,7 @@ npm run build
 
 ## Docker
 
-The production image builds the Vite interface and serves it with the Fastify API on port `8787`.
+The production image uses Node 24 LTS, builds the Vite interface, and serves it with the Fastify API on port `8787`.
 
 ```yaml
 services:
