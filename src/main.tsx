@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { Activity, Bookmark, Check, Disc3, Radio, RefreshCw, Search } from 'lucide-react'
+import { Activity, Bookmark, Check, Disc3, LibraryBig, Radio, RefreshCw, Search } from 'lucide-react'
 import './styles.css'
 
 interface ProviderRef {
@@ -73,11 +73,38 @@ interface AcquisitionResponse {
   items: AcquisitionJob[]
 }
 
+interface LibraryTrack {
+  relativePath: string
+  bytes: number
+  format: string
+  metadataStatus: 'read' | 'unreadable'
+  title?: string
+  artists?: string[]
+  albumArtist?: string
+  album?: string
+  trackNumber?: number
+  discNumber?: number
+  year?: number
+  durationSeconds?: number
+  codec?: string
+  sampleRate?: number
+  lossless?: boolean
+}
+
+interface LibraryPage {
+  configured: boolean
+  mounted: boolean
+  scannedAt: string | null
+  total: number
+  items: LibraryTrack[]
+  nextCursor?: string
+}
+
 interface ErrorResponse {
   error?: { message?: string }
 }
 
-type View = 'catalog' | 'wanted' | 'activity'
+type View = 'library' | 'catalog' | 'wanted' | 'activity'
 
 async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   const response = await fetch(path, { signal })
@@ -200,6 +227,49 @@ function useAcquisitions() {
 
 type AcquisitionsModel = ReturnType<typeof useAcquisitions>
 
+function useLibrary() {
+  const [page, setPage] = useState<LibraryPage | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const refresh = useCallback(async (signal?: AbortSignal) => {
+    setLoading(true)
+    setError(null)
+    try {
+      setPage(await getJson<LibraryPage>('/api/library/tracks?limit=50', signal))
+    } catch (requestError) {
+      if (!isAbortError(requestError)) setError(errorMessage(requestError))
+    } finally {
+      if (!signal?.aborted) setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    refresh(controller.signal)
+    return () => controller.abort()
+  }, [refresh])
+
+  async function loadMore() {
+    if (!page?.nextCursor) return
+    setLoadingMore(true)
+    setError(null)
+    try {
+      const next = await getJson<LibraryPage>(`/api/library/tracks?limit=50&cursor=${page.nextCursor}`)
+      setPage(current => current ? { ...next, items: [...current.items, ...next.items] } : next)
+    } catch (requestError) {
+      setError(errorMessage(requestError))
+    } finally {
+      setLoadingMore(false)
+    }
+  }
+
+  return { page, loading, loadingMore, error, refresh: () => refresh(), loadMore }
+}
+
+type LibraryModel = ReturnType<typeof useLibrary>
+
 function connectionLabel(lidarr: LidarrReadModel): string {
   if (lidarr.loading) return 'checking'
   if (lidarr.error) return 'error'
@@ -220,6 +290,9 @@ function Header({ view, setView, lidarr, acquisitions }: {
         <span>needle<small>acquisition terminal</small></span>
       </div>
       <nav aria-label="Primary">
+        <button className={view === 'library' ? 'active' : ''} onClick={() => setView('library')}>
+          <LibraryBig size={14} /> Library
+        </button>
         <button className={view === 'catalog' ? 'active' : ''} onClick={() => setView('catalog')}>
           <Search size={14} /> Catalog
         </button>
@@ -287,7 +360,7 @@ function CatalogView({ lidarr, acquisitions }: { lidarr: LidarrReadModel; acquis
   return (
     <section>
       <div className="page-heading">
-        <div><p>01 / LIDARR CATALOG</p><h1>Catalog lookup</h1></div>
+        <div><p>02 / LIDARR CATALOG</p><h1>Catalog lookup</h1></div>
         <span>READ ONLY</span>
       </div>
 
@@ -365,6 +438,61 @@ function formatBytes(value?: number): string {
   return `${size.toFixed(unit > 1 ? 1 : 0)} ${units[unit]}`
 }
 
+function formatDuration(value?: number): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 'duration unknown'
+  const totalSeconds = Math.round(value)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`
+}
+
+function LibraryView({ library }: { library: LibraryModel }) {
+  const page = library.page
+  const unavailable = page && (!page.configured || !page.mounted)
+
+  return (
+    <section>
+      <div className="page-heading">
+        <div><p>01 / CANONICAL FILESYSTEM</p><h1>Library</h1></div>
+        <button className="button" onClick={library.refresh} disabled={library.loading}>
+          <RefreshCw size={13} className={library.loading ? 'spinning' : ''} /> Refresh
+        </button>
+      </div>
+      {library.error && <div className="error-strip">{library.error}</div>}
+      {library.loading && !page ? <div className="idle-state"><Disc3 size={34} className="spinning" /><span>Reading file metadata</span></div>
+        : unavailable ? <div className="integration-state">
+          <LibraryBig size={21} />
+          <strong>{page.configured ? 'Library path unavailable' : 'Library path not configured'}</strong>
+          <small>{page.configured ? 'The configured filesystem path is not mounted.' : 'Set MUSIC_LIBRARY_PATH and mount the directory read-only.'}</small>
+          <button className="button" onClick={library.refresh}><RefreshCw size={13} /> Retry</button>
+        </div>
+          : <section className="panel library-panel">
+            <header><h2>Tracks</h2><span>{page?.items.length ?? 0} / {page?.total ?? 0}</span></header>
+            {page?.items.length ? page.items.map(track => (
+              <article className="library-row" key={track.relativePath}>
+                <div className="media-object disc"><i /></div>
+                <div className="library-title">
+                  <strong>{track.title}</strong>
+                  <small>{track.artists?.join(', ') ?? track.albumArtist ?? track.relativePath}</small>
+                </div>
+                <div className="library-album">
+                  <strong>{track.album ?? 'Album not tagged'}</strong>
+                  <small>{[track.year, track.trackNumber ? `track ${track.trackNumber}` : null].filter(Boolean).join(' · ')}</small>
+                </div>
+                <code>{track.metadataStatus === 'read' ? [track.codec ?? track.format, formatDuration(track.durationSeconds)].join(' · ') : 'TAGS UNREADABLE'}</code>
+                <span>{formatBytes(track.bytes)}</span>
+              </article>
+            )) : <p className="empty-row">No audio files found</p>}
+            {page?.nextCursor && <footer className="library-footer">
+              <button className="button" disabled={library.loadingMore} onClick={library.loadMore}>
+                {library.loadingMore ? 'Loading…' : 'Load 50 more'}
+              </button>
+            </footer>}
+          </section>}
+    </section>
+  )
+}
+
 function QueueRow({ item }: { item: QueueItem }) {
   const transferred = item.bytesTotal ? item.bytesTotal - (item.bytesRemaining ?? item.bytesTotal) : 0
   const progress = item.bytesTotal ? Math.round((transferred / item.bytesTotal) * 100) : 0
@@ -421,7 +549,7 @@ function WantedView({ acquisitions }: { acquisitions: AcquisitionsModel }) {
   return (
     <section>
       <div className="page-heading">
-        <div><p>02 / NEEDLE STATE</p><h1>Wanted releases</h1></div>
+        <div><p>03 / NEEDLE STATE</p><h1>Wanted releases</h1></div>
         <button className="button" onClick={acquisitions.refresh} disabled={acquisitions.loading}>
           <RefreshCw size={13} className={acquisitions.loading ? 'spinning' : ''} /> Refresh
         </button>
@@ -443,17 +571,19 @@ function WantedView({ acquisitions }: { acquisitions: AcquisitionsModel }) {
 }
 
 function App() {
-  const [view, setView] = useState<View>('catalog')
+  const [view, setView] = useState<View>('library')
   const lidarr = useLidarrReadModel()
   const acquisitions = useAcquisitions()
+  const library = useLibrary()
 
   return (
     <div className="app-shell">
       <Header view={view} setView={setView} lidarr={lidarr} acquisitions={acquisitions} />
       <main>
+        {view === 'library' && <LibraryView library={library} />}
         {view === 'catalog' && <CatalogView lidarr={lidarr} acquisitions={acquisitions} />}
         {view === 'wanted' && <WantedView acquisitions={acquisitions} />}
-        {view === 'activity' && <ActivityView lidarr={lidarr} sectionNumber={acquisitions.configured ? '03' : '02'} />}
+        {view === 'activity' && <ActivityView lidarr={lidarr} sectionNumber={acquisitions.configured ? '04' : '03'} />}
       </main>
     </div>
   )

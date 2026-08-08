@@ -18,7 +18,7 @@
 * { box-sizing: border-box; }
 body { min-width: 320px; min-height: 100vh; margin: 0; background: #d4d3c9; }
 body::before { content: ''; position: fixed; inset: 0; pointer-events: none; opacity: .35; background: repeating-linear-gradient(0deg, transparent 0 31px, rgba(56,61,57,.06) 32px); }
-button, input { font: inherit; }
+button, input, select { font: inherit; }
 button { color: inherit; cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .55; }
 h1, h2, p { margin-top: 0; }
@@ -113,6 +113,13 @@ main { width: min(1160px, calc(100% - 48px)); margin: 0 auto; padding: 42px 0 70
 .wanted-row strong { overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .wanted-row small, .wanted-row time { margin-top: 3px; color: #62665f; font-size: 7px; }
 .wanted-row time { text-align: right; }
+.library-row { min-height: 70px; padding: 8px 10px; display: grid; grid-template-columns: 48px minmax(150px,1.2fr) minmax(130px,1fr) 150px 72px; align-items: center; gap: 11px; border-bottom: 1px solid #96988f; }
+.library-row > div:not(.media-object) { min-width: 0; display: flex; flex-direction: column; }
+.library-row strong { overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.library-row small { margin-top: 4px; overflow: hidden; color: #62665f; font-size: 7px; text-overflow: ellipsis; white-space: nowrap; }
+.library-row code { padding: 3px 5px; color: #384139; background: #b5b6ad; border: 1px solid #85877f; font-size: 6px; text-align: center; }
+.library-row > span { color: #555a54; font-size: 7px; text-align: right; }
+.library-footer { padding: 9px; display: flex; justify-content: center; border-top: 1px solid #e8e7df; }
 .spinning { animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -129,6 +136,8 @@ main { width: min(1160px, calc(100% - 48px)); margin: 0 auto; padding: 42px 0 70
   .history-row time { display: none; }
   .wanted-row { grid-template-columns: 43px minmax(0,1fr) auto; }
   .wanted-row time { display: none; }
+  .library-row { grid-template-columns: 43px minmax(0,1fr) 110px; }
+  .library-album, .library-row > span { display: none !important; }
 }
 
 @media (max-width: 460px) {
@@ -143,6 +152,8 @@ main { width: min(1160px, calc(100% - 48px)); margin: 0 auto; padding: 42px 0 70
   .result-actions { justify-self: start; }
   .queue-row { grid-template-columns: 42px minmax(0,1fr); }
   .state-tag { grid-column: 2; justify-self: start; }
+  .library-row { grid-template-columns: 43px minmax(0,1fr); }
+  .library-row code { grid-column: 2; justify-self: start; }
 }
 
 @media (prefers-reduced-motion: reduce) {
