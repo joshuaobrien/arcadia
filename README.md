@@ -35,7 +35,10 @@ services:
     environment:
       - LIDARR_URL=http://lidarr:8686
       - LIDARR_API_KEY=${LIDARR_API_KEY}
+      - NEEDLE_STATE_PATH=/data/state.json
       - TZ=Etc/UTC
+    volumes:
+      - ~/needle-data:/data
     ports:
       - "8787:8787"
     restart: unless-stopped
@@ -43,4 +46,6 @@ services:
 
 `LIDARR_URL` names the Lidarr origin visible from the Needle container and must not include `/api/v1`. When both services belong to the same Compose project, the Lidarr service name resolves directly through Compose DNS.
 
-Needle does not expose Lidarr mutation operations over HTTP. The current production surface is connection status, catalog lookup, acquisition queue, and acquisition history.
+`NEEDLE_STATE_PATH` enables Needle-owned durable state. Mount its containing directory rather than the individual file so state updates can be committed atomically. Needle currently runs as a single writer; do not run multiple replicas against the same state file.
+
+Needle does not expose Lidarr mutation operations over HTTP. The current production surface is connection status, catalog lookup, a durable wanted ledger, acquisition queue, and acquisition history.

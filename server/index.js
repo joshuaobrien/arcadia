@@ -5,6 +5,7 @@ import { dirname, extname, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createLidarrAdapterFromEnv } from './integrations/lidarr.ts'
 import { isAdapterError } from './integrations/errors.ts'
+import { AcquisitionLedger } from './domain/acquisition-ledger.ts'
 
 const AUDIO_EXTENSIONS = new Set([
   '.aac',
@@ -125,6 +126,9 @@ export function buildApp(options = {}) {
   const walkmanPath = options.walkmanPath ?? process.env.WALKMAN_PATH
   const libraryPath = options.libraryPath ?? process.env.MUSIC_LIBRARY_PATH
   const lidarr = options.lidarr === undefined ? createLidarrAdapterFromEnv() : options.lidarr
+  const acquisitionLedger = options.acquisitionLedger === undefined
+    ? process.env.NEEDLE_STATE_PATH ? new AcquisitionLedger(process.env.NEEDLE_STATE_PATH) : null
+    : options.acquisitionLedger
   const staticRoot = options.staticRoot === undefined
     ? process.env.NODE_ENV === 'production' ? resolve(serverDirectory, '../dist') : null
     : options.staticRoot
@@ -179,6 +183,46 @@ export function buildApp(options = {}) {
       device: { profile: { manufacturer: 'Sony', model: 'NW-A55' }, ...device },
       library,
     }
+  })
+  app.get('/api/acquisitions', async () => ({
+    configured: acquisitionLedger !== null,
+    items: acquisitionLedger ? await acquisitionLedger.list() : [],
+  }))
+  app.post('/api/acquisitions', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['release'],
+        additionalProperties: false,
+        properties: {
+          release: {
+            type: 'object',
+            required: ['ref', 'artistRef', 'title'],
+            additionalProperties: false,
+            properties: {
+              ref: providerRefSchema(),
+              artistRef: providerRefSchema(),
+              artistName: { type: 'string', minLength: 1, maxLength: 500 },
+              title: { type: 'string', minLength: 1, maxLength: 500 },
+              releaseDate: { type: 'string', minLength: 1, maxLength: 40 },
+              releaseType: { type: 'string', minLength: 1, maxLength: 100 },
+              musicBrainzReleaseGroupId: { type: 'string', minLength: 1, maxLength: 100 },
+              monitored: { type: 'boolean' },
+              images: { type: 'array', maxItems: 20, items: { type: 'string', maxLength: 2000 } },
+            },
+          },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    if (!acquisitionLedger) return reply.code(503).send({
+      error: {
+        code: 'unavailable',
+        message: 'Needle acquisition state is not configured',
+      },
+    })
+    const result = await acquisitionLedger.wantRelease(request.body.release)
+    return reply.code(result.created ? 201 : 200).send(result.job)
   })
   app.get('/api/services/lidarr', async (_request, reply) => {
     if (!lidarr) return { configured: false }
@@ -256,6 +300,18 @@ function pageQuerySchema() {
     properties: {
       cursor: { type: 'string', minLength: 1, maxLength: 100 },
       limit: { type: 'integer', minimum: 1, maximum: 100, default: 25 },
+    },
+  }
+}
+
+function providerRefSchema() {
+  return {
+    type: 'object',
+    required: ['adapterId', 'nativeId'],
+    additionalProperties: false,
+    properties: {
+      adapterId: { type: 'string', minLength: 1, maxLength: 100 },
+      nativeId: { type: 'string', minLength: 1, maxLength: 500 },
     },
   }
 }
