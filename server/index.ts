@@ -10,6 +10,7 @@ import { AcquisitionRepository } from './domain/acquisition-repository.js'
 import type { AcquisitionAutomationPort } from './integrations/acquisition.js'
 import type { CatalogLookupPort, CatalogRelease } from './integrations/catalog.js'
 import type { OperationContext } from './integrations/common.js'
+import type { AcquisitionDefaults } from './domain/acquisition.js'
 
 const AUDIO_EXTENSIONS = new Set([
   '.aac',
@@ -50,6 +51,8 @@ type LidarrReadAdapter = CatalogLookupPort & Pick<
 interface AcquisitionRepositoryPort {
   list: AcquisitionRepository['list']
   wantRelease: AcquisitionRepository['wantRelease']
+  getDefaults: AcquisitionRepository['getDefaults']
+  setDefaults: AcquisitionRepository['setDefaults']
   close?: AcquisitionRepository['close']
 }
 
@@ -283,6 +286,60 @@ export function buildApp(options: BuildAppOptions = {}) {
     const result = acquisitionRepository.wantRelease(request.body.release)
     return reply.code(result.created ? 201 : 200).send(result.job)
   })
+  app.get('/api/acquisition-defaults', async (_request, reply) => {
+    if (!acquisitionRepository) return reply.code(503).send({
+      error: {
+        code: 'unavailable',
+        message: 'Needle acquisition state is not configured',
+      },
+    })
+    return { value: acquisitionRepository.getDefaults() }
+  })
+  app.put<{ Body: AcquisitionDefaults }>('/api/acquisition-defaults', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['root', 'qualityProfile'],
+        additionalProperties: false,
+        properties: {
+          root: providerRefSchema(),
+          qualityProfile: providerRefSchema(),
+          metadataProfile: providerRefSchema(),
+        },
+      },
+    },
+  }, async (request, reply) => {
+    if (!acquisitionRepository) return reply.code(503).send({
+      error: {
+        code: 'unavailable',
+        message: 'Needle acquisition state is not configured',
+      },
+    })
+    const available = await lidarrRoute(reply, async (adapter, context) => {
+      const [roots, profiles] = await Promise.all([
+        adapter.listRoots(context),
+        adapter.listProfiles(context),
+      ])
+      return { roots, profiles }
+    })
+    if (!available) return
+    const rootExists = available.roots.some(({ ref }) => sameRef(ref, request.body.root))
+    const qualityExists = available.profiles.some(({ ref, kind }) => (
+      kind === 'quality' && sameRef(ref, request.body.qualityProfile)
+    ))
+    const metadataExists = !request.body.metadataProfile || available.profiles.some(({ ref, kind }) => (
+      kind === 'metadata' && sameRef(ref, request.body.metadataProfile!)
+    ))
+    if (!rootExists || !qualityExists || !metadataExists) {
+      return reply.code(400).send({
+        error: {
+          code: 'invalid-request',
+          message: 'Acquisition defaults must reference available Lidarr roots and profiles',
+        },
+      })
+    }
+    return { value: acquisitionRepository.setDefaults(request.body) }
+  })
   app.get('/api/services/lidarr', async (_request, reply) => {
     if (!lidarr) return { configured: false }
     const health = await lidarrRoute(reply, (adapter, context) => adapter.probe(context))
@@ -373,6 +430,10 @@ function providerRefSchema() {
       nativeId: { type: 'string', minLength: 1, maxLength: 500 },
     },
   }
+}
+
+function sameRef(left: { adapterId: string; nativeId: string }, right: { adapterId: string; nativeId: string }): boolean {
+  return left.adapterId === right.adapterId && left.nativeId === right.nativeId
 }
 
 function hasErrorCode(error: unknown, code: string): boolean {

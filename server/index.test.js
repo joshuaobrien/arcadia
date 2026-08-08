@@ -73,6 +73,8 @@ test('acquisition API records Needle-owned wanted state without calling Lidarr',
   const jobs = []
   const acquisitionRepository = {
     list: () => jobs,
+    getDefaults: () => null,
+    setDefaults: (defaults) => defaults,
     wantRelease: (release) => {
       calls.push(release)
       const job = {
@@ -129,10 +131,83 @@ test('acquisition API reports unconfigured state and rejects writes', async (t) 
       },
     },
   })
+  const defaults = await app.inject({
+    method: 'PUT',
+    url: '/api/acquisition-defaults',
+    payload: {
+      root: { adapterId: 'lidarr', nativeId: 'root:id:1' },
+      qualityProfile: { adapterId: 'lidarr', nativeId: 'profile:quality:id:2' },
+    },
+  })
 
   assert.deepEqual(list.json(), { configured: false, items: [] })
   assert.equal(create.statusCode, 503)
   assert.equal(create.json().error.code, 'unavailable')
+  assert.equal(defaults.statusCode, 503)
+  assert.equal(defaults.json().error.code, 'unavailable')
+})
+
+test('acquisition defaults API persists explicit provider references', async (t) => {
+  let saved = null
+  const acquisitionRepository = {
+    list: () => [],
+    wantRelease: () => { throw new Error('not used') },
+    getDefaults: () => saved,
+    setDefaults: (defaults) => { saved = defaults; return defaults },
+  }
+  const lidarr = {
+    listRoots: async () => [{ ref: { adapterId: 'lidarr', nativeId: 'root:id:1' }, path: { providerPath: '/staging' } }],
+    listProfiles: async () => [
+      { ref: { adapterId: 'lidarr', nativeId: 'profile:quality:id:2' }, name: 'Lossless', kind: 'quality' },
+      { ref: { adapterId: 'lidarr', nativeId: 'profile:metadata:id:3' }, name: 'Standard', kind: 'metadata' },
+    ],
+  }
+  const app = buildApp({ acquisitionRepository, lidarr, logger: false })
+  t.after(() => app.close())
+  const defaults = {
+    root: { adapterId: 'lidarr', nativeId: 'root:id:1' },
+    qualityProfile: { adapterId: 'lidarr', nativeId: 'profile:quality:id:2' },
+    metadataProfile: { adapterId: 'lidarr', nativeId: 'profile:metadata:id:3' },
+  }
+
+  const before = await app.inject({ method: 'GET', url: '/api/acquisition-defaults' })
+  const update = await app.inject({ method: 'PUT', url: '/api/acquisition-defaults', payload: defaults })
+  const after = await app.inject({ method: 'GET', url: '/api/acquisition-defaults' })
+
+  assert.deepEqual(before.json(), { value: null })
+  assert.deepEqual(update.json(), { value: defaults })
+  assert.deepEqual(after.json(), { value: defaults })
+})
+
+test('acquisition defaults API rejects references Lidarr does not expose', async (t) => {
+  let writes = 0
+  const acquisitionRepository = {
+    list: () => [],
+    wantRelease: () => { throw new Error('not used') },
+    getDefaults: () => null,
+    setDefaults: (defaults) => { writes += 1; return defaults },
+  }
+  const lidarr = {
+    listRoots: async () => [{ ref: { adapterId: 'lidarr', nativeId: 'root:id:1' }, path: { providerPath: '/staging' } }],
+    listProfiles: async () => [
+      { ref: { adapterId: 'lidarr', nativeId: 'profile:quality:id:2' }, name: 'Lossless', kind: 'quality' },
+    ],
+  }
+  const app = buildApp({ acquisitionRepository, lidarr, logger: false })
+  t.after(() => app.close())
+
+  const response = await app.inject({
+    method: 'PUT',
+    url: '/api/acquisition-defaults',
+    payload: {
+      root: { adapterId: 'lidarr', nativeId: 'root:id:999' },
+      qualityProfile: { adapterId: 'lidarr', nativeId: 'profile:quality:id:2' },
+    },
+  })
+
+  assert.equal(response.statusCode, 400)
+  assert.equal(response.json().error.code, 'invalid-request')
+  assert.equal(writes, 0)
 })
 
 test('Lidarr read routes validate queries and return normalized adapter data', async (t) => {

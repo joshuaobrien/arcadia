@@ -3,9 +3,9 @@ import { mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import type { CatalogRelease } from '../integrations/catalog.js'
-import type { AcquisitionJob } from './acquisition.js'
+import type { AcquisitionDefaults, AcquisitionJob } from './acquisition.js'
 
-const SCHEMA_VERSION = 1
+const SCHEMA_VERSION = 2
 
 interface AcquisitionRow {
   id: string
@@ -16,6 +16,15 @@ interface AcquisitionRow {
   release: string
   created_at: string
   updated_at: string
+}
+
+interface DefaultsRow {
+  root_adapter_id: string
+  root_native_id: string
+  quality_adapter_id: string
+  quality_native_id: string
+  metadata_adapter_id: string | null
+  metadata_native_id: string | null
 }
 
 export interface WantReleaseResult {
@@ -58,6 +67,57 @@ export class AcquisitionRepository {
     return rows.map(toJob)
   }
 
+  getDefaults(): AcquisitionDefaults | null {
+    const row = this.#database.prepare(`
+      SELECT
+        root_adapter_id,
+        root_native_id,
+        quality_adapter_id,
+        quality_native_id,
+        metadata_adapter_id,
+        metadata_native_id
+      FROM acquisition_defaults
+      WHERE id = 1
+    `).get() as unknown as DefaultsRow | undefined
+    if (!row) return null
+    return {
+      root: { adapterId: row.root_adapter_id, nativeId: row.root_native_id },
+      qualityProfile: { adapterId: row.quality_adapter_id, nativeId: row.quality_native_id },
+      ...(row.metadata_adapter_id && row.metadata_native_id
+        ? { metadataProfile: { adapterId: row.metadata_adapter_id, nativeId: row.metadata_native_id } }
+        : {}),
+    }
+  }
+
+  setDefaults(defaults: AcquisitionDefaults): AcquisitionDefaults {
+    this.#database.prepare(`
+      INSERT INTO acquisition_defaults (
+        id,
+        root_adapter_id,
+        root_native_id,
+        quality_adapter_id,
+        quality_native_id,
+        metadata_adapter_id,
+        metadata_native_id
+      ) VALUES (1, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (id) DO UPDATE SET
+        root_adapter_id = excluded.root_adapter_id,
+        root_native_id = excluded.root_native_id,
+        quality_adapter_id = excluded.quality_adapter_id,
+        quality_native_id = excluded.quality_native_id,
+        metadata_adapter_id = excluded.metadata_adapter_id,
+        metadata_native_id = excluded.metadata_native_id
+    `).run(
+      defaults.root.adapterId,
+      defaults.root.nativeId,
+      defaults.qualityProfile.adapterId,
+      defaults.qualityProfile.nativeId,
+      defaults.metadataProfile?.adapterId ?? null,
+      defaults.metadataProfile?.nativeId ?? null,
+    )
+    return this.getDefaults()!
+  }
+
   wantRelease(release: CatalogRelease): WantReleaseResult {
     const id = randomUUID()
     const now = new Date().toISOString()
@@ -91,11 +151,8 @@ export class AcquisitionRepository {
     if (row.user_version > SCHEMA_VERSION) {
       throw new Error(`Needle database schema ${row.user_version} is newer than supported schema ${SCHEMA_VERSION}`)
     }
-    if (row.user_version === SCHEMA_VERSION) return
-
-    this.#database.exec('BEGIN IMMEDIATE')
-    try {
-      this.#database.exec(`
+    if (row.user_version < 1) {
+      this.#transaction(`
         CREATE TABLE acquisitions (
           id TEXT PRIMARY KEY,
           state TEXT NOT NULL CHECK (state = 'wanted'),
@@ -107,8 +164,33 @@ export class AcquisitionRepository {
           updated_at TEXT NOT NULL,
           UNIQUE (adapter_id, native_id)
         );
-        PRAGMA user_version = ${SCHEMA_VERSION};
+        PRAGMA user_version = 1;
       `)
+    }
+    if (row.user_version < 2) {
+      this.#transaction(`
+        CREATE TABLE acquisition_defaults (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          root_adapter_id TEXT NOT NULL,
+          root_native_id TEXT NOT NULL,
+          quality_adapter_id TEXT NOT NULL,
+          quality_native_id TEXT NOT NULL,
+          metadata_adapter_id TEXT,
+          metadata_native_id TEXT,
+          CHECK (
+            (metadata_adapter_id IS NULL AND metadata_native_id IS NULL)
+            OR (metadata_adapter_id IS NOT NULL AND metadata_native_id IS NOT NULL)
+          )
+        );
+        PRAGMA user_version = 2;
+      `)
+    }
+  }
+
+  #transaction(sql: string): void {
+    this.#database.exec('BEGIN IMMEDIATE')
+    try {
+      this.#database.exec(sql)
       this.#database.exec('COMMIT')
     } catch (error) {
       this.#database.exec('ROLLBACK')
