@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
-import { buildApp, scanMediaRoot } from './index.js'
+import { buildApp, scanMediaRoot } from './index.ts'
 
 test('scanMediaRoot counts audio files and infers artist/album directories', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'needle-media-'))

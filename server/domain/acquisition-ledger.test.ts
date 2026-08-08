@@ -3,9 +3,10 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
-import { AcquisitionLedger } from './acquisition-ledger.ts'
+import { AcquisitionLedger } from './acquisition-ledger.js'
+import type { CatalogRelease } from '../integrations/catalog.js'
 
-const release = {
+const release: CatalogRelease = {
   ref: { adapterId: 'lidarr', nativeId: 'album:id:42' },
   artistRef: { adapterId: 'lidarr', nativeId: 'artist:id:7' },
   artistName: 'Broadcast',
