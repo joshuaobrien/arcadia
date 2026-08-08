@@ -66,6 +66,8 @@ test('library tracks API returns a stable paginated canonical inventory', async 
 
   const first = await app.inject({ method: 'GET', url: '/api/library/tracks?limit=1' })
   const second = await app.inject({ method: 'GET', url: `/api/library/tracks?limit=1&cursor=${first.json().nextCursor}` })
+  const albums = await app.inject({ method: 'GET', url: '/api/library/albums' })
+  const albumTracks = await app.inject({ method: 'GET', url: `/api/library/tracks?albumId=${albums.json().items[0].id}` })
 
   assert.equal(first.statusCode, 200)
   assert.equal(first.json().configured, true)
@@ -76,6 +78,16 @@ test('library tracks API returns a stable paginated canonical inventory', async 
   assert.equal(first.json().nextCursor, '1')
   assert.equal(second.json().items[0].relativePath, 'Artist/Album/02 Second.mp3')
   assert.equal(second.json().nextCursor, undefined)
+  assert.equal(albums.json().total, 1)
+  assert.deepEqual(albums.json().items[0], {
+    id: albums.json().items[0].id,
+    title: 'Album',
+    albumArtist: 'Artist',
+    trackCount: 2,
+    totalBytes: 28,
+    formats: ['FLAC', 'MP3'],
+  })
+  assert.equal(albumTracks.json().total, 2)
 })
 
 test('Lidarr API reports an unconfigured adapter without making a request', async (t) => {

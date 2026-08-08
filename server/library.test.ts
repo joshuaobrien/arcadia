@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import type { IAudioMetadata } from 'music-metadata'
-import { readCanonicalLibrary } from './library.js'
+import { listLibraryAlbums, readCanonicalLibrary } from './library.js'
 
 test('canonical library inventory reads tags and retains unreadable audio files', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'needle-library-'))
@@ -66,6 +66,15 @@ test('canonical library inventory reads tags and retains unreadable audio files'
   assert.equal(inventory.tracks[1].metadataStatus, 'unreadable')
   assert.equal(inventory.tracks[1].title, '02 Black Cat')
   assert.deepEqual(readerOptions, [{ skipCovers: true }, { skipCovers: true }])
+  assert.deepEqual(listLibraryAlbums(inventory.tracks), [{
+    id: listLibraryAlbums(inventory.tracks)[0].id,
+    title: 'Tender Buttons',
+    albumArtist: 'Broadcast',
+    year: 2005,
+    trackCount: 2,
+    totalBytes: 11,
+    formats: ['FLAC', 'MP3'],
+  }])
 })
 
 test('canonical library inventory distinguishes unconfigured and missing roots', async () => {
@@ -74,4 +83,24 @@ test('canonical library inventory distinguishes unconfigured and missing roots',
 
   assert.deepEqual(unconfigured, { configured: false, mounted: false, scannedAt: null, tracks: [] })
   assert.deepEqual(missing, { configured: true, mounted: false, scannedAt: null, tracks: [] })
+})
+
+test('album grouping joins disc folders but keeps separate album directories distinct', () => {
+  const track = {
+    bytes: 10,
+    modifiedAt: '2026-08-08T00:00:00.000Z',
+    format: 'FLAC',
+    metadataStatus: 'read' as const,
+    title: 'Track',
+    albumArtist: 'Artist',
+    album: 'Album',
+  }
+  const albums = listLibraryAlbums([
+    { ...track, relativePath: 'Artist/Album/CD 1/01 Track.flac' },
+    { ...track, relativePath: 'Artist/Album/CD 2/01 Track.flac' },
+    { ...track, relativePath: 'Artist/Album Deluxe/01 Track.flac' },
+  ])
+
+  assert.equal(albums.length, 2)
+  assert.deepEqual(albums.map(album => album.trackCount).sort(), [1, 2])
 })

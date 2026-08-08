@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { readdir, stat } from 'node:fs/promises'
 import { basename, extname, relative, resolve, sep } from 'node:path'
 import { parseFile } from 'music-metadata'
@@ -46,6 +47,16 @@ export interface LibraryInventory {
   tracks: readonly LibraryTrack[]
 }
 
+export interface LibraryAlbum {
+  id: string
+  title: string
+  albumArtist: string
+  year?: number
+  trackCount: number
+  totalBytes: number
+  formats: readonly string[]
+}
+
 type MetadataReader = (path: string, options?: IOptions) => Promise<IAudioMetadata>
 
 export async function readCanonicalLibrary(
@@ -78,6 +89,50 @@ export async function readCanonicalLibrary(
     }
     throw error
   }
+}
+
+export function listLibraryAlbums(tracks: readonly LibraryTrack[]): LibraryAlbum[] {
+  const albums = new Map<string, LibraryAlbum & { formatSet: Set<string> }>()
+  for (const track of tracks) {
+    const id = libraryAlbumId(track)
+    const existing = albums.get(id)
+    if (existing) {
+      existing.trackCount += 1
+      existing.totalBytes += track.bytes
+      existing.formatSet.add(track.format)
+      if (!existing.year && track.year) existing.year = track.year
+      continue
+    }
+    const directory = libraryAlbumDirectory(track).split('/')
+    albums.set(id, {
+      id,
+      title: track.album ?? directory.at(-1) ?? 'Unfiled',
+      albumArtist: track.albumArtist ?? track.artists?.[0] ?? directory.at(-2) ?? 'Unknown artist',
+      year: track.year,
+      trackCount: 1,
+      totalBytes: track.bytes,
+      formats: [],
+      formatSet: new Set([track.format]),
+    })
+  }
+  return [...albums.values()]
+    .map(({ formatSet, ...album }) => ({ ...album, formats: [...formatSet].sort() }))
+    .sort((left, right) => {
+      const leftKey = `${left.albumArtist}\0${left.title}\0${left.year ?? 0}`
+      const rightKey = `${right.albumArtist}\0${right.title}\0${right.year ?? 0}`
+      return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0
+    })
+}
+
+export function libraryAlbumId(track: LibraryTrack): string {
+  return createHash('sha256').update(libraryAlbumDirectory(track)).digest('hex')
+}
+
+function libraryAlbumDirectory(track: LibraryTrack): string {
+  const segments = track.relativePath.split('/')
+  segments.pop()
+  if (/^(disc|cd)[ _-]*\d+$/i.test(segments.at(-1) ?? '')) segments.pop()
+  return segments.join('/') || track.relativePath
 }
 
 async function collectAudioPaths(root: string): Promise<string[]> {
