@@ -1,6 +1,7 @@
 import Fastify from 'fastify'
+import fastifyStatic from '@fastify/static'
 import { readdir, statfs } from 'node:fs/promises'
-import { extname, relative, resolve, sep } from 'node:path'
+import { dirname, extname, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createLidarrAdapterFromEnv } from './integrations/lidarr.ts'
 import { isAdapterError } from './integrations/errors.ts'
@@ -22,6 +23,7 @@ const AUDIO_EXTENSIONS = new Set([
 
 const cache = new Map()
 const CACHE_TTL_MS = 30_000
+const serverDirectory = dirname(fileURLToPath(import.meta.url))
 
 function emptyMedia() {
   return { tracks: 0, albums: 0, artists: 0, formats: {} }
@@ -123,6 +125,19 @@ export function buildApp(options = {}) {
   const walkmanPath = options.walkmanPath ?? process.env.WALKMAN_PATH
   const libraryPath = options.libraryPath ?? process.env.MUSIC_LIBRARY_PATH
   const lidarr = options.lidarr === undefined ? createLidarrAdapterFromEnv() : options.lidarr
+  const staticRoot = options.staticRoot === undefined
+    ? process.env.NODE_ENV === 'production' ? resolve(serverDirectory, '../dist') : null
+    : options.staticRoot
+
+  if (staticRoot) {
+    app.register(fastifyStatic, { root: resolve(staticRoot) })
+    app.setNotFoundHandler((request, reply) => {
+      if (request.method === 'GET' && !request.url.startsWith('/api/')) {
+        return reply.sendFile('index.html')
+      }
+      return reply.code(404).send({ error: { code: 'not-found', message: 'Route not found' } })
+    })
+  }
 
   async function lidarrRoute(reply, operation) {
     if (!lidarr) return reply.code(503).send({

@@ -1,0 +1,10 @@
+.git
+.amp
+dist
+node_modules
+npm-debug.log*
+server/**/*.test.js
+.env
+.env.*
+*.pem
+*.key
