@@ -810,43 +810,46 @@ function AlbumArtwork({ album }: { album: LibraryAlbum }) {
   )
 }
 
-function connectionLabel(lidarr: LidarrReadModel): string {
-  if (lidarr.loading) return 'checking'
-  if (lidarr.error) return 'error'
-  if (!lidarr.status?.configured) return 'not configured'
-  return lidarr.status.health?.state ?? 'unavailable'
+function needleStatus(lidarr: LidarrReadModel, beets: BeetsReadModel, library: LibraryModel) {
+  if (lidarr.loading || beets.loading || library.loading) return { label: 'syncing', className: 'degraded' }
+  if (lidarr.error || beets.error || library.error) return { label: 'attention', className: 'offline' }
+  if (!lidarr.status?.configured || !beets.status?.configured || !library.page?.configured || !library.page.mounted) return { label: 'setup needed', className: 'degraded' }
+  return { label: 'ready', className: 'available' }
 }
 
-function Header({ view, setView, lidarr, acquisitions }: {
+function Header({ view, setView, lidarr, beets, library, acquisitions }: {
   view: View
   setView: (view: View) => void
   lidarr: LidarrReadModel
+  beets: BeetsReadModel
+  library: LibraryModel
   acquisitions: AcquisitionsModel
 }) {
+  const status = needleStatus(lidarr, beets, library)
   return (
     <header className="header">
       <div className="brand">
         <span className="brand-mark"><Disc3 size={18} /></span>
-        <span>needle<small>acquisition terminal</small></span>
+        <span>needle<small>your music, end to end</small></span>
       </div>
       <nav aria-label="Primary">
         <button className={view === 'library' ? 'active' : ''} onClick={() => setView('library')}>
-          <LibraryBig size={14} /> Library
+          <LibraryBig size={14} /> Collection
         </button>
         <button className={view === 'imports' ? 'active' : ''} onClick={() => setView('imports')}>
-          <PackageOpen size={14} /> Imports
+          <PackageOpen size={14} /> Review
         </button>
         {acquisitions.configured && <button className={view === 'wanted' ? 'active' : ''} onClick={() => setView('wanted')}>
           <Bookmark size={14} /> Journeys
         </button>}
         <button className={view === 'activity' ? 'active' : ''} onClick={() => setView('activity')}>
-          <Activity size={14} /> Activity
+          <Activity size={14} /> Timeline
         </button>
       </nav>
-      <div className={`connection ${lidarr.status?.health?.state ?? 'offline'}`}>
+      <div className={`connection ${status.className}`}>
         <span />
-        <div><small>LIDARR</small><strong>{connectionLabel(lidarr)}</strong></div>
-        {lidarr.status?.health?.version && <code>v{lidarr.status.health.version}</code>}
+        <div><small>NEEDLE</small><strong>{status.label}</strong></div>
+        <code>system</code>
       </div>
     </header>
   )
@@ -854,14 +857,14 @@ function Header({ view, setView, lidarr, acquisitions }: {
 
 function IntegrationState({ lidarr }: { lidarr: LidarrReadModel }) {
   const message = lidarr.loading
-    ? 'Reading Lidarr'
-    : lidarr.error ?? (!lidarr.status?.configured ? 'Lidarr is not configured' : 'Lidarr is unavailable')
+    ? 'Checking acquisition source'
+    : lidarr.error ?? (!lidarr.status?.configured ? 'Acquisition source needs setup' : 'Acquisition source unavailable')
 
   return (
     <div className="integration-state">
       <Radio size={21} />
       <strong>{message}</strong>
-      <small>Catalog and acquisition data require an active Lidarr connection.</small>
+      <small>{!lidarr.status?.configured ? 'Connect a download source to discover and acquire new music.' : 'Needle cannot read incoming music right now. Check the Lidarr connection.'}</small>
       {!lidarr.loading && <button className="button" onClick={lidarr.refresh}><RefreshCw size={13} /> Retry</button>}
     </div>
   )
@@ -943,11 +946,11 @@ function LibraryView({ library, acquisitions }: { library: LibraryModel; acquisi
     <section>
       <div className="page-heading">
         <div>
-          <p>01 / LIBRARY CATALOG</p>
-          <h1>{album?.title ?? 'Albums'}</h1>
+          <p>01 / YOUR MUSIC</p>
+          <h1>{album?.title ?? 'Collection'}</h1>
         </div>
         {album
-          ? <button className="button" onClick={library.closeAlbum}><ArrowLeft size={13} /> Albums</button>
+          ? <button className="button" onClick={library.closeAlbum}><ArrowLeft size={13} /> Collection</button>
           : <button className="button" onClick={library.refresh} disabled={library.loading}>
             <RefreshCw size={13} className={library.loading ? 'spinning' : ''} /> Refresh
           </button>}
@@ -955,7 +958,7 @@ function LibraryView({ library, acquisitions }: { library: LibraryModel; acquisi
       {library.error && <div className="error-strip">{library.error}</div>}
       {acquisitions.error && <div className="error-strip">{acquisitions.error}</div>}
       {library.loading && !page && !library.activeTerm
-        ? <div className="idle-state"><Disc3 size={34} className="spinning" /><span>Reading Jellyfin catalog</span></div>
+        ? <div className="idle-state"><Disc3 size={34} className="spinning" /><span>Reading your collection</span></div>
         : album ? <section className="panel library-panel">
             <header><h2>{album.albumArtist}</h2><span>{library.tracks.length} tracks</span></header>
             {library.tracks.map(track => (
@@ -996,8 +999,8 @@ function LibraryView({ library, acquisitions }: { library: LibraryModel; acquisi
               {!library.loading && !searchResult?.items.length && <div className="panel"><p className="empty-row">No matching releases</p></div>}
             </> : unavailable ? <div className="integration-state">
               <LibraryBig size={21} />
-              <strong>{page.configured ? 'Jellyfin unavailable' : 'Jellyfin not configured'}</strong>
-              <small>{page.configured ? 'The Jellyfin catalog is unavailable.' : 'Set JELLYFIN_URL and JELLYFIN_API_KEY.'}</small>
+              <strong>{page.configured ? 'Collection unavailable' : 'Collection needs setup'}</strong>
+              <small>{page.configured ? 'Needle cannot read your collection index right now. Check the Jellyfin connection.' : 'Connect your library index to browse music in Needle.'}</small>
               <button className="button" onClick={library.refresh}><RefreshCw size={13} /> Retry</button>
             </div> : <>
               <div className="album-grid">
@@ -1047,7 +1050,7 @@ function ActivityView({ lidarr, imports, sectionNumber }: { lidarr: LidarrReadMo
   return (
     <section>
       <div className="page-heading">
-        <div><p>{sectionNumber} / NEEDLE OPERATIONS</p><h1>Activity</h1></div>
+        <div><p>{sectionNumber} / MUSIC IN MOTION</p><h1>Timeline</h1></div>
         <button className="button" onClick={() => { void lidarr.refresh(); void imports.refresh() }} disabled={refreshing}>
           <RefreshCw size={13} className={refreshing ? 'spinning' : ''} /> Refresh
         </button>
@@ -1057,26 +1060,26 @@ function ActivityView({ lidarr, imports, sectionNumber }: { lidarr: LidarrReadMo
       {imports.error && <div className="error-strip">{imports.error}</div>}
       <div className="activity-grid">
         {available && <section className="panel queue-panel">
-          <header><h2>Queue</h2><span>{lidarr.queue.length}</span></header>
+          <header><h2>Incoming</h2><span>{lidarr.queue.length}</span></header>
           {lidarr.queue.length
             ? lidarr.queue.map(item => <QueueRow item={item} key={item.ref.nativeId} />)
-            : <p className="empty-row">Queue empty</p>}
+            : <p className="empty-row">Nothing incoming</p>}
         </section>}
         {available && <section className="panel history-panel">
-          <header><h2>Recent history</h2><span>{lidarr.history.length}</span></header>
+          <header><h2>Recent movement</h2><span>{lidarr.history.length}</span></header>
           {lidarr.history.length ? lidarr.history.map(item => (
             <article className="history-row" key={item.ref.nativeId}>
               <span>{item.eventType}</span>
-              <div><strong>{item.release?.title ?? item.artist?.name ?? 'Unmatched acquisition'}</strong><small>{item.artist?.name ?? item.underlyingDownloadRef ?? 'Lidarr'}</small></div>
+              <div><strong>{item.release?.title ?? item.artist?.name ?? 'Unmatched acquisition'}</strong><small>{item.artist?.name ?? item.underlyingDownloadRef ?? 'Acquisition source'}</small></div>
               <time>{new Date(item.occurredAt).toLocaleString()}</time>
             </article>
-          )) : <p className="empty-row">No recent history</p>}
+          )) : <p className="empty-row">No recent movement</p>}
         </section>}
         <section className="panel import-history-panel">
-          <header><h2>Beets imports</h2><span>{imports.items.length}</span></header>
+          <header><h2>Library commits</h2><span>{imports.items.length}</span></header>
           {!imports.configured && !imports.loading ? <p className="empty-row">Needle database persistence is not configured</p>
             : imports.items.length ? imports.items.map(item => <ImportOperationRow item={item} key={item.id} />)
-              : <p className="empty-row">No Needle-managed imports yet</p>}
+              : <p className="empty-row">No library commits yet</p>}
         </section>
       </div>
     </section>
@@ -1085,14 +1088,14 @@ function ActivityView({ lidarr, imports, sectionNumber }: { lidarr: LidarrReadMo
 
 function ImportOperationRow({ item }: { item: BeetsImportOperation }) {
   const first = item.selections[0]
-  const title = first?.album ?? item.providerPath.split('/').filter(Boolean).pop() ?? 'Beets import'
+  const title = first?.album ?? item.providerPath.split('/').filter(Boolean).pop() ?? 'Music import'
   const detail = [first?.artist, item.selections.length > 1 ? `${item.selections.length} reviewed tasks` : `${first?.trackCount ?? 0} tracks`, item.acquisitionId ? 'Linked journey' : 'No wanted release'].filter(Boolean).join(' · ')
   const labels: Record<BeetsImportOperationState, string> = {
     submitting: 'submission pending',
-    submitted: 'beets submitted',
+    submitted: 'import queued',
     'submission-unknown': 'outcome unknown',
-    'provider-completed': 'awaiting Jellyfin',
-    'library-confirmed': 'library confirmed',
+    'provider-completed': 'verifying collection',
+    'library-confirmed': 'in collection',
   }
   return <article className="history-row import-operation-row">
     <span className={item.state}>{labels[item.state]}</span>
@@ -1111,15 +1114,15 @@ function ImportsView({ beets }: { beets: BeetsReadModel }) {
   return (
     <section>
       <div className="page-heading">
-        <div><p>02 / BEETS STAGING</p><h1>Imports</h1></div>
+        <div><p>02 / READY TO REVIEW</p><h1>Review</h1></div>
         <button className="button" onClick={beets.refresh} disabled={beets.loading}>
           <RefreshCw size={13} className={beets.loading ? 'spinning' : ''} /> Refresh
         </button>
       </div>
       {!available ? <div className="integration-state">
         <PackageOpen size={21} />
-        <strong>{beets.loading ? 'Reading beets inboxes' : beets.error ?? (!beets.status?.configured ? 'beets-flask is not configured' : 'beets-flask is unavailable')}</strong>
-        <small>Staging and import state require the beets-flask connection.</small>
+        <strong>{beets.loading ? 'Reading the staging area' : beets.error ?? (!beets.status?.configured ? 'Import review needs setup' : 'Import review unavailable')}</strong>
+        <small>{!beets.status?.configured ? 'Connect beets-flask to review and import staged music.' : 'Needle cannot read staged music right now. Check the beets-flask connection.'}</small>
         {!beets.loading && <button className="button" onClick={beets.refresh}><RefreshCw size={13} /> Retry</button>}
       </div> : <>
         <div className="inbox-grid">
@@ -1143,7 +1146,7 @@ function ImportsView({ beets }: { beets: BeetsReadModel }) {
             return (
               <button className="import-row" key={`${entry.providerPath}:${entry.hash}`} onClick={() => beets.openFolder(entry)} disabled={!entry.hash}>
                 <div className="media-object case"><i /></div>
-                <div><strong>{entry.name}</strong><small>{inbox?.name ?? 'Beets inbox'} · {countFiles(entry)} files</small></div>
+                <div><strong>{entry.name}</strong><small>{inbox?.name ?? 'Staging inbox'} · {countFiles(entry)} files</small></div>
                 <span className={`state-tag ${status ?? 'unknown'}`}>{(status ?? 'untracked').replace('-', ' ')}</span>
               </button>
             )
@@ -1163,18 +1166,18 @@ function ImportReview({ beets, folder }: { beets: BeetsReadModel; folder: BeetsI
   return (
     <section>
       <div className="page-heading">
-        <div><p>02 / BEETS REVIEW</p><h1>{folder.name}</h1></div>
-        <button className="button" onClick={beets.closeFolder} disabled={busy}><ArrowLeft size={13} /> Imports</button>
+        <div><p>02 / IMPORT REVIEW</p><h1>{folder.name}</h1></div>
+        <button className="button" onClick={beets.closeFolder} disabled={busy}><ArrowLeft size={13} /> Review</button>
       </div>
       {beets.error && <div className="error-strip">{beets.error}</div>}
       {beets.workflowState === 'previewing' && <div className="idle-state compact">
-        <Disc3 size={28} className="spinning" /><span>Generating beets metadata preview</span>
+        <Disc3 size={28} className="spinning" /><span>Preparing metadata choices</span>
       </div>}
       {beets.workflowState === 'submission-unknown' && !session && <div className="integration-state">
         <Radio size={21} />
         <strong>Preview submission outcome unknown</strong>
-        <small>Do not retry. Return to Imports and refresh beets status before taking another action.</small>
-        <button className="button" onClick={beets.closeFolder}><ArrowLeft size={13} /> Imports</button>
+        <small>Do not retry. Return to Review and refresh the beets-flask status before taking another action.</small>
+        <button className="button" onClick={beets.closeFolder}><ArrowLeft size={13} /> Review</button>
       </div>}
       {session && <div className="preview-layout">
         {session.tasks.map((task, taskIndex) => (
@@ -1228,15 +1231,15 @@ function ImportReview({ beets, folder }: { beets: BeetsReadModel; folder: BeetsI
               {beets.wantedAcquisitions.map(item => <option value={item.id} key={item.id}>{item.artist ? `${item.artist} — ` : ''}{item.release ?? item.id}</option>)}
             </select>
           </label>
-          <p className="lifecycle-note">Needle cannot safely infer this association from beets metadata. A selected journey moves to importing now and completes only after Jellyfin confirmation.</p>
+          <p className="lifecycle-note">Needle cannot safely infer this association from metadata alone. A selected journey moves to importing now and completes only after collection verification.</p>
         </section>
         <section className="import-approval panel">
-          {beets.workflowState === 'completed' ? <div className="completion-message"><Check size={18} /><strong>Beets workflow completed</strong><small>Canonical-library presence has not yet been confirmed through Jellyfin.</small></div>
-            : beets.workflowState === 'provider-imported' ? <div className="completion-message"><Check size={18} /><strong>Beets reports this folder as imported</strong><small>This is historical provider state; Needle did not record or verify the choices used for that import.</small></div>
-            : beets.workflowState === 'submission-unknown' ? <div className="completion-message unknown"><Radio size={18} /><strong>Submission outcome unknown</strong><small>Do not retry. Refresh the Imports page and inspect beets status before taking another action.</small></div> : <>
+          {beets.workflowState === 'completed' ? <div className="completion-message"><Check size={18} /><strong>Import complete</strong><small>Needle is waiting to verify this release in your collection.</small></div>
+            : beets.workflowState === 'provider-imported' ? <div className="completion-message"><Check size={18} /><strong>Previously imported</strong><small>This import predates Needle's review record, so its metadata choices cannot be verified.</small></div>
+            : beets.workflowState === 'submission-unknown' ? <div className="completion-message unknown"><Radio size={18} /><strong>Submission outcome unknown</strong><small>Do not retry. Return to Review and inspect the beets-flask status before taking another action.</small></div> : <>
             <label>
               <input type="checkbox" checked={beets.approved} onChange={event => beets.setApproved(event.target.checked)} disabled={busy || !allSelected || !beets.decisionValid} />
-              <span><strong>I approve these choices</strong><small>Beets will run the selected metadata and duplicate policy. A skipped duplicate may complete without adding another library copy. Staging files are retained.</small></span>
+              <span><strong>I approve these choices</strong><small>Needle will apply the selected metadata and duplicate policy. A skipped duplicate may complete without adding another collection copy. Staging files are retained.</small></span>
             </label>
             <button className="button primary" onClick={beets.importSelection} disabled={!allSelected || !beets.approved || !beets.decisionValid || busy}>
               <ShieldCheck size={13} /> {beets.workflowState === 'importing' ? 'Importing…' : 'Import selected metadata'}
@@ -1252,14 +1255,14 @@ function WantedView({ acquisitions }: { acquisitions: AcquisitionsModel }) {
   return (
     <section>
       <div className="page-heading">
-        <div><p>03 / NEEDLE STATE</p><h1>Release journeys</h1></div>
+        <div><p>03 / FROM WANT TO OWN</p><h1>Journeys</h1></div>
         <button className="button" onClick={acquisitions.refresh} disabled={acquisitions.loading}>
           <RefreshCw size={13} className={acquisitions.loading ? 'spinning' : ''} /> Refresh
         </button>
       </div>
       {acquisitions.error && <div className="error-strip">{acquisitions.error}</div>}
       <section className="panel wanted-panel">
-        <header><h2>Acquisition lifecycle</h2><span>{acquisitions.items.length}</span></header>
+        <header><h2>Release progress</h2><span>{acquisitions.items.length}</span></header>
         {acquisitions.items.length ? acquisitions.items.map(item => (
           <article className="wanted-row" key={item.id}>
             <div className="media-object case"><i /></div>
@@ -1283,7 +1286,7 @@ function App() {
 
   return (
     <div className="app-shell">
-      <Header view={view} setView={setView} lidarr={lidarr} acquisitions={acquisitions} />
+      <Header view={view} setView={setView} lidarr={lidarr} beets={beets} library={library} acquisitions={acquisitions} />
       <main>
         {view === 'library' && <LibraryView library={library} acquisitions={acquisitions} />}
         {view === 'imports' && <ImportsView beets={beets} />}
