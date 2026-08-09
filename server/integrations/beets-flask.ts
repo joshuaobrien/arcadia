@@ -104,6 +104,9 @@ export class BeetsFlaskAdapter implements BeetsImportPort {
     })
     const status = object(value.status, 'session.status')
     const session = { id: requiredString(value.id, 'session.id'), providerPath: requiredString(value.folder_path, 'session.folder_path'), hash: requiredString(value.folder_hash, 'session.folder_hash'), progress: integer(status.progress, 'session.status.progress'), tasks }
+    if (session.providerPath === folder.providerPath && session.hash !== folder.hash) {
+      throw new AdapterError({ code: 'not-found', adapterId: this.adapterId, message: 'No preview session exists for the current folder revision', retryable: false })
+    }
     if (session.providerPath !== folder.providerPath || session.hash !== folder.hash) invalid('session does not match the requested folder path and hash')
     return session
   }

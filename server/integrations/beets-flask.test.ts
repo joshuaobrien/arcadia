@@ -110,12 +110,20 @@ test('beets-flask rejects HTTP-200 exceptions and mismatched mutation acknowledg
     error => error instanceof AdapterError && error.providerCode === 'outcome-unknown' && error.retryable === false,
   )
 
-  const wrongSession = new BeetsFlaskAdapter({ baseUrl: 'http://beets.test:5001', fetch: async () => json({
+  const staleSession = new BeetsFlaskAdapter({ baseUrl: 'http://beets.test:5001', fetch: async () => json({
     id: 'old-session', folder_path: '/inbox/Album', folder_hash: 'old-hash', status: { progress: 20 }, exc: null, tasks: [],
   }) })
   await assert.rejects(
-    () => wrongSession.getPreview({ providerPath: '/inbox/Album', hash: 'hash' }, context),
-    error => error instanceof AdapterError && error.message.includes('does not match'),
+    () => staleSession.getPreview({ providerPath: '/inbox/Album', hash: 'hash' }, context),
+    error => error instanceof AdapterError && error.code === 'not-found' && error.retryable === false,
+  )
+
+  const wrongPath = new BeetsFlaskAdapter({ baseUrl: 'http://beets.test:5001', fetch: async () => json({
+    id: 'wrong-session', folder_path: '/inbox/Other', folder_hash: 'hash', status: { progress: 20 }, exc: null, tasks: [],
+  }) })
+  await assert.rejects(
+    () => wrongPath.getPreview({ providerPath: '/inbox/Album', hash: 'hash' }, context),
+    error => error instanceof AdapterError && error.code === 'transient-provider-failure' && error.message.includes('does not match'),
   )
 
   const unknownOutcome = new BeetsFlaskAdapter({ baseUrl: 'http://beets.test:5001', fetch: async () => { throw new Error('connection reset') } })
