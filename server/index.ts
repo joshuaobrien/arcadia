@@ -8,7 +8,7 @@ import { createLidarrAdapterFromEnv } from './integrations/lidarr.js'
 import { createJellyfinAdapterFromEnv } from './integrations/jellyfin.js'
 import { createBeetsFlaskAdapterFromEnv } from './integrations/beets-flask.js'
 import { isAdapterError } from './integrations/errors.js'
-import { AcquisitionRepository } from './domain/acquisition-repository.js'
+import { AcquisitionLinkConflictError, AcquisitionRepository } from './domain/acquisition-repository.js'
 import type { BeetsImportOperation, BeetsImportSelection } from './domain/acquisition-repository.js'
 import type { AcquisitionAutomationPort } from './integrations/acquisition.js'
 import type { CatalogLookupPort, CatalogRelease } from './integrations/catalog.js'
@@ -58,6 +58,7 @@ type LidarrReadAdapter = CatalogLookupPort & Pick<
 
 interface AcquisitionRepositoryPort {
   list: AcquisitionRepository['list']
+  get?: AcquisitionRepository['get']
   wantRelease: AcquisitionRepository['wantRelease']
   getDefaults: AcquisitionRepository['getDefaults']
   setDefaults: AcquisitionRepository['setDefaults']
@@ -66,6 +67,7 @@ interface AcquisitionRepositoryPort {
   getBeetsImportOperation?: AcquisitionRepository['getBeetsImportOperation']
   listBeetsImportOperations?: AcquisitionRepository['listBeetsImportOperations']
   transitionBeetsImportOperation?: AcquisitionRepository['transitionBeetsImportOperation']
+  abortBeetsImportOperation?: AcquisitionRepository['abortBeetsImportOperation']
 }
 
 interface BuildAppOptions {
@@ -308,10 +310,14 @@ export function buildApp(options: BuildAppOptions = {}) {
       return await operation(beets, { operationId: crypto.randomUUID() })
     } catch (error) {
       if (!isAdapterError(error)) throw error
-      const status = error.code === 'invalid-request' ? 400 : error.code === 'not-found' ? 404 : error.code === 'unsupported' ? 501 : 502
-      reply.code(status).send({ error: error.toJSON() })
+      sendBeetsError(reply, error)
       return undefined
     }
+  }
+
+  function sendBeetsError(reply: FastifyReply, error: { code: string, toJSON(): unknown }): void {
+    const status = error.code === 'invalid-request' ? 400 : error.code === 'not-found' ? 404 : error.code === 'unsupported' ? 501 : 502
+    reply.code(status).send({ error: error.toJSON() })
   }
 
   function sameOrigin(request: { headers: { origin?: string, host?: string }, protocol: string }, reply: FastifyReply): boolean {
@@ -650,12 +656,17 @@ export function buildApp(options: BuildAppOptions = {}) {
   app.get<{ Querystring: { providerPath: string, hash: string } }>('/api/imports/preview', { schema: { querystring: folderSchema } }, async (request, reply) => {
     return beetsRoute(reply, (adapter, context) => adapter.getPreview(request.query, context))
   })
-  app.post<{ Body: { providerPath: string, hash: string, sessionId: string, choices: BeetsImportChoice[] } }>('/api/imports/import', { schema: { body: {
-    type: 'object', required: ['providerPath', 'hash', 'sessionId', 'choices'], additionalProperties: false,
-    properties: { ...folderSchema.properties, sessionId: { type: 'string', minLength: 1, maxLength: 256 }, choices: { type: 'array', minItems: 1, maxItems: 1000, items: { type: 'object', required: ['taskId', 'candidateId', 'duplicateAction'], additionalProperties: false, properties: { taskId: { type: 'string', minLength: 1, maxLength: 256 }, candidateId: { type: 'string', minLength: 1, maxLength: 256 }, duplicateAction: { type: 'string', enum: ['skip', 'keep'] } } } } },
+  app.post<{ Body: { providerPath: string, hash: string, sessionId: string, choices: BeetsImportChoice[], acquisitionId: string | null } }>('/api/imports/import', { schema: { body: {
+    type: 'object', required: ['providerPath', 'hash', 'sessionId', 'choices', 'acquisitionId'], additionalProperties: false,
+    properties: { ...folderSchema.properties, acquisitionId: { anyOf: [{ type: 'string', minLength: 1, maxLength: 128 }, { type: 'null' }] }, sessionId: { type: 'string', minLength: 1, maxLength: 256 }, choices: { type: 'array', minItems: 1, maxItems: 1000, items: { type: 'object', required: ['taskId', 'candidateId', 'duplicateAction'], additionalProperties: false, properties: { taskId: { type: 'string', minLength: 1, maxLength: 256 }, candidateId: { type: 'string', minLength: 1, maxLength: 256 }, duplicateAction: { type: 'string', enum: ['skip', 'keep'] } } } } },
   } } }, async (request, reply) => {
     if (!sameOrigin(request, reply)) return
     const body = request.body
+    if (body.acquisitionId !== null) {
+      if (!acquisitionRepository?.createBeetsImportOperation || !acquisitionRepository.get) return reply.code(503).send({ error: { code: 'unavailable', message: 'Acquisition linkage persistence is not configured' } })
+      const acquisition = acquisitionRepository.get(body.acquisitionId)
+      if (!acquisition || acquisition.state !== 'wanted') return reply.code(409).send({ error: { code: 'conflict', message: 'Selected acquisition does not exist or is not wanted' } })
+    }
     if (!await validatedFolder(body.providerPath, body.hash, reply)) return
     const session = await beetsRoute(reply, (adapter, context) => adapter.getPreview(body, context))
     if (reply.sent || !session) return
@@ -675,31 +686,49 @@ export function buildApp(options: BuildAppOptions = {}) {
           ...(candidate.artist ? { artist: candidate.artist } : {}), ...(candidate.album ? { album: candidate.album } : {}),
           ...(candidate.year !== undefined ? { year: candidate.year } : {}), trackCount: candidate.trackCount }
       })
-      const created = acquisitionRepository.createBeetsImportOperation({ sessionId: session.id, providerPath: body.providerPath, hash: body.hash, selections })
+      let created
+      try {
+        created = acquisitionRepository.createBeetsImportOperation({ sessionId: session.id, providerPath: body.providerPath, hash: body.hash, selections,
+          ...(body.acquisitionId === null ? {} : { acquisitionId: body.acquisitionId }) })
+      } catch (error) {
+        if (error instanceof AcquisitionLinkConflictError) return reply.code(409).send({ error: { code: 'conflict', message: error.message } })
+        throw error
+      }
       if (!created.created) return reply.code(409).send({ error: { code: 'conflict', message: 'This preview session has already been submitted for import' } })
       operation = created.operation
     } else {
       if (submittedBeetsImports.has(session.id)) return reply.code(409).send({ error: { code: 'conflict', message: 'This preview session has already been submitted for import' } })
       submittedBeetsImports.add(session.id)
     }
+    const unknownSubmission = () => {
+      if (operation) {
+        try { acquisitionRepository?.transitionBeetsImportOperation?.(operation.id, 'submitting', 'submission-unknown') } catch { /* durable recovery will retry on restart */ }
+      }
+      return reply.code(503).send({ error: {
+        code: 'unavailable', message: 'The import submission outcome is unknown; do not retry automatically',
+        retryable: false, providerCode: 'outcome-unknown',
+      } })
+    }
     let acknowledgement
     try {
-      acknowledgement = await beetsRoute(reply, (adapter, context) => adapter.enqueueImport(body, context))
+      if (!beets) throw new Error('beets-flask is not configured')
+      acknowledgement = await beets.enqueueImport(body, { operationId: crypto.randomUUID() })
     } catch (error) {
-      if (operation) acquisitionRepository?.transitionBeetsImportOperation?.(operation.id, 'submitting', 'submission-unknown')
-      throw error
-    }
-    if (reply.sent) {
-      if (operation) acquisitionRepository?.transitionBeetsImportOperation?.(operation.id, 'submitting', 'submission-unknown')
+      if (!isAdapterError(error) || error.providerCode === 'outcome-unknown') return unknownSubmission()
+      try {
+        if (operation && !acquisitionRepository?.abortBeetsImportOperation?.(operation.id)) return unknownSubmission()
+        if (!operation) submittedBeetsImports.delete(session.id)
+      } catch { return unknownSubmission() }
+      sendBeetsError(reply, error)
       return
     }
     if (operation) {
-      const persisted = acquisitionRepository?.transitionBeetsImportOperation?.(operation.id, 'submitting', 'submitted', { providerJobId: acknowledgement!.jobId })
+      let persisted
+      try {
+        persisted = acquisitionRepository?.transitionBeetsImportOperation?.(operation.id, 'submitting', 'submitted', { providerJobId: acknowledgement.jobId })
+      } catch { return unknownSubmission() }
       if (!persisted || persisted.state !== 'submitted' || persisted.providerJobId !== acknowledgement!.jobId) {
-        return reply.code(503).send({ error: {
-          code: 'unavailable', message: 'The durable import submission outcome is unknown; do not retry automatically',
-          retryable: false, providerCode: 'outcome-unknown',
-        } })
+        return unknownSubmission()
       }
     }
     return reply.code(202).send({ ...acknowledgement!, ...(operation ? { importOperationId: operation.id } : {}) })

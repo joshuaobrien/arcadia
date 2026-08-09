@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import { buildApp, scanMediaRoot } from './index.ts'
+import { AdapterError } from './integrations/errors.ts'
 
 test('scanMediaRoot counts audio files and infers artist/album directories', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'needle-media-'))
@@ -220,6 +221,8 @@ test('beets workflow gates mutations on the current album tree and validated cho
   const operations = []
   let libraryAlbums = []
   let loseSubmissionCas = false
+  let throwSubmissionCas = false
+  const linkedAcquisition = { id: 'wanted-1', state: 'wanted', artist: 'Artist', release: 'Album', searchRefs: [{ adapterId: 'lidarr', nativeId: 'album:1' }], createdAt: '2026-08-09T00:00:00Z', updatedAt: '2026-08-09T00:00:00Z' }
   const folder = { name: 'Album', providerPath: '/inbox/Album', hash: 'album-hash', album: true, type: 'directory', children: [] }
   const session = {
     id: 'session-1', providerPath: folder.providerPath, hash: folder.hash, progress: 20,
@@ -237,25 +240,40 @@ test('beets workflow gates mutations on the current album tree and validated cho
     enqueueImport: async (request, context) => { calls.push(['import', request]); return { jobId: 'import-job', kind: 'import_candidate', providerPath: request.providerPath, hash: request.hash, operationId: context.operationId } },
   }
   const acquisitionRepository = {
-    list: () => [], wantRelease: () => { throw new Error('not used') }, getDefaults: () => null, setDefaults: defaults => defaults,
+    list: () => [linkedAcquisition], get: id => id === linkedAcquisition.id ? linkedAcquisition : null,
+    wantRelease: () => { throw new Error('not used') }, getDefaults: () => null, setDefaults: defaults => defaults,
     createBeetsImportOperation: input => {
       const existing = operations.find(item => item.sessionId === input.sessionId)
       if (existing) return { operation: existing, created: false }
       const operation = { id: `import-operation-${operations.length + 1}`, ...input, state: 'submitting', libraryAlbumIds: [], createdAt: '2026-08-09T00:00:00.000Z', updatedAt: '2026-08-09T00:00:00.000Z' }
       operations.push(operation)
+      if (input.acquisitionId) Object.assign(linkedAcquisition, { state: 'importing', importRef: { adapterId: 'beets-import', nativeId: operation.id } })
       return { operation, created: true }
     },
     getBeetsImportOperation: id => operations.find(item => item.id === id) ?? null,
     listBeetsImportOperations: () => operations,
+    abortBeetsImportOperation: id => {
+      const index = operations.findIndex(item => item.id === id && item.state === 'submitting')
+      if (index < 0) return false
+      const [operation] = operations.splice(index, 1)
+      if (operation.acquisitionId) Object.assign(linkedAcquisition, { state: 'wanted', importRef: undefined })
+      return true
+    },
     transitionBeetsImportOperation: (id, expectedState, state, update = {}) => {
       const operation = operations.find(item => item.id === id)
       if (!operation) return null
       if (operation.state !== expectedState) return operation
+      if (throwSubmissionCas && expectedState === 'submitting' && state === 'submitted') {
+        throwSubmissionCas = false
+        throw new Error('database write failed')
+      }
       if (loseSubmissionCas && expectedState === 'submitting' && state === 'submitted') {
         operation.state = 'submission-unknown'
         return operation
       }
       Object.assign(operation, { state, updatedAt: '2026-08-09T00:01:00.000Z' }, update)
+      if (operation.acquisitionId && state === 'submission-unknown') linkedAcquisition.state = 'selection-required'
+      if (operation.acquisitionId && state === 'library-confirmed') linkedAcquisition.state = 'completed'
       return operation
     },
   }
@@ -285,19 +303,26 @@ test('beets workflow gates mutations on the current album tree and validated cho
   assert.equal(review.statusCode, 200)
   assert.deepEqual(review.json(), session)
 
-  const invalidChoice = await app.inject({ method: 'POST', url: '/api/imports/import', payload: { providerPath: folder.providerPath, hash: folder.hash, sessionId: session.id, choices: [{ taskId: 'task-1', candidateId: 'unknown', duplicateAction: 'skip' }] } })
+  const missingDecision = await app.inject({ method: 'POST', url: '/api/imports/import', payload: { providerPath: folder.providerPath, hash: folder.hash, sessionId: session.id, choices: [{ taskId: 'task-1', candidateId: 'candidate-1', duplicateAction: 'skip' }] } })
+  assert.equal(missingDecision.statusCode, 400)
+  const missingAcquisition = await app.inject({ method: 'POST', url: '/api/imports/import', payload: { acquisitionId: 'missing', providerPath: folder.providerPath, hash: folder.hash, sessionId: session.id, choices: [{ taskId: 'task-1', candidateId: 'candidate-1', duplicateAction: 'skip' }] } })
+  assert.equal(missingAcquisition.statusCode, 409)
+
+  const invalidChoice = await app.inject({ method: 'POST', url: '/api/imports/import', payload: { acquisitionId: null, providerPath: folder.providerPath, hash: folder.hash, sessionId: session.id, choices: [{ taskId: 'task-1', candidateId: 'unknown', duplicateAction: 'skip' }] } })
   assert.equal(invalidChoice.statusCode, 409)
 
-  const dangerousPolicy = await app.inject({ method: 'POST', url: '/api/imports/import', payload: { providerPath: folder.providerPath, hash: folder.hash, sessionId: session.id, choices: [{ taskId: 'task-1', candidateId: 'candidate-1', duplicateAction: 'remove' }] } })
+  const dangerousPolicy = await app.inject({ method: 'POST', url: '/api/imports/import', payload: { acquisitionId: null, providerPath: folder.providerPath, hash: folder.hash, sessionId: session.id, choices: [{ taskId: 'task-1', candidateId: 'candidate-1', duplicateAction: 'remove' }] } })
   assert.equal(dangerousPolicy.statusCode, 400)
 
-  const imported = await app.inject({ method: 'POST', url: '/api/imports/import', payload: { providerPath: folder.providerPath, hash: folder.hash, sessionId: session.id, choices: [{ taskId: 'task-1', candidateId: 'candidate-1', duplicateAction: 'keep' }] } })
+  const imported = await app.inject({ method: 'POST', url: '/api/imports/import', payload: { acquisitionId: linkedAcquisition.id, providerPath: folder.providerPath, hash: folder.hash, sessionId: session.id, choices: [{ taskId: 'task-1', candidateId: 'candidate-1', duplicateAction: 'keep' }] } })
   assert.equal(imported.statusCode, 202)
   assert.equal(imported.json().jobId, 'import-job')
   assert.equal(imported.json().importOperationId, 'import-operation-1')
+  assert.equal(operations[0].acquisitionId, linkedAcquisition.id)
+  assert.equal(linkedAcquisition.state, 'importing')
   assert.deepEqual(operations[0].selections, [{ taskId: 'task-1', candidateId: 'candidate-1', duplicateAction: 'keep', artist: 'Artist', album: 'Album', trackCount: 1 }])
   assert.equal(operations[0].state, 'submitted')
-  const duplicateImport = await app.inject({ method: 'POST', url: '/api/imports/import', payload: { providerPath: folder.providerPath, hash: folder.hash, sessionId: session.id, choices: [{ taskId: 'task-1', candidateId: 'candidate-1', duplicateAction: 'keep' }] } })
+  const duplicateImport = await app.inject({ method: 'POST', url: '/api/imports/import', payload: { acquisitionId: null, providerPath: folder.providerPath, hash: folder.hash, sessionId: session.id, choices: [{ taskId: 'task-1', candidateId: 'candidate-1', duplicateAction: 'keep' }] } })
   assert.equal(duplicateImport.statusCode, 409)
 
   session.progress = 40
@@ -316,23 +341,41 @@ test('beets workflow gates mutations on the current album tree and validated cho
   const confirmed = await app.inject({ method: 'POST', url: '/api/imports/operations/import-operation-1/reconcile', payload: {} })
   assert.equal(confirmed.json().state, 'library-confirmed')
   assert.deepEqual(confirmed.json().libraryAlbumIds, ['album-1'])
+  assert.equal(linkedAcquisition.state, 'completed')
   assert.deepEqual((await app.inject({ method: 'GET', url: '/api/imports/operations' })).json(), { configured: true, items: operations })
 
   session.id = 'session-2'
   session.progress = 20
   delete session.tasks[0].chosenCandidateId
   beets.enqueueImport = async () => { throw new Error('unexpected provider failure') }
-  const failedSubmission = await app.inject({ method: 'POST', url: '/api/imports/import', payload: { providerPath: folder.providerPath, hash: folder.hash, sessionId: session.id, choices: [{ taskId: 'task-1', candidateId: 'candidate-1', duplicateAction: 'skip' }] } })
-  assert.equal(failedSubmission.statusCode, 500)
+  const failedSubmission = await app.inject({ method: 'POST', url: '/api/imports/import', payload: { acquisitionId: null, providerPath: folder.providerPath, hash: folder.hash, sessionId: session.id, choices: [{ taskId: 'task-1', candidateId: 'candidate-1', duplicateAction: 'skip' }] } })
+  assert.equal(failedSubmission.statusCode, 503)
+  assert.equal(failedSubmission.json().error.providerCode, 'outcome-unknown')
   assert.equal(operations[1].state, 'submission-unknown')
 
   session.id = 'session-3'
   beets.enqueueImport = async (request, context) => ({ jobId: 'accepted-but-not-persisted', kind: 'import_candidate', providerPath: request.providerPath, hash: request.hash, operationId: context.operationId })
   loseSubmissionCas = true
-  const lostDurability = await app.inject({ method: 'POST', url: '/api/imports/import', payload: { providerPath: folder.providerPath, hash: folder.hash, sessionId: session.id, choices: [{ taskId: 'task-1', candidateId: 'candidate-1', duplicateAction: 'skip' }] } })
+  const lostDurability = await app.inject({ method: 'POST', url: '/api/imports/import', payload: { acquisitionId: null, providerPath: folder.providerPath, hash: folder.hash, sessionId: session.id, choices: [{ taskId: 'task-1', candidateId: 'candidate-1', duplicateAction: 'skip' }] } })
   assert.equal(lostDurability.statusCode, 503)
   assert.equal(lostDurability.json().error.providerCode, 'outcome-unknown')
   assert.equal(operations[2].state, 'submission-unknown')
+
+  loseSubmissionCas = false
+  session.id = 'session-4'
+  beets.enqueueImport = async () => { throw new AdapterError({ code: 'invalid-request', adapterId: 'beets', message: 'Rejected before enqueue', retryable: false, providerStatus: 400 }) }
+  const rejected = await app.inject({ method: 'POST', url: '/api/imports/import', payload: { acquisitionId: null, providerPath: folder.providerPath, hash: folder.hash, sessionId: session.id, choices: [{ taskId: 'task-1', candidateId: 'candidate-1', duplicateAction: 'skip' }] } })
+  assert.equal(rejected.statusCode, 400)
+  assert.equal(operations.some(item => item.sessionId === session.id), false)
+  beets.enqueueImport = async (request, context) => ({ jobId: 'retry-job', kind: 'import_candidate', providerPath: request.providerPath, hash: request.hash, operationId: context.operationId })
+  assert.equal((await app.inject({ method: 'POST', url: '/api/imports/import', payload: { acquisitionId: null, providerPath: folder.providerPath, hash: folder.hash, sessionId: session.id, choices: [{ taskId: 'task-1', candidateId: 'candidate-1', duplicateAction: 'skip' }] } })).statusCode, 202)
+
+  session.id = 'session-5'
+  throwSubmissionCas = true
+  const failedDurabilityWrite = await app.inject({ method: 'POST', url: '/api/imports/import', payload: { acquisitionId: null, providerPath: folder.providerPath, hash: folder.hash, sessionId: session.id, choices: [{ taskId: 'task-1', candidateId: 'candidate-1', duplicateAction: 'skip' }] } })
+  assert.equal(failedDurabilityWrite.statusCode, 503)
+  assert.equal(failedDurabilityWrite.json().error.providerCode, 'outcome-unknown')
+  assert.equal(operations.find(item => item.sessionId === session.id)?.state, 'submission-unknown')
   assert.deepEqual(calls.map(([kind]) => kind), ['preview', 'import'])
 })
 

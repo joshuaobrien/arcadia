@@ -2,7 +2,7 @@ import type { AcquisitionJob } from './domain/acquisition.js'
 import type { CatalogRelease } from './integrations/catalog.js'
 import type { LibraryAlbum } from './integrations/library-catalog.js'
 
-export type MusicReleaseState = 'in-library' | 'wanted' | 'can-request'
+export type MusicReleaseState = 'in-library' | 'wanted' | 'importing' | 'selection-required' | 'can-request'
 
 export interface MusicRelease {
   key: string
@@ -36,7 +36,7 @@ export function mergeMusicReleases(
       title: album.title,
       artist: album.albumArtist,
       year: album.year,
-      state: 'in-library',
+      state: releaseState(acquisition, true),
       musicBrainzReleaseGroupId: identity,
       libraryAlbum: album,
       acquisition,
@@ -53,7 +53,7 @@ export function mergeMusicReleases(
       title: existing?.title ?? release.title,
       artist: existing?.artist ?? release.artistName ?? 'Unknown artist',
       year: existing?.year ?? releaseYear(release.releaseDate),
-      state: existing?.libraryAlbum ? 'in-library' : acquisition ? 'wanted' : 'can-request',
+      state: acquisition ? releaseState(acquisition, Boolean(existing?.libraryAlbum)) : existing?.libraryAlbum ? 'in-library' : 'can-request',
       musicBrainzReleaseGroupId: identity,
       libraryAlbum: existing?.libraryAlbum,
       catalogRelease: release,
@@ -70,7 +70,7 @@ export function mergeMusicReleases(
       key,
       title: acquisition.release ?? 'Unknown release',
       artist: acquisition.artist ?? 'Unknown artist',
-      state: 'wanted',
+      state: releaseState(acquisition, false),
       musicBrainzReleaseGroupId: identity,
       acquisition,
     })
@@ -80,6 +80,13 @@ export function mergeMusicReleases(
     [left.artist, left.year?.toString() ?? '', left.title, left.key],
     [right.artist, right.year?.toString() ?? '', right.title, right.key],
   ))
+}
+
+function releaseState(acquisition: AcquisitionJob | undefined, inLibrary: boolean): MusicReleaseState {
+  if (inLibrary || acquisition?.state === 'completed') return 'in-library'
+  if (acquisition?.state === 'importing') return 'importing'
+  if (acquisition?.state === 'selection-required') return 'selection-required'
+  return 'wanted'
 }
 
 function indexByMbid(acquisitions: readonly AcquisitionJob[]): Map<string, AcquisitionJob> {
