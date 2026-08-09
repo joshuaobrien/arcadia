@@ -215,6 +215,59 @@ test('beets read routes expose normalized items and truthful unconfigured errors
   assert.deepEqual((await app.inject({ method: 'GET', url: '/api/imports/status' })).json(), { items: await beets.listFolderStatuses() })
 })
 
+test('beets workflow gates mutations on the current album tree and validated choices', async (t) => {
+  const calls = []
+  const folder = { name: 'Album', providerPath: '/inbox/Album', hash: 'album-hash', album: true, type: 'directory', children: [] }
+  const session = {
+    id: 'session-1', providerPath: folder.providerPath, hash: folder.hash, progress: 20,
+    tasks: [{
+      id: 'task-1', currentMetadata: { artist: 'Artist', album: 'Album' }, items: [{ title: 'Track' }],
+      candidates: [{ id: 'candidate-1', kind: 'candidate', artist: 'Artist', album: 'Album', distance: 0.1, penalties: [], trackCount: 1, duplicateCount: 0 }],
+    }],
+  }
+  const beets = {
+    adapterId: 'beets', kind: 'beets',
+    probe: async () => ({ adapterId: 'beets', kind: 'beets', state: 'available', checkedAt: '2026-08-09T00:00:00Z', latencyMs: 2 }),
+    listInboxes: async () => [], listFolders: async () => [folder], listFolderStatuses: async () => [],
+    getPreview: async () => session,
+    enqueuePreview: async (target, context) => { calls.push(['preview', target]); return { jobId: 'preview-job', kind: 'preview', ...target, operationId: context.operationId } },
+    enqueueImport: async (request, context) => { calls.push(['import', request]); return { jobId: 'import-job', kind: 'import_candidate', providerPath: request.providerPath, hash: request.hash, operationId: context.operationId } },
+  }
+  const app = buildApp({ beets, lidarr: null, jellyfin: null, logger: false })
+  t.after(() => app.close())
+
+  const crossOrigin = await app.inject({ method: 'POST', url: '/api/imports/preview', headers: { origin: 'https://evil.example' }, payload: { providerPath: folder.providerPath, hash: folder.hash } })
+  assert.equal(crossOrigin.statusCode, 403)
+  assert.equal(calls.length, 0)
+
+  const stale = await app.inject({ method: 'POST', url: '/api/imports/preview', payload: { providerPath: folder.providerPath, hash: 'stale-hash' } })
+  assert.equal(stale.statusCode, 409)
+  assert.equal(calls.length, 0)
+
+  const preview = await app.inject({ method: 'POST', url: '/api/imports/preview', payload: { providerPath: folder.providerPath, hash: folder.hash } })
+  assert.equal(preview.statusCode, 202)
+  assert.equal(preview.json().jobId, 'preview-job')
+  const duplicatePreview = await app.inject({ method: 'POST', url: '/api/imports/preview', payload: { providerPath: folder.providerPath, hash: folder.hash } })
+  assert.equal(duplicatePreview.statusCode, 409)
+
+  const review = await app.inject({ method: 'GET', url: `/api/imports/preview?providerPath=${encodeURIComponent(folder.providerPath)}&hash=${folder.hash}` })
+  assert.equal(review.statusCode, 200)
+  assert.deepEqual(review.json(), session)
+
+  const invalidChoice = await app.inject({ method: 'POST', url: '/api/imports/import', payload: { providerPath: folder.providerPath, hash: folder.hash, sessionId: session.id, choices: [{ taskId: 'task-1', candidateId: 'unknown', duplicateAction: 'skip' }] } })
+  assert.equal(invalidChoice.statusCode, 409)
+
+  const dangerousPolicy = await app.inject({ method: 'POST', url: '/api/imports/import', payload: { providerPath: folder.providerPath, hash: folder.hash, sessionId: session.id, choices: [{ taskId: 'task-1', candidateId: 'candidate-1', duplicateAction: 'remove' }] } })
+  assert.equal(dangerousPolicy.statusCode, 400)
+
+  const imported = await app.inject({ method: 'POST', url: '/api/imports/import', payload: { providerPath: folder.providerPath, hash: folder.hash, sessionId: session.id, choices: [{ taskId: 'task-1', candidateId: 'candidate-1', duplicateAction: 'keep' }] } })
+  assert.equal(imported.statusCode, 202)
+  assert.equal(imported.json().jobId, 'import-job')
+  const duplicateImport = await app.inject({ method: 'POST', url: '/api/imports/import', payload: { providerPath: folder.providerPath, hash: folder.hash, sessionId: session.id, choices: [{ taskId: 'task-1', candidateId: 'candidate-1', duplicateAction: 'keep' }] } })
+  assert.equal(duplicateImport.statusCode, 409)
+  assert.deepEqual(calls.map(([kind]) => kind), ['preview', 'import'])
+})
+
 test('acquisition API records Needle-owned wanted state without calling Lidarr', async (t) => {
   const calls = []
   const jobs = []

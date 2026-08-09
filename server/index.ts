@@ -16,7 +16,7 @@ import type { AcquisitionDefaults } from './domain/acquisition.js'
 import { readCanonicalLibrary } from './library.js'
 import type { LibraryInventory } from './library.js'
 import type { LibraryAlbum, LibraryCatalogPort } from './integrations/library-catalog.js'
-import type { BeetsImportPort } from './integrations/beets-import.js'
+import type { BeetsImportChoice, BeetsImportPort, BeetsInboxFolder } from './integrations/beets-import.js'
 import { mergeMusicReleases } from './music-releases.js'
 
 const AUDIO_EXTENSIONS = new Set([
@@ -223,6 +223,8 @@ export function buildApp(options: BuildAppOptions = {}) {
   const staticRoot = options.staticRoot === undefined
     ? process.env.NODE_ENV === 'production' ? resolve(serverDirectory, '../dist') : null
     : options.staticRoot
+  const submittedBeetsPreviews = new Set<string>()
+  const submittedBeetsImports = new Set<string>()
 
   if (staticRoot) {
     app.register(fastifyStatic, { root: resolve(staticRoot) })
@@ -305,6 +307,25 @@ export function buildApp(options: BuildAppOptions = {}) {
       reply.code(status).send({ error: error.toJSON() })
       return undefined
     }
+  }
+
+  function sameOrigin(request: { headers: { origin?: string, host?: string }, protocol: string }, reply: FastifyReply): boolean {
+    if (!request.headers.origin) return true
+    const expected = `${request.protocol}://${request.headers.host}`
+    if (request.headers.origin === expected) return true
+    reply.code(403).send({ error: { code: 'forbidden', message: 'Cross-origin mutation requests are forbidden' } })
+    return false
+  }
+
+  async function validatedFolder(providerPath: string, hash: string, reply: FastifyReply) {
+    const folders = await beetsRoute(reply, (adapter, context) => adapter.listFolders(context))
+    if (reply.sent) return undefined
+    const matches: BeetsInboxFolder[] = []
+    const visit = (nodes: readonly BeetsInboxFolder[]) => nodes.forEach(node => { if (node.providerPath === providerPath && node.hash === hash && node.album && node.hash.length > 0) matches.push(node); visit(node.children) })
+    visit(folders!)
+    if (matches.length === 1) return matches[0]
+    reply.code(409).send({ error: { code: 'conflict', message: 'Folder path and hash do not identify exactly one current album' } })
+    return undefined
   }
 
   app.get('/api/health', async () => ({ status: 'ok' }))
@@ -603,6 +624,44 @@ export function buildApp(options: BuildAppOptions = {}) {
   app.get('/api/imports/status', async (_request, reply) => {
     const items = await beetsRoute(reply, (adapter, context) => adapter.listFolderStatuses(context))
     return reply.sent ? undefined : { items }
+  })
+  const folderSchema = {
+    type: 'object', required: ['providerPath', 'hash'], additionalProperties: false,
+    properties: { providerPath: { type: 'string', minLength: 1, maxLength: 4096 }, hash: { type: 'string', minLength: 1, maxLength: 256 } },
+  } as const
+  app.post<{ Body: { providerPath: string, hash: string } }>('/api/imports/preview', { schema: { body: folderSchema } }, async (request, reply) => {
+    if (!sameOrigin(request, reply)) return
+    if (!await validatedFolder(request.body.providerPath, request.body.hash, reply)) return
+    const submissionKey = JSON.stringify([request.body.providerPath, request.body.hash])
+    if (submittedBeetsPreviews.has(submissionKey)) return reply.code(409).send({ error: { code: 'conflict', message: 'A preview has already been submitted for this album content' } })
+    submittedBeetsPreviews.add(submissionKey)
+    const acknowledgement = await beetsRoute(reply, (adapter, context) => adapter.enqueuePreview(request.body, context))
+    if (!reply.sent) return reply.code(202).send(acknowledgement)
+  })
+  app.get<{ Querystring: { providerPath: string, hash: string } }>('/api/imports/preview', { schema: { querystring: folderSchema } }, async (request, reply) => {
+    return beetsRoute(reply, (adapter, context) => adapter.getPreview(request.query, context))
+  })
+  app.post<{ Body: { providerPath: string, hash: string, sessionId: string, choices: BeetsImportChoice[] } }>('/api/imports/import', { schema: { body: {
+    type: 'object', required: ['providerPath', 'hash', 'sessionId', 'choices'], additionalProperties: false,
+    properties: { ...folderSchema.properties, sessionId: { type: 'string', minLength: 1, maxLength: 256 }, choices: { type: 'array', minItems: 1, maxItems: 1000, items: { type: 'object', required: ['taskId', 'candidateId', 'duplicateAction'], additionalProperties: false, properties: { taskId: { type: 'string', minLength: 1, maxLength: 256 }, candidateId: { type: 'string', minLength: 1, maxLength: 256 }, duplicateAction: { type: 'string', enum: ['skip', 'keep'] } } } } },
+  } } }, async (request, reply) => {
+    if (!sameOrigin(request, reply)) return
+    const body = request.body
+    if (!await validatedFolder(body.providerPath, body.hash, reply)) return
+    const session = await beetsRoute(reply, (adapter, context) => adapter.getPreview(body, context))
+    if (reply.sent || !session) return
+    const taskIds = new Set(session.tasks.map(task => task.id))
+    const selected = new Set<string>()
+    const valid = session.progress === 20 && session.id === body.sessionId && session.providerPath === body.providerPath && session.hash === body.hash && body.choices.length === session.tasks.length && body.choices.every(choice => {
+      if (!taskIds.has(choice.taskId) || selected.has(choice.taskId)) return false
+      selected.add(choice.taskId)
+      return session.tasks.find(task => task.id === choice.taskId)!.candidates.some(candidate => candidate.id === choice.candidateId)
+    })
+    if (!valid || selected.size !== taskIds.size) return reply.code(409).send({ error: { code: 'conflict', message: 'Import choices do not match the current preview session' } })
+    if (submittedBeetsImports.has(session.id)) return reply.code(409).send({ error: { code: 'conflict', message: 'This preview session has already been submitted for import' } })
+    submittedBeetsImports.add(session.id)
+    const acknowledgement = await beetsRoute(reply, (adapter, context) => adapter.enqueueImport(body, context))
+    if (!reply.sent) return reply.code(202).send(acknowledgement)
   })
 
   return app

@@ -31,9 +31,52 @@ export interface BeetsFolderStatus {
   status: BeetsFolderImportStatus
 }
 
-/** Read-only projection of beets-flask's inbox and import session state. */
+export interface BeetsJobAcknowledgement {
+  jobId: string
+  kind: 'preview' | 'import_candidate'
+  providerPath: string
+  hash: string
+  operationId: string
+}
+
+export interface BeetsImportChoice {
+  taskId: string
+  candidateId: string
+  duplicateAction: 'skip' | 'keep'
+}
+
+export interface BeetsPreviewCandidate {
+  id: string
+  kind: 'candidate' | 'as-is'
+  artist?: string
+  album?: string
+  year?: number
+  source?: string
+  distance: number
+  penalties: readonly string[]
+  trackCount: number
+  duplicateCount: number
+}
+
+export interface BeetsPreviewSession {
+  id: string
+  providerPath: string
+  hash: string
+  progress: number
+  tasks: readonly {
+    id: string
+    chosenCandidateId?: string
+    currentMetadata: { artist?: string, album?: string, year?: number }
+    items: readonly { title?: string, artist?: string, length?: number, format?: string }[]
+    candidates: readonly BeetsPreviewCandidate[]
+  }[]
+}
+
 export interface BeetsImportPort extends ServiceAdapter {
   listInboxes(context: OperationContext): Promise<readonly BeetsInboxStats[]>
   listFolders(context: OperationContext): Promise<readonly BeetsInboxFolder[]>
   listFolderStatuses(context: OperationContext): Promise<readonly BeetsFolderStatus[]>
+  enqueuePreview(folder: { providerPath: string, hash: string }, context: OperationContext): Promise<BeetsJobAcknowledgement>
+  getPreview(folder: { providerPath: string, hash: string }, context: OperationContext): Promise<BeetsPreviewSession>
+  enqueueImport(folder: { providerPath: string, hash: string, sessionId: string, choices: readonly BeetsImportChoice[] }, context: OperationContext): Promise<BeetsJobAcknowledgement>
 }

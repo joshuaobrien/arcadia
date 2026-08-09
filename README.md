@@ -56,10 +56,10 @@ volumes:
 
 `JELLYFIN_URL` and `JELLYFIN_API_KEY` provide Needle's read-only library browser with album, track, and artwork metadata. Create the key in Jellyfin under **Dashboard → Advanced → API Keys**. Needle does not send a Jellyfin user ID or call mutation endpoints.
 
-`BEETS_URL=http://beets-flask:5001` enables the beets-flask inbox and import-status integration. Its current scope is strictly read-only: Needle reads health, inbox statistics and trees, and folder statuses; it does not request previews, imports, or deletions.
+`BEETS_URL=http://beets-flask:5001` enables the beets-flask inbox and import workflow. Needle reads inbox and session state, requests metadata previews, and submits only explicitly approved candidate imports. Duplicate handling is limited to skip or keep; Needle never calls beets-flask delete operations. This integration targets the internal API of beets-flask 1.2.x, so pin and test that service before upgrading it.
 
 `MUSIC_LIBRARY_PATH` points to the canonical audio filesystem inside the Needle container. Mount the corresponding host directory read-only; Needle uses these bytes for inventory and future device synchronization, while Jellyfin supplies the browsing projection.
 
 `NEEDLE_DATABASE_PATH` enables Needle-owned durable state in SQLite. The named volume preserves the database, write-ahead log, and shared-memory files across container replacement. Needle currently runs as a single writer; do not run multiple replicas against the same database.
 
-Needle does not expose Lidarr, Jellyfin, or beets-flask mutation operations over HTTP.
+Needle does not expose Lidarr or Jellyfin mutation operations. Beets-flask preview and import mutations are constrained to current inbox albums and require explicit candidate approval.

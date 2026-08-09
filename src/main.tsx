@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { createRoot } from 'react-dom/client'
-import { Activity, ArrowLeft, Bookmark, Check, Disc3, LibraryBig, PackageOpen, Radio, RefreshCw, Search } from 'lucide-react'
+import { Activity, ArrowLeft, Bookmark, Check, Disc3, LibraryBig, PackageOpen, Radio, RefreshCw, Search, ShieldCheck } from 'lucide-react'
 import './styles.css'
 
 interface ProviderRef {
@@ -67,6 +67,43 @@ interface BeetsFolderStatus {
   providerPath: string
   hash: string
   status: BeetsImportStatus
+}
+
+interface BeetsPreviewCandidate {
+  id: string
+  kind: 'candidate' | 'as-is'
+  artist?: string
+  album?: string
+  year?: number
+  source?: string
+  distance: number
+  penalties: string[]
+  trackCount: number
+  duplicateCount: number
+}
+
+interface BeetsPreviewTask {
+  id: string
+  chosenCandidateId?: string
+  currentMetadata: { artist?: string; album?: string; year?: number }
+  items: { title?: string; artist?: string; length?: number; format?: string }[]
+  candidates: BeetsPreviewCandidate[]
+}
+
+interface BeetsPreviewSession {
+  id: string
+  providerPath: string
+  hash: string
+  progress: number
+  tasks: BeetsPreviewTask[]
+}
+
+interface BeetsJobAcknowledgement {
+  jobId: string
+  kind: 'preview' | 'import_candidate'
+  providerPath: string
+  hash: string
+  operationId: string
 }
 
 interface QueueItem {
@@ -148,7 +185,12 @@ interface LibraryPage<T> {
 }
 
 interface ErrorResponse {
-  error?: { message?: string }
+  error?: { code?: string; message?: string; providerCode?: string }
+}
+
+class UnknownSubmissionError extends Error {}
+class ApiError extends Error {
+  constructor(message: string, readonly code?: string) { super(message) }
 }
 
 interface MusicRelease {
@@ -177,7 +219,7 @@ type View = 'library' | 'imports' | 'wanted' | 'activity'
 async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   const response = await fetch(path, { signal })
   const body = await response.json() as T & ErrorResponse
-  if (!response.ok) throw new Error(body.error?.message ?? `Request failed (${response.status})`)
+  if (!response.ok) throw requestError(body, response.status)
   return body
 }
 
@@ -188,7 +230,28 @@ async function postJson<T>(path: string, payload: unknown): Promise<T> {
     body: JSON.stringify(payload),
   })
   const body = await response.json() as T & ErrorResponse
-  if (!response.ok) throw new Error(body.error?.message ?? `Request failed (${response.status})`)
+  if (!response.ok) throw requestError(body, response.status)
+  return body
+}
+
+async function postBeetsMutation(path: string, payload: { providerPath: string; hash: string; [key: string]: unknown }, kind: BeetsJobAcknowledgement['kind']): Promise<BeetsJobAcknowledgement> {
+  let response: Response
+  try {
+    response = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+  } catch (error) {
+    throw new UnknownSubmissionError(`Needle submission outcome is unknown; do not retry (${errorMessage(error)})`)
+  }
+  let body: BeetsJobAcknowledgement & ErrorResponse
+  try {
+    body = await response.json() as BeetsJobAcknowledgement & ErrorResponse
+  } catch {
+    throw new UnknownSubmissionError('Needle returned an unreadable submission response; do not retry')
+  }
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) throw new UnknownSubmissionError('Needle returned an invalid submission response; do not retry')
+  if (!response.ok) throw requestError(body, response.status)
+  if (response.status !== 202 || typeof body.jobId !== 'string' || !body.jobId || body.kind !== kind || body.providerPath !== payload.providerPath || body.hash !== payload.hash || typeof body.operationId !== 'string' || !body.operationId) {
+    throw new UnknownSubmissionError('Needle returned an invalid submission acknowledgement; do not retry')
+  }
   return body
 }
 
@@ -242,7 +305,14 @@ function useBeetsReadModel() {
   const [folderStatuses, setFolderStatuses] = useState<BeetsFolderStatus[]>([])
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [selectedFolder, setSelectedFolder] = useState<BeetsInboxEntry | null>(null)
+  const [preview, setPreview] = useState<BeetsPreviewSession | null>(null)
+  const [workflowState, setWorkflowState] = useState<'idle' | 'previewing' | 'review' | 'importing' | 'completed' | 'provider-imported' | 'submission-unknown'>('idle')
+  const [selectedCandidates, setSelectedCandidates] = useState<Record<string, string>>({})
+  const [duplicateActions, setDuplicateActions] = useState<Record<string, 'skip' | 'keep'>>({})
+  const [approved, setApproved] = useState(false)
   const activeRequest = useRef(0)
+  const submissionInFlight = useRef(false)
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     const request = ++activeRequest.current
@@ -280,7 +350,140 @@ function useBeetsReadModel() {
     return () => controller.abort()
   }, [refresh])
 
-  return { status, inboxes, folders, folderStatuses, error, loading, refresh: () => refresh() }
+  async function openFolder(folder: BeetsInboxEntry) {
+    if (submissionInFlight.current) return
+    submissionInFlight.current = true
+    const request = ++activeRequest.current
+    setSelectedFolder(folder)
+    setPreview(null)
+    setSelectedCandidates({})
+    setDuplicateActions({})
+    setApproved(false)
+    setError(null)
+    setWorkflowState('previewing')
+    try {
+      const existingStatus = currentFolderStatus(folder, folderStatuses)
+      let session: BeetsPreviewSession
+      if (existingStatus === 'previewed' || existingStatus === 'imported') {
+        session = await getJson<BeetsPreviewSession>(previewPath(folder))
+        const expectedProgress = existingStatus === 'imported' ? 40 : 20
+        if (session.progress !== expectedProgress) throw new Error('The beets preview session is not ready for review')
+      } else if (existingStatus === 'pending' || existingStatus === 'previewing' || existingStatus === 'importing') {
+        session = await waitForExistingSession(folder, existingStatus === 'importing' ? 40 : 20, request)
+      } else {
+        let previousSessionId: string | undefined
+        try {
+          previousSessionId = (await getJson<BeetsPreviewSession>(previewPath(folder))).id
+        } catch (error) {
+          if (!(error instanceof ApiError && error.code === 'not-found')) throw error
+        }
+        await postBeetsMutation('/api/imports/preview', { providerPath: folder.providerPath, hash: folder.hash }, 'preview')
+        session = await waitForNewPreview(folder, previousSessionId, request)
+      }
+      if (request !== activeRequest.current) return
+      setPreview(session)
+      setDuplicateActions(Object.fromEntries(session.tasks.map(task => [task.id, 'skip'])))
+      setWorkflowState(existingStatus === 'importing' || existingStatus === 'imported' ? 'provider-imported' : 'review')
+    } catch (requestError) {
+      if (request === activeRequest.current) {
+        setError(errorMessage(requestError))
+        setWorkflowState(requestError instanceof UnknownSubmissionError ? 'submission-unknown' : 'idle')
+      }
+    } finally {
+      submissionInFlight.current = false
+    }
+  }
+
+  async function waitForNewPreview(folder: BeetsInboxEntry, previousSessionId: string | undefined, request: number) {
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      if (request !== activeRequest.current) throw new Error('Preview cancelled')
+      try {
+        const session = await getJson<BeetsPreviewSession>(previewPath(folder))
+        if (session.id !== previousSessionId && session.progress === 20) return session
+      } catch { /* session is not ready */ }
+      await delay(1000)
+    }
+    throw new Error('beets-flask is still processing this album. Refresh to resume.')
+  }
+
+  async function waitForExistingSession(folder: BeetsInboxEntry, progress: number, request: number) {
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      if (request !== activeRequest.current) throw new Error('Preview cancelled')
+      try {
+        const session = await getJson<BeetsPreviewSession>(previewPath(folder))
+        if (session.progress === progress) return session
+      } catch { /* session is not ready */ }
+      await delay(1000)
+    }
+    throw new Error('beets-flask is still processing this album. Refresh to resume.')
+  }
+
+  async function importSelection() {
+    if (!selectedFolder || !preview || !approved || submissionInFlight.current) return
+    const choices = preview.tasks.map(task => ({
+      taskId: task.id,
+      candidateId: selectedCandidates[task.id],
+      duplicateAction: duplicateActions[task.id] ?? 'skip',
+    }))
+    if (choices.some(choice => !choice.candidateId)) return
+    submissionInFlight.current = true
+    const request = ++activeRequest.current
+    setError(null)
+    setWorkflowState('importing')
+    try {
+      await postBeetsMutation('/api/imports/import', {
+        providerPath: selectedFolder.providerPath,
+        hash: selectedFolder.hash,
+        sessionId: preview.id,
+        choices,
+      }, 'import_candidate')
+      await waitForImportCompletion(selectedFolder, preview.id, choices, request)
+      if (request !== activeRequest.current) return
+      setWorkflowState('completed')
+      setApproved(false)
+      await refresh()
+    } catch (requestError) {
+      if (request === activeRequest.current) {
+        setError(errorMessage(requestError))
+        setApproved(false)
+        setWorkflowState(requestError instanceof UnknownSubmissionError ? 'submission-unknown' : 'review')
+      }
+    } finally {
+      submissionInFlight.current = false
+    }
+  }
+
+  async function waitForImportCompletion(folder: BeetsInboxEntry, sessionId: string, choices: { taskId: string; candidateId: string }[], request: number) {
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      if (request !== activeRequest.current) return
+      try {
+        const session = await getJson<BeetsPreviewSession>(previewPath(folder))
+        const selectionsMatch = choices.every(choice => session.tasks.find(task => task.id === choice.taskId)?.chosenCandidateId === choice.candidateId)
+        if (session.id === sessionId && session.progress === 40 && selectionsMatch) return
+      } catch { /* import is not complete */ }
+      await delay(1000)
+    }
+    throw new Error('beets-flask is still importing this album. Refresh to inspect its status.')
+  }
+
+  function closeFolder() {
+    activeRequest.current += 1
+    setSelectedFolder(null)
+    setPreview(null)
+    setWorkflowState('idle')
+    setSelectedCandidates({})
+    setDuplicateActions({})
+    setApproved(false)
+    setError(null)
+  }
+
+  return {
+    status, inboxes, folders, folderStatuses, error, loading, refresh: () => refresh(),
+    selectedFolder, preview, workflowState, selectedCandidates, duplicateActions, approved,
+    openFolder, closeFolder, importSelection, setApproved,
+    selectCandidate: (taskId: string, candidateId: string) => { setApproved(false); setSelectedCandidates(current => ({ ...current, [taskId]: candidateId })) },
+    setDuplicateAction: (taskId: string, action: 'skip' | 'keep') => { setApproved(false); setDuplicateActions(current => ({ ...current, [taskId]: action })) },
+  }
 }
 
 type BeetsReadModel = ReturnType<typeof useBeetsReadModel>
@@ -769,6 +972,9 @@ function ActivityView({ lidarr, sectionNumber }: { lidarr: LidarrReadModel; sect
 function ImportsView({ beets }: { beets: BeetsReadModel }) {
   const available = beets.status?.configured && beets.status.health?.state === 'available' && !beets.error
   const albums = beets.folders.flatMap(root => collectStagedAlbums(root))
+  const selected = beets.selectedFolder
+
+  if (selected) return <ImportReview beets={beets} folder={selected} />
 
   return (
     <section>
@@ -800,19 +1006,96 @@ function ImportsView({ beets }: { beets: BeetsReadModel }) {
         <section className="panel imports-panel">
           <header><h2>Staged albums</h2><span>{albums.length}</span></header>
           {albums.length ? albums.map(entry => {
-            const exactStatus = beets.folderStatuses.find(item => item.providerPath === entry.providerPath && item.hash === entry.hash)
-            const status = exactStatus?.status ?? beets.folderStatuses.find(item => item.providerPath === entry.providerPath)?.status
+            const status = currentFolderStatus(entry, beets.folderStatuses)
             const inbox = beets.inboxes.find(item => entry.providerPath === item.providerPath || entry.providerPath.startsWith(`${item.providerPath}/`))
             return (
-              <article className="import-row" key={`${entry.providerPath}:${entry.hash}`}>
+              <button className="import-row" key={`${entry.providerPath}:${entry.hash}`} onClick={() => beets.openFolder(entry)} disabled={!entry.hash}>
                 <div className="media-object case"><i /></div>
                 <div><strong>{entry.name}</strong><small>{inbox?.name ?? 'Beets inbox'} · {countFiles(entry)} files</small></div>
                 <span className={`state-tag ${status ?? 'unknown'}`}>{(status ?? 'untracked').replace('-', ' ')}</span>
-              </article>
+              </button>
             )
           }) : <p className="empty-row">No staged albums detected</p>}
         </section>
       </>}
+    </section>
+  )
+}
+
+function ImportReview({ beets, folder }: { beets: BeetsReadModel; folder: BeetsInboxEntry }) {
+  const session = beets.preview
+  const allSelected = Boolean(session?.tasks.length) && session!.tasks.every(task => beets.selectedCandidates[task.id])
+  const busy = beets.workflowState === 'previewing' || beets.workflowState === 'importing'
+  const locked = busy || beets.workflowState === 'completed' || beets.workflowState === 'provider-imported'
+
+  return (
+    <section>
+      <div className="page-heading">
+        <div><p>02 / BEETS REVIEW</p><h1>{folder.name}</h1></div>
+        <button className="button" onClick={beets.closeFolder} disabled={busy}><ArrowLeft size={13} /> Imports</button>
+      </div>
+      {beets.error && <div className="error-strip">{beets.error}</div>}
+      {beets.workflowState === 'previewing' && <div className="idle-state compact">
+        <Disc3 size={28} className="spinning" /><span>Generating beets metadata preview</span>
+      </div>}
+      {beets.workflowState === 'submission-unknown' && !session && <div className="integration-state">
+        <Radio size={21} />
+        <strong>Preview submission outcome unknown</strong>
+        <small>Do not retry. Return to Imports and refresh beets status before taking another action.</small>
+        <button className="button" onClick={beets.closeFolder}><ArrowLeft size={13} /> Imports</button>
+      </div>}
+      {session && <div className="preview-layout">
+        {session.tasks.map((task, taskIndex) => (
+          <section className="panel preview-task" key={task.id}>
+            <header><h2>{task.currentMetadata.album ?? `Album group ${taskIndex + 1}`}</h2><span>{task.items.length} tracks</span></header>
+            <div className="candidate-list">
+              {task.candidates.map(candidate => {
+                const active = beets.selectedCandidates[task.id] === candidate.id
+                return <button
+                  className={`candidate-card ${active ? 'selected' : ''}`}
+                  key={candidate.id}
+                  onClick={() => beets.selectCandidate(task.id, candidate.id)}
+                  disabled={locked}
+                >
+                  <span className="candidate-radio">{active && <Check size={11} />}</span>
+                  <div>
+                    <strong>{candidate.kind === 'as-is' ? 'Keep current metadata' : candidate.album ?? 'Untitled candidate'}</strong>
+                    <small>{candidate.kind === 'as-is' ? `${task.currentMetadata.artist ?? 'Unknown artist'} · as downloaded` : [candidate.artist, candidate.year, candidate.source].filter(Boolean).join(' · ')}</small>
+                    <code>{candidate.trackCount} tracks · distance {candidate.distance.toFixed(3)}{candidate.duplicateCount ? ` · ${candidate.duplicateCount} duplicate${candidate.duplicateCount === 1 ? '' : 's'}` : ''}</code>
+                    {candidate.penalties.length > 0 && <em>{candidate.penalties.join(' · ')}</em>}
+                  </div>
+                </button>
+              })}
+            </div>
+            <div className="preview-tracks">
+              {task.items.map((item, index) => <div key={`${item.title}:${index}`}>
+                <b>{index + 1}</b><span><strong>{item.title ?? 'Untitled track'}</strong><small>{item.artist ?? item.format ?? 'Audio'}</small></span>
+                <code>{formatDuration(item.length)}</code>
+              </div>)}
+            </div>
+            <label className="duplicate-policy">
+              If this album duplicates library metadata
+              <select value={beets.duplicateActions[task.id] ?? 'skip'} onChange={event => beets.setDuplicateAction(task.id, event.target.value as 'skip' | 'keep')} disabled={locked}>
+                <option value="skip">Skip the duplicate</option>
+                <option value="keep">Keep both copies</option>
+              </select>
+            </label>
+          </section>
+        ))}
+        <section className="import-approval panel">
+          {beets.workflowState === 'completed' ? <div className="completion-message"><Check size={18} /><strong>Beets workflow completed</strong><small>Canonical-library presence has not yet been confirmed through Jellyfin.</small></div>
+            : beets.workflowState === 'provider-imported' ? <div className="completion-message"><Check size={18} /><strong>Beets reports this folder as imported</strong><small>This is historical provider state; Needle did not record or verify the choices used for that import.</small></div>
+            : beets.workflowState === 'submission-unknown' ? <div className="completion-message unknown"><Radio size={18} /><strong>Submission outcome unknown</strong><small>Do not retry. Refresh the Imports page and inspect beets status before taking another action.</small></div> : <>
+            <label>
+              <input type="checkbox" checked={beets.approved} onChange={event => beets.setApproved(event.target.checked)} disabled={busy || !allSelected} />
+              <span><strong>I approve these choices</strong><small>Beets will run the selected metadata and duplicate policy. A skipped duplicate may complete without adding another library copy. Staging files are retained.</small></span>
+            </label>
+            <button className="button primary" onClick={beets.importSelection} disabled={!allSelected || !beets.approved || busy}>
+              <ShieldCheck size={13} /> {beets.workflowState === 'importing' ? 'Importing…' : 'Import selected metadata'}
+            </button>
+          </>}
+        </section>
+      </div>}
     </section>
   )
 }
@@ -883,6 +1166,24 @@ function collectStagedAlbums(entry: BeetsInboxEntry): BeetsInboxEntry[] {
 
 function countFiles(entry: BeetsInboxEntry): number {
   return entry.type === 'file' ? 1 : entry.children.reduce((total, child) => total + countFiles(child), 0)
+}
+
+function currentFolderStatus(folder: BeetsInboxEntry, statuses: BeetsFolderStatus[]): BeetsImportStatus | undefined {
+  return statuses.find(item => item.providerPath === folder.providerPath && item.hash === folder.hash)?.status
+}
+
+function previewPath(folder: BeetsInboxEntry): string {
+  const query = new URLSearchParams({ providerPath: folder.providerPath, hash: folder.hash })
+  return `/api/imports/preview?${query}`
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, milliseconds))
+}
+
+function requestError(body: ErrorResponse, status: number): Error {
+  const message = body.error?.message ?? `Request failed (${status})`
+  return body.error?.providerCode === 'outcome-unknown' ? new UnknownSubmissionError(message) : new ApiError(message, body.error?.code)
 }
 
 function sourceWarning(sources: MusicSearchResponse['sources']): string {
