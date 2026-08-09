@@ -9,6 +9,7 @@ import { createJellyfinAdapterFromEnv } from './integrations/jellyfin.js'
 import { createBeetsFlaskAdapterFromEnv } from './integrations/beets-flask.js'
 import { isAdapterError } from './integrations/errors.js'
 import { AcquisitionRepository } from './domain/acquisition-repository.js'
+import type { BeetsImportOperation, BeetsImportSelection } from './domain/acquisition-repository.js'
 import type { AcquisitionAutomationPort } from './integrations/acquisition.js'
 import type { CatalogLookupPort, CatalogRelease } from './integrations/catalog.js'
 import type { OperationContext } from './integrations/common.js'
@@ -61,6 +62,10 @@ interface AcquisitionRepositoryPort {
   getDefaults: AcquisitionRepository['getDefaults']
   setDefaults: AcquisitionRepository['setDefaults']
   close?: AcquisitionRepository['close']
+  createBeetsImportOperation?: AcquisitionRepository['createBeetsImportOperation']
+  getBeetsImportOperation?: AcquisitionRepository['getBeetsImportOperation']
+  listBeetsImportOperations?: AcquisitionRepository['listBeetsImportOperations']
+  transitionBeetsImportOperation?: AcquisitionRepository['transitionBeetsImportOperation']
 }
 
 interface BuildAppOptions {
@@ -625,6 +630,10 @@ export function buildApp(options: BuildAppOptions = {}) {
     const items = await beetsRoute(reply, (adapter, context) => adapter.listFolderStatuses(context))
     return reply.sent ? undefined : { items }
   })
+  app.get('/api/imports/operations', async () => ({
+    configured: Boolean(acquisitionRepository?.listBeetsImportOperations),
+    items: acquisitionRepository?.listBeetsImportOperations?.() ?? [],
+  }))
   const folderSchema = {
     type: 'object', required: ['providerPath', 'hash'], additionalProperties: false,
     properties: { providerPath: { type: 'string', minLength: 1, maxLength: 4096 }, hash: { type: 'string', minLength: 1, maxLength: 256 } },
@@ -658,10 +667,93 @@ export function buildApp(options: BuildAppOptions = {}) {
       return session.tasks.find(task => task.id === choice.taskId)!.candidates.some(candidate => candidate.id === choice.candidateId)
     })
     if (!valid || selected.size !== taskIds.size) return reply.code(409).send({ error: { code: 'conflict', message: 'Import choices do not match the current preview session' } })
-    if (submittedBeetsImports.has(session.id)) return reply.code(409).send({ error: { code: 'conflict', message: 'This preview session has already been submitted for import' } })
-    submittedBeetsImports.add(session.id)
-    const acknowledgement = await beetsRoute(reply, (adapter, context) => adapter.enqueueImport(body, context))
-    if (!reply.sent) return reply.code(202).send(acknowledgement)
+    let operation: BeetsImportOperation | undefined
+    if (acquisitionRepository?.createBeetsImportOperation) {
+      const selections: BeetsImportSelection[] = body.choices.map(choice => {
+        const candidate = session.tasks.find(task => task.id === choice.taskId)!.candidates.find(item => item.id === choice.candidateId)!
+        return { taskId: choice.taskId, candidateId: choice.candidateId, duplicateAction: choice.duplicateAction,
+          ...(candidate.artist ? { artist: candidate.artist } : {}), ...(candidate.album ? { album: candidate.album } : {}),
+          ...(candidate.year !== undefined ? { year: candidate.year } : {}), trackCount: candidate.trackCount }
+      })
+      const created = acquisitionRepository.createBeetsImportOperation({ sessionId: session.id, providerPath: body.providerPath, hash: body.hash, selections })
+      if (!created.created) return reply.code(409).send({ error: { code: 'conflict', message: 'This preview session has already been submitted for import' } })
+      operation = created.operation
+    } else {
+      if (submittedBeetsImports.has(session.id)) return reply.code(409).send({ error: { code: 'conflict', message: 'This preview session has already been submitted for import' } })
+      submittedBeetsImports.add(session.id)
+    }
+    let acknowledgement
+    try {
+      acknowledgement = await beetsRoute(reply, (adapter, context) => adapter.enqueueImport(body, context))
+    } catch (error) {
+      if (operation) acquisitionRepository?.transitionBeetsImportOperation?.(operation.id, 'submitting', 'submission-unknown')
+      throw error
+    }
+    if (reply.sent) {
+      if (operation) acquisitionRepository?.transitionBeetsImportOperation?.(operation.id, 'submitting', 'submission-unknown')
+      return
+    }
+    if (operation) {
+      const persisted = acquisitionRepository?.transitionBeetsImportOperation?.(operation.id, 'submitting', 'submitted', { providerJobId: acknowledgement!.jobId })
+      if (!persisted || persisted.state !== 'submitted' || persisted.providerJobId !== acknowledgement!.jobId) {
+        return reply.code(503).send({ error: {
+          code: 'unavailable', message: 'The durable import submission outcome is unknown; do not retry automatically',
+          retryable: false, providerCode: 'outcome-unknown',
+        } })
+      }
+    }
+    return reply.code(202).send({ ...acknowledgement!, ...(operation ? { importOperationId: operation.id } : {}) })
+  })
+  app.post<{ Params: { id: string } }>('/api/imports/operations/:id/reconcile', { schema: { params: {
+    type: 'object', required: ['id'], additionalProperties: false,
+    properties: { id: { type: 'string', minLength: 1, maxLength: 128 } },
+  } } }, async (request, reply) => {
+    if (!sameOrigin(request, reply)) return
+    const repository = acquisitionRepository
+    if (!repository?.getBeetsImportOperation || !repository.transitionBeetsImportOperation) {
+      return reply.code(503).send({ error: { code: 'unavailable', message: 'Import operation persistence is not configured' } })
+    }
+    let operation = repository.getBeetsImportOperation(request.params.id)
+    if (!operation) return reply.code(404).send({ error: { code: 'not-found', message: 'Import operation was not found' } })
+    if (operation.state === 'submission-unknown' || operation.state === 'submitting' || operation.state === 'library-confirmed') return operation
+    if (operation.state === 'submitted') {
+      const session = await beetsRoute(reply, (adapter, context) => adapter.getPreview(operation!, context))
+      if (reply.sent || !session) return
+      const taskIds = new Set(session.tasks.map(task => task.id))
+      const selectionIds = new Set(operation.selections.map(selection => selection.taskId))
+      const completed = session.id === operation.sessionId && session.providerPath === operation.providerPath && session.hash === operation.hash
+        && session.progress === 40 && session.tasks.length === operation.selections.length && taskIds.size === session.tasks.length
+        && selectionIds.size === operation.selections.length && [...taskIds].every(id => selectionIds.has(id))
+        && operation.selections.every(selection => session.tasks.find(task => task.id === selection.taskId)?.chosenCandidateId === selection.candidateId)
+      if (!completed) return operation
+      operation = repository.transitionBeetsImportOperation(operation.id, 'submitted', 'provider-completed')!
+      if (operation.state !== 'provider-completed') return operation
+    }
+    const expected = operation.selections.filter(selection => selection.artist && selection.album)
+    if (!jellyfin || expected.length !== operation.selections.length) return operation
+    const ids: string[] = []
+    const trackCounts = new Map<string, number>()
+    for (const [index, selection] of expected.entries()) {
+      const albums = await libraryCatalogRoute(reply, (adapter, context) => listAllMatchingAlbums(adapter, selection.album!, context, index === 0))
+      if (reply.sent || !albums) return
+      const normalize = (value: string) => value.trim().toLocaleLowerCase()
+      const metadataMatches = albums.filter(album => normalize(album.title) === normalize(selection.album!)
+        && normalize(album.albumArtist) === normalize(selection.artist!))
+      const matches: LibraryAlbum[] = []
+      for (const album of metadataMatches) {
+        let trackCount = trackCounts.get(album.id)
+        if (trackCount === undefined) {
+          const tracks = await libraryCatalogRoute(reply, (adapter, context) => listAllAlbumTracks(adapter, album.id, context, true))
+          if (reply.sent || !tracks) return
+          trackCount = tracks.length
+          trackCounts.set(album.id, trackCount)
+        }
+        if (trackCount === selection.trackCount) matches.push(album)
+      }
+      if (matches.length !== 1) return operation
+      ids.push(matches[0].id)
+    }
+    return repository.transitionBeetsImportOperation(operation.id, 'provider-completed', 'library-confirmed', { libraryAlbumIds: ids })!
   })
 
   return app
@@ -734,11 +826,23 @@ async function listAllMatchingAlbums(
   adapter: LibraryCatalogPort,
   term: string,
   context: OperationContext,
+  fresh = false,
 ): Promise<LibraryAlbum[]> {
   const items: LibraryAlbum[] = []
   let cursor: string | undefined
   do {
-    const page = await adapter.listAlbums({ cursor, limit: 100, term }, context)
+    const page = await adapter.listAlbums({ cursor, limit: 100, term, fresh: fresh && cursor === undefined }, context)
+    items.push(...page.items)
+    cursor = page.nextCursor
+  } while (cursor)
+  return items
+}
+
+async function listAllAlbumTracks(adapter: LibraryCatalogPort, albumId: string, context: OperationContext, fresh = false) {
+  const items = []
+  let cursor: string | undefined
+  do {
+    const page = await adapter.listAlbumTracks(albumId, { cursor, limit: 100, fresh: fresh && cursor === undefined }, context)
     items.push(...page.items)
     cursor = page.nextCursor
   } while (cursor)

@@ -120,3 +120,32 @@ test('Jellyfin adapter filters cached albums by title or album artist before pag
   assert.deepEqual(byArtist.items.map(item => item.title), ['Dots and Loops'])
   assert.equal(requests, 1)
 })
+
+test('Jellyfin adapter freshness queries bypass cached albums and tracks', async () => {
+  let generation = 1
+  let albumRequests = 0
+  let trackRequests = 0
+  const adapter = new JellyfinAdapter({
+    baseUrl: 'http://jellyfin.test:8096',
+    apiKey: 'secret-key',
+    fetch: async input => {
+      const url = new URL(input instanceof Request ? input.url : input)
+      if (url.searchParams.get('IncludeItemTypes') === 'MusicAlbum') {
+        albumRequests += 1
+        return json({ Items: [{ Id: albumId, Name: `Album ${generation}`, AlbumArtist: 'Artist' }] })
+      }
+      trackRequests += 1
+      return json({ Items: [{ Id: 'b'.repeat(31) + generation, Name: `Track ${generation}`, Artists: ['Artist'] }] })
+    },
+  })
+
+  assert.equal((await adapter.listAlbums({ limit: 10 }, context)).items[0].title, 'Album 1')
+  assert.equal((await adapter.listAlbumTracks(albumId, { limit: 10 }, context)).items[0].title, 'Track 1')
+  generation = 2
+  assert.equal((await adapter.listAlbums({ limit: 10 }, context)).items[0].title, 'Album 1')
+  assert.equal((await adapter.listAlbumTracks(albumId, { limit: 10 }, context)).items[0].title, 'Track 1')
+  assert.equal((await adapter.listAlbums({ limit: 10, fresh: true }, context)).items[0].title, 'Album 2')
+  assert.equal((await adapter.listAlbumTracks(albumId, { limit: 10, fresh: true }, context)).items[0].title, 'Track 2')
+  assert.equal(albumRequests, 2)
+  assert.equal(trackRequests, 2)
+})

@@ -106,6 +106,34 @@ interface BeetsJobAcknowledgement {
   operationId: string
 }
 
+type BeetsImportOperationState = 'submitting' | 'submitted' | 'submission-unknown' | 'provider-completed' | 'library-confirmed'
+
+interface BeetsImportOperation {
+  id: string
+  sessionId: string
+  providerPath: string
+  hash: string
+  state: BeetsImportOperationState
+  selections: {
+    taskId: string
+    candidateId: string
+    duplicateAction: 'skip' | 'keep'
+    artist?: string
+    album?: string
+    year?: number
+    trackCount: number
+  }[]
+  providerJobId?: string
+  libraryAlbumIds: string[]
+  createdAt: string
+  updatedAt: string
+}
+
+interface BeetsImportOperationsResponse {
+  configured: boolean
+  items: BeetsImportOperation[]
+}
+
 interface QueueItem {
   ref: ProviderRef
   title: string
@@ -223,11 +251,12 @@ async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   return body
 }
 
-async function postJson<T>(path: string, payload: unknown): Promise<T> {
+async function postJson<T>(path: string, payload: unknown, signal?: AbortSignal): Promise<T> {
   const response = await fetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
+    signal,
   })
   const body = await response.json() as T & ErrorResponse
   if (!response.ok) throw requestError(body, response.status)
@@ -297,6 +326,55 @@ function useLidarrReadModel() {
 }
 
 type LidarrReadModel = ReturnType<typeof useLidarrReadModel>
+
+function useBeetsImportOperations() {
+  const [configured, setConfigured] = useState(false)
+  const [items, setItems] = useState<BeetsImportOperation[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const activeRequest = useRef(0)
+  const inFlight = useRef<Promise<void> | null>(null)
+
+  const refresh = useCallback((signal?: AbortSignal) => {
+    if (inFlight.current) return inFlight.current
+    const request = ++activeRequest.current
+    const run = (async () => {
+      setLoading(true)
+      setError(null)
+      try {
+        let page = await getJson<BeetsImportOperationsResponse>('/api/imports/operations', signal)
+        if (page.configured) {
+          const pending = page.items.filter(item => item.state === 'submitted' || item.state === 'provider-completed')
+          if (pending.length) {
+            await Promise.allSettled(pending.map(item => postJson<BeetsImportOperation>(`/api/imports/operations/${encodeURIComponent(item.id)}/reconcile`, {}, signal)))
+            page = await getJson<BeetsImportOperationsResponse>('/api/imports/operations', signal)
+          }
+        }
+        if (request !== activeRequest.current || signal?.aborted) return
+        setConfigured(page.configured)
+        setItems(page.items)
+      } catch (requestError) {
+        if (request === activeRequest.current && !isAbortError(requestError)) setError(errorMessage(requestError))
+      } finally {
+        if (request === activeRequest.current && !signal?.aborted) setLoading(false)
+      }
+    })()
+    inFlight.current = run
+    void run.finally(() => { if (inFlight.current === run) inFlight.current = null })
+    return run
+  }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    refresh(controller.signal)
+    const timer = window.setInterval(() => refresh(), 15_000)
+    return () => { controller.abort(); window.clearInterval(timer) }
+  }, [refresh])
+
+  return { configured, items, loading, error, refresh: () => refresh() }
+}
+
+type BeetsImportOperationsModel = ReturnType<typeof useBeetsImportOperations>
 
 function useBeetsReadModel() {
   const [status, setStatus] = useState<BeetsStatus | null>(null)
@@ -935,26 +1013,29 @@ function QueueRow({ item }: { item: QueueItem }) {
   )
 }
 
-function ActivityView({ lidarr, sectionNumber }: { lidarr: LidarrReadModel; sectionNumber: string }) {
+function ActivityView({ lidarr, imports, sectionNumber }: { lidarr: LidarrReadModel; imports: BeetsImportOperationsModel; sectionNumber: string }) {
   const available = lidarr.status?.configured && lidarr.status.health?.state === 'available' && !lidarr.error
+  const refreshing = lidarr.loading || imports.loading
 
   return (
     <section>
       <div className="page-heading">
-        <div><p>{sectionNumber} / LIDARR ACQUISITION</p><h1>Activity</h1></div>
-        <button className="button" onClick={lidarr.refresh} disabled={lidarr.loading}>
-          <RefreshCw size={13} className={lidarr.loading ? 'spinning' : ''} /> Refresh
+        <div><p>{sectionNumber} / NEEDLE OPERATIONS</p><h1>Activity</h1></div>
+        <button className="button" onClick={() => { void lidarr.refresh(); void imports.refresh() }} disabled={refreshing}>
+          <RefreshCw size={13} className={refreshing ? 'spinning' : ''} /> Refresh
         </button>
       </div>
 
-      {!available ? <IntegrationState lidarr={lidarr} /> : <div className="activity-grid">
-        <section className="panel queue-panel">
+      {!available && <IntegrationState lidarr={lidarr} />}
+      {imports.error && <div className="error-strip">{imports.error}</div>}
+      <div className="activity-grid">
+        {available && <section className="panel queue-panel">
           <header><h2>Queue</h2><span>{lidarr.queue.length}</span></header>
           {lidarr.queue.length
             ? lidarr.queue.map(item => <QueueRow item={item} key={item.ref.nativeId} />)
             : <p className="empty-row">Queue empty</p>}
-        </section>
-        <section className="panel history-panel">
+        </section>}
+        {available && <section className="panel history-panel">
           <header><h2>Recent history</h2><span>{lidarr.history.length}</span></header>
           {lidarr.history.length ? lidarr.history.map(item => (
             <article className="history-row" key={item.ref.nativeId}>
@@ -963,10 +1044,34 @@ function ActivityView({ lidarr, sectionNumber }: { lidarr: LidarrReadModel; sect
               <time>{new Date(item.occurredAt).toLocaleString()}</time>
             </article>
           )) : <p className="empty-row">No recent history</p>}
+        </section>}
+        <section className="panel import-history-panel">
+          <header><h2>Beets imports</h2><span>{imports.items.length}</span></header>
+          {!imports.configured && !imports.loading ? <p className="empty-row">Needle database persistence is not configured</p>
+            : imports.items.length ? imports.items.map(item => <ImportOperationRow item={item} key={item.id} />)
+              : <p className="empty-row">No Needle-managed imports yet</p>}
         </section>
-      </div>}
+      </div>
     </section>
   )
+}
+
+function ImportOperationRow({ item }: { item: BeetsImportOperation }) {
+  const first = item.selections[0]
+  const title = first?.album ?? item.providerPath.split('/').filter(Boolean).pop() ?? 'Beets import'
+  const detail = [first?.artist, item.selections.length > 1 ? `${item.selections.length} reviewed tasks` : `${first?.trackCount ?? 0} tracks`].filter(Boolean).join(' · ')
+  const labels: Record<BeetsImportOperationState, string> = {
+    submitting: 'submission pending',
+    submitted: 'beets submitted',
+    'submission-unknown': 'outcome unknown',
+    'provider-completed': 'awaiting Jellyfin',
+    'library-confirmed': 'library confirmed',
+  }
+  return <article className="history-row import-operation-row">
+    <span className={item.state}>{labels[item.state]}</span>
+    <div><strong>{title}</strong><small>{detail || item.providerPath}</small></div>
+    <time>{new Date(item.updatedAt).toLocaleString()}</time>
+  </article>
 }
 
 function ImportsView({ beets }: { beets: BeetsReadModel }) {
@@ -1128,6 +1233,7 @@ function WantedView({ acquisitions }: { acquisitions: AcquisitionsModel }) {
 function App() {
   const [view, setView] = useState<View>('library')
   const lidarr = useLidarrReadModel()
+  const importOperations = useBeetsImportOperations()
   const beets = useBeetsReadModel()
   const acquisitions = useAcquisitions()
   const library = useLibrary()
@@ -1139,7 +1245,7 @@ function App() {
         {view === 'library' && <LibraryView library={library} acquisitions={acquisitions} />}
         {view === 'imports' && <ImportsView beets={beets} />}
         {view === 'wanted' && <WantedView acquisitions={acquisitions} />}
-        {view === 'activity' && <ActivityView lidarr={lidarr} sectionNumber={acquisitions.configured ? '04' : '03'} />}
+        {view === 'activity' && <ActivityView lidarr={lidarr} imports={importOperations} sectionNumber={acquisitions.configured ? '04' : '03'} />}
       </main>
     </div>
   )

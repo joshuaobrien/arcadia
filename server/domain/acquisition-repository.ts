@@ -5,7 +5,35 @@ import { DatabaseSync } from 'node:sqlite'
 import type { CatalogRelease } from '../integrations/catalog.js'
 import type { AcquisitionDefaults, AcquisitionJob } from './acquisition.js'
 
-const SCHEMA_VERSION = 3
+const SCHEMA_VERSION = 4
+
+export type BeetsImportOperationState = 'submitting' | 'submitted' | 'submission-unknown' | 'provider-completed' | 'library-confirmed'
+export interface BeetsImportSelection {
+  taskId: string
+  candidateId: string
+  duplicateAction: 'skip' | 'keep'
+  artist?: string
+  album?: string
+  year?: number
+  trackCount: number
+}
+export interface BeetsImportOperation {
+  id: string
+  sessionId: string
+  providerPath: string
+  hash: string
+  state: BeetsImportOperationState
+  selections: readonly BeetsImportSelection[]
+  providerJobId?: string
+  libraryAlbumIds: readonly string[]
+  createdAt: string
+  updatedAt: string
+}
+interface BeetsImportOperationRow {
+  id: string; session_id: string; provider_path: string; hash: string; state: BeetsImportOperationState
+  selections_json: string; provider_job_id: string | null; library_album_ids_json: string
+  created_at: string; updated_at: string
+}
 
 interface AcquisitionRow {
   id: string
@@ -49,6 +77,7 @@ export class AcquisitionRepository {
         PRAGMA busy_timeout = 5000;
       `)
       this.#migrate()
+      this.#recoverInterruptedBeetsSubmissions()
     } catch (error) {
       this.#database.close()
       throw error
@@ -149,6 +178,47 @@ export class AcquisitionRepository {
     return { job: toJob(row), created: result.changes === 1 }
   }
 
+  createBeetsImportOperation(input: Pick<BeetsImportOperation, 'sessionId' | 'providerPath' | 'hash' | 'selections'>): { operation: BeetsImportOperation, created: boolean } {
+    const id = randomUUID()
+    const now = new Date().toISOString()
+    const result = this.#database.prepare(`INSERT INTO beets_import_operations
+      (id, session_id, provider_path, hash, state, selections_json, library_album_ids_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, 'submitting', ?, '[]', ?, ?) ON CONFLICT (session_id) DO NOTHING`).run(
+      id, input.sessionId, input.providerPath, input.hash, JSON.stringify(input.selections), now, now,
+    )
+    const operation = this.getBeetsImportOperation(result.changes === 1 ? id : input.sessionId, result.changes !== 1)
+    if (!operation) throw new Error('Beets import operation insert did not produce a readable row')
+    return { operation, created: result.changes === 1 }
+  }
+
+  getBeetsImportOperation(id: string, bySessionId = false): BeetsImportOperation | null {
+    const row = this.#database.prepare(`SELECT * FROM beets_import_operations WHERE ${bySessionId ? 'session_id' : 'id'} = ?`).get(id) as unknown as BeetsImportOperationRow | undefined
+    return row ? toBeetsImportOperation(row) : null
+  }
+
+  listBeetsImportOperations(): readonly BeetsImportOperation[] {
+    const rows = this.#database.prepare('SELECT * FROM beets_import_operations ORDER BY created_at DESC, id DESC').all() as unknown as BeetsImportOperationRow[]
+    return rows.map(toBeetsImportOperation)
+  }
+
+  transitionBeetsImportOperation(id: string, expectedState: BeetsImportOperationState, state: BeetsImportOperationState, update: { providerJobId?: string, libraryAlbumIds?: readonly string[] } = {}): BeetsImportOperation | null {
+    const allowed = (expectedState === 'submitting' && (state === 'submitted' || state === 'submission-unknown'))
+      || (expectedState === 'submitted' && state === 'provider-completed')
+      || (expectedState === 'provider-completed' && state === 'library-confirmed')
+    if (!allowed) throw new Error(`Invalid beets import operation transition: ${expectedState} -> ${state}`)
+    const now = new Date().toISOString()
+    this.#database.prepare(`UPDATE beets_import_operations SET state = ?,
+      provider_job_id = COALESCE(?, provider_job_id), library_album_ids_json = COALESCE(?, library_album_ids_json), updated_at = ? WHERE id = ? AND state = ?`).run(
+      state, update.providerJobId ?? null, update.libraryAlbumIds ? JSON.stringify([...new Set(update.libraryAlbumIds)]) : null, now, id, expectedState,
+    )
+    return this.getBeetsImportOperation(id)
+  }
+
+  #recoverInterruptedBeetsSubmissions(): void {
+    const now = new Date().toISOString()
+    this.#database.prepare("UPDATE beets_import_operations SET state = 'submission-unknown', updated_at = ? WHERE state = 'submitting'").run(now)
+  }
+
   #migrate(): void {
     const row = this.#database.prepare('PRAGMA user_version').get() as { user_version: number }
     if (row.user_version > SCHEMA_VERSION) {
@@ -196,6 +266,23 @@ export class AcquisitionRepository {
         PRAGMA user_version = 3;
       `)
     }
+    if (row.user_version < 4) {
+      this.#transaction(`
+        CREATE TABLE beets_import_operations (
+          id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL UNIQUE,
+          provider_path TEXT NOT NULL,
+          hash TEXT NOT NULL,
+          state TEXT NOT NULL CHECK (state IN ('submitting', 'submitted', 'submission-unknown', 'provider-completed', 'library-confirmed')),
+          selections_json TEXT NOT NULL,
+          provider_job_id TEXT,
+          library_album_ids_json TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        PRAGMA user_version = 4;
+      `)
+    }
   }
 
   #transaction(sql: string): void {
@@ -207,6 +294,16 @@ export class AcquisitionRepository {
       this.#database.exec('ROLLBACK')
       throw error
     }
+  }
+}
+
+function toBeetsImportOperation(row: BeetsImportOperationRow): BeetsImportOperation {
+  return {
+    id: row.id, sessionId: row.session_id, providerPath: row.provider_path, hash: row.hash,
+    state: row.state, selections: JSON.parse(row.selections_json) as BeetsImportSelection[],
+    ...(row.provider_job_id ? { providerJobId: row.provider_job_id } : {}),
+    libraryAlbumIds: JSON.parse(row.library_album_ids_json) as string[],
+    createdAt: row.created_at, updatedAt: row.updated_at,
   }
 }
 

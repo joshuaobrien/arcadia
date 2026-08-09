@@ -28,11 +28,16 @@ export interface LibraryArtwork {
 
 export interface LibraryAlbumQuery extends PageRequest {
   term?: string
+  fresh?: boolean
+}
+
+export interface LibraryTrackPageRequest extends PageRequest {
+  fresh?: boolean
 }
 
 /** Read-only metadata projection. Canonical audio bytes remain on the filesystem. */
 export interface LibraryCatalogPort {
   listAlbums(query: LibraryAlbumQuery, context: OperationContext): Promise<Page<LibraryAlbum> & { total: number }>
-  listAlbumTracks(albumId: string, page: PageRequest, context: OperationContext): Promise<Page<LibraryCatalogTrack> & { total: number }>
+  listAlbumTracks(albumId: string, page: LibraryTrackPageRequest, context: OperationContext): Promise<Page<LibraryCatalogTrack> & { total: number }>
   getAlbumArtwork(albumId: string, context: OperationContext): Promise<LibraryArtwork | null>
 }
