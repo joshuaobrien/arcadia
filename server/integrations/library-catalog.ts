@@ -25,9 +25,13 @@ export interface LibraryArtwork {
   data: Uint8Array
 }
 
+export interface LibraryAlbumQuery extends PageRequest {
+  term?: string
+}
+
 /** Read-only metadata projection. Canonical audio bytes remain on the filesystem. */
 export interface LibraryCatalogPort {
-  listAlbums(page: PageRequest, context: OperationContext): Promise<Page<LibraryAlbum> & { total: number }>
+  listAlbums(query: LibraryAlbumQuery, context: OperationContext): Promise<Page<LibraryAlbum> & { total: number }>
   listAlbumTracks(albumId: string, page: PageRequest, context: OperationContext): Promise<Page<LibraryCatalogTrack> & { total: number }>
   getAlbumArtwork(albumId: string, context: OperationContext): Promise<LibraryArtwork | null>
 }

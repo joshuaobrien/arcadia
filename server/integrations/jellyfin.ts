@@ -1,6 +1,6 @@
 import type { OperationContext, PageRequest } from './common.js'
 import { AdapterError } from './errors.js'
-import type { LibraryAlbum, LibraryArtwork, LibraryCatalogPort, LibraryCatalogTrack } from './library-catalog.js'
+import type { LibraryAlbum, LibraryAlbumQuery, LibraryArtwork, LibraryCatalogPort, LibraryCatalogTrack } from './library-catalog.js'
 
 type JsonObject = Record<string, unknown>
 type Fetch = typeof globalThis.fetch
@@ -37,11 +37,15 @@ export class JellyfinAdapter implements LibraryCatalogPort {
     this.#timeoutMs = options.timeoutMs ?? 10_000
   }
 
-  async listAlbums(page: PageRequest, context: OperationContext) {
-    const offset = pageOffset(page)
+  async listAlbums(query: LibraryAlbumQuery, context: OperationContext) {
+    const offset = pageOffset(query)
     const albums = await this.#allAlbums(context)
-    const end = Math.min(albums.length, offset + page.limit)
-    return { items: albums.slice(offset, end), total: albums.length, ...(end < albums.length ? { nextCursor: String(end) } : {}) }
+    const term = query.term?.trim().toLowerCase()
+    const matches = term
+      ? albums.filter(item => item.title.toLowerCase().includes(term) || item.albumArtist.toLowerCase().includes(term))
+      : albums
+    const end = Math.min(matches.length, offset + query.limit)
+    return { items: matches.slice(offset, end), total: matches.length, ...(end < matches.length ? { nextCursor: String(end) } : {}) }
   }
 
   async listAlbumTracks(albumId: string, page: PageRequest, context: OperationContext) {
