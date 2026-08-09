@@ -6,11 +6,11 @@ Needle owns wanted state, sync intent, search selections, transfer correlation, 
 | --- | --- | --- |
 | `CatalogLookupPort` | Lidarr, MusicBrainz | MusicBrainz IDs are cross-provider identities; provider IDs remain opaque. |
 | `AcquisitionAutomationPort` | Lidarr | Wanted state, searches, queue, and history only. It has no library mutation operations. |
-| `BeetsImportPort` | beets-flask | Read-only inbox trees, statistics, and import status. |
+| `BeetsImportPort` | beets-flask | Inbox reads and explicit preview/candidate import jobs. |
 
 Search, transfer, and notification ports will be defined when their first adapters are implemented. Their provider constraints remain recorded below to inform those designs.
 
-The beets-flask adapter is configured with `BEETS_URL` (for example, `http://beets-flask:5001`) and only calls its config, inbox stats/tree, and session status GET endpoints. Preview, import, and delete mutations are intentionally outside the current scope.
+The beets-flask adapter is configured with `BEETS_URL` (for example, `http://beets-flask:5001`). Its mutation contract uses the internal API of the pinned, tested beets-flask 1.2.x line, not a stable public API. Needle must be the sole mutation client and staging content must remain immutable while preview or import jobs are active. Candidate imports require an explicit choice per task and duplicate handling is limited to `skip` or `keep`. Delete is not supported.
 
 ## Adapter rules
 

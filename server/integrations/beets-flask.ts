@@ -1,5 +1,5 @@
 import { basename } from 'node:path'
-import type { BeetsFolderImportStatus, BeetsFolderStatus, BeetsImportPort, BeetsInboxFolder, BeetsInboxStats } from './beets-import.js'
+import type { BeetsFolderImportStatus, BeetsFolderStatus, BeetsImportChoice, BeetsImportPort, BeetsInboxFolder, BeetsInboxStats, BeetsJobAcknowledgement, BeetsPreviewCandidate, BeetsPreviewSession } from './beets-import.js'
 import type { AdapterHealth, OperationContext } from './common.js'
 import { AdapterError } from './errors.js'
 
@@ -82,25 +82,92 @@ export class BeetsFlaskAdapter implements BeetsImportPort {
     })
   }
 
-  async #json(path: string, context: OperationContext): Promise<unknown> {
+  async enqueuePreview(folder: { providerPath: string, hash: string }, context: OperationContext): Promise<BeetsJobAcknowledgement> {
+    const body = { kind: 'preview', folder_hashes: [folder.hash], folder_paths: [folder.providerPath], job_frontend_refs: [context.operationId], group_albums: false, autotag: true }
+    const response = await this.#json('session/enqueue', context, body, true)
+    try { return this.#ack(response, folder, context, 'preview') } catch (error) { throw this.#unknownOutcome(error) }
+  }
+
+  async getPreview(folder: { providerPath: string, hash: string }, context: OperationContext): Promise<BeetsPreviewSession> {
+    const value = object(await this.#json('session/by_folder', context, { folder_hashes: [folder.hash], folder_paths: [folder.providerPath] }), 'session')
+    const tasks = array(value.tasks, 'session.tasks').map((input, taskIndex) => {
+      const task = object(input, `session.tasks[${taskIndex}]`)
+      const metadata = object(task.current_metadata, `session.tasks[${taskIndex}].current_metadata`)
+      const normalizeCandidate = (input: unknown, kind: 'candidate' | 'as-is', index: number): BeetsPreviewCandidate => {
+        const candidate = object(input, `session.tasks[${taskIndex}].${kind}[${index}]`)
+        const info = object(candidate.info, `candidate.info`)
+        return { id: requiredString(candidate.id, 'candidate.id'), kind, ...optionalTextFields(info), ...(optionalNumber(info.year) === undefined ? {} : { year: optionalNumber(info.year) }), ...(optionalString(info.data_source) ? { source: optionalString(info.data_source) } : {}), distance: nonnegativeNumber(candidate.distance, 'candidate.distance'), penalties: array(candidate.penalties, 'candidate.penalties').map((p, i) => requiredString(p, `candidate.penalties[${i}]`)), trackCount: array(candidate.tracks, 'candidate.tracks').length, duplicateCount: array(candidate.duplicate_ids, 'candidate.duplicate_ids').length }
+      }
+      const candidates = array(task.candidates, 'task.candidates').map((candidate, index) => normalizeCandidate(candidate, 'candidate', index))
+      candidates.push(normalizeCandidate(task.asis_candidate, 'as-is', candidates.length))
+      return { id: requiredString(task.id, 'task.id'), ...(optionalString(task.chosen_candidate_id) ? { chosenCandidateId: optionalString(task.chosen_candidate_id) } : {}), currentMetadata: { ...optionalTextFields(metadata), ...(optionalNumber(metadata.year) === undefined ? {} : { year: optionalNumber(metadata.year) }) }, items: array(task.items, 'task.items').map((raw, index) => { const item = object(raw, `task.items[${index}]`); return { ...(optionalString(item.title) ? { title: optionalString(item.title) } : {}), ...(optionalString(item.artist) ? { artist: optionalString(item.artist) } : {}), ...(optionalNumber(item.length) === undefined ? {} : { length: optionalNumber(item.length) }), ...(optionalString(item.format) ? { format: optionalString(item.format) } : {}) } }), candidates }
+    })
+    const status = object(value.status, 'session.status')
+    const session = { id: requiredString(value.id, 'session.id'), providerPath: requiredString(value.folder_path, 'session.folder_path'), hash: requiredString(value.folder_hash, 'session.folder_hash'), progress: integer(status.progress, 'session.status.progress'), tasks }
+    if (session.providerPath !== folder.providerPath || session.hash !== folder.hash) invalid('session does not match the requested folder path and hash')
+    return session
+  }
+
+  async enqueueImport(folder: { providerPath: string, hash: string, sessionId: string, choices: readonly BeetsImportChoice[] }, context: OperationContext): Promise<BeetsJobAcknowledgement> {
+    const candidate_ids = Object.fromEntries(folder.choices.map(choice => [choice.taskId, choice.candidateId]))
+    const duplicate_actions = Object.fromEntries(folder.choices.map(choice => [choice.taskId, choice.duplicateAction]))
+    const body = { kind: 'import_candidate', folder_hashes: [folder.hash], folder_paths: [folder.providerPath], job_frontend_refs: [context.operationId], candidate_ids, duplicate_actions }
+    const response = await this.#json('session/enqueue', context, body, true)
+    try { return this.#ack(response, folder, context, 'import_candidate') } catch (error) { throw this.#unknownOutcome(error) }
+  }
+
+  #ack(input: unknown, folder: { providerPath: string, hash: string }, context: OperationContext, kind: 'preview' | 'import_candidate'): BeetsJobAcknowledgement {
+    const value = object(input, 'enqueue acknowledgement')
+    if (integer(value.num_jobs, 'enqueue acknowledgement.num_jobs') !== 1) invalid('enqueue acknowledgement.num_jobs must be 1')
+    const metas = array(value.job_metas, 'enqueue acknowledgement.job_metas')
+    if (metas.length !== 1) invalid('enqueue acknowledgement.job_metas must contain one item')
+    const meta = object(metas[0], 'enqueue acknowledgement.job_metas[0]')
+    if (requiredString(meta.folder_path, 'job_meta.folder_path') !== folder.providerPath || requiredString(meta.folder_hash, 'job_meta.folder_hash') !== folder.hash || requiredString(meta.job_frontend_ref, 'job_meta.job_frontend_ref') !== context.operationId || requiredString(meta.job_kind, 'job_meta.job_kind') !== kind) invalid('enqueue acknowledgement does not match the request')
+    return { jobId: requiredString(meta.job_id, 'job_meta.job_id'), kind, providerPath: folder.providerPath, hash: folder.hash, operationId: context.operationId }
+  }
+
+  async #json(path: string, context: OperationContext, body?: unknown, mutation = false): Promise<unknown> {
     const timeout = AbortSignal.timeout(this.#timeoutMs)
     const signal = context.signal ? AbortSignal.any([context.signal, timeout]) : timeout
     let response: Response
     try {
-      response = await this.#fetch(new URL(path, this.#baseUrl), { signal, headers: { Accept: 'application/json', 'X-Needle-Operation-Id': context.operationId } })
+      response = await this.#fetch(new URL(path, this.#baseUrl), { method: body === undefined ? 'GET' : 'POST', signal, headers: { Accept: 'application/json', 'X-Needle-Operation-Id': context.operationId, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
     } catch (error) {
+      if (mutation) throw this.#unknownOutcome(error)
       throw new AdapterError({ code: 'unavailable', adapterId: this.adapterId, message: 'beets-flask is unavailable', retryable: true }, { cause: error })
     }
+    if (mutation && response.status >= 500) throw this.#unknownOutcome(this.#responseError(response.status))
     if (!response.ok) throw this.#responseError(response.status)
-    try { return await response.json() } catch (error) {
+    try { const value: unknown = await response.json(); throwProviderException(value, this.adapterId); return value } catch (error) {
+      if (mutation) throw this.#unknownOutcome(error)
+      if (error instanceof AdapterError) throw error
       throw new AdapterError({ code: 'transient-provider-failure', adapterId: this.adapterId, message: 'beets-flask returned invalid JSON', retryable: true, providerStatus: response.status }, { cause: error })
     }
+  }
+
+  #unknownOutcome(cause: unknown): AdapterError {
+    return new AdapterError({ code: 'unavailable', adapterId: this.adapterId, message: 'The beets-flask submission outcome is unknown; do not retry automatically', retryable: false, providerCode: 'outcome-unknown' }, { cause })
   }
 
   #responseError(status: number): AdapterError {
     return new AdapterError({ code: status === 401 || status === 403 ? 'authentication' : status === 404 ? 'not-found' : status === 429 ? 'rate-limited' : 'transient-provider-failure', adapterId: this.adapterId, message: `beets-flask request failed with status ${status}`, retryable: status === 429 || status >= 500, providerStatus: status })
   }
 }
+
+function throwProviderException(input: unknown, adapterId: string): void {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return
+  const value = input as JsonObject
+  const exception = value.exc ?? (typeof value.type === 'string' && typeof value.message === 'string' ? value : undefined)
+  if (exception === null || exception === undefined) return
+  const details = typeof exception === 'object' && !Array.isArray(exception) ? exception as JsonObject : {}
+  const message = typeof details.message === 'string' ? details.message : typeof exception === 'string' ? exception : 'unknown provider exception'
+  const type = typeof details.type === 'string' ? details.type : typeof value.type === 'string' ? value.type : ''
+  throw new AdapterError({ code: /not.?found/i.test(type) ? 'not-found' : 'transient-provider-failure', adapterId, message: `beets-flask exception: ${message}`, retryable: false })
+}
+
+function optionalString(value: unknown): string | undefined { return typeof value === 'string' && value ? value : undefined }
+function optionalNumber(value: unknown): number | undefined { if (value === null || value === undefined || value === '') return undefined; const number = typeof value === 'string' ? Number(value) : value; return typeof number === 'number' && Number.isFinite(number) ? number : undefined }
+function optionalTextFields(value: JsonObject): { artist?: string, album?: string } { return { ...(optionalString(value.artist) ? { artist: optionalString(value.artist) } : {}), ...(optionalString(value.album) ? { album: optionalString(value.album) } : {}) } }
 
 export function createBeetsFlaskAdapterFromEnv(env: NodeJS.ProcessEnv = process.env): BeetsFlaskAdapter | null {
   return env.BEETS_URL ? new BeetsFlaskAdapter({ baseUrl: env.BEETS_URL }) : null
