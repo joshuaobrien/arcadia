@@ -217,6 +217,9 @@ test('beets read routes expose normalized items and truthful unconfigured errors
 
 test('beets workflow gates mutations on the current album tree and validated choices', async (t) => {
   const calls = []
+  const operations = []
+  let libraryAlbums = []
+  let loseSubmissionCas = false
   const folder = { name: 'Album', providerPath: '/inbox/Album', hash: 'album-hash', album: true, type: 'directory', children: [] }
   const session = {
     id: 'session-1', providerPath: folder.providerPath, hash: folder.hash, progress: 20,
@@ -233,7 +236,35 @@ test('beets workflow gates mutations on the current album tree and validated cho
     enqueuePreview: async (target, context) => { calls.push(['preview', target]); return { jobId: 'preview-job', kind: 'preview', ...target, operationId: context.operationId } },
     enqueueImport: async (request, context) => { calls.push(['import', request]); return { jobId: 'import-job', kind: 'import_candidate', providerPath: request.providerPath, hash: request.hash, operationId: context.operationId } },
   }
-  const app = buildApp({ beets, lidarr: null, jellyfin: null, logger: false })
+  const acquisitionRepository = {
+    list: () => [], wantRelease: () => { throw new Error('not used') }, getDefaults: () => null, setDefaults: defaults => defaults,
+    createBeetsImportOperation: input => {
+      const existing = operations.find(item => item.sessionId === input.sessionId)
+      if (existing) return { operation: existing, created: false }
+      const operation = { id: `import-operation-${operations.length + 1}`, ...input, state: 'submitting', libraryAlbumIds: [], createdAt: '2026-08-09T00:00:00.000Z', updatedAt: '2026-08-09T00:00:00.000Z' }
+      operations.push(operation)
+      return { operation, created: true }
+    },
+    getBeetsImportOperation: id => operations.find(item => item.id === id) ?? null,
+    listBeetsImportOperations: () => operations,
+    transitionBeetsImportOperation: (id, expectedState, state, update = {}) => {
+      const operation = operations.find(item => item.id === id)
+      if (!operation) return null
+      if (operation.state !== expectedState) return operation
+      if (loseSubmissionCas && expectedState === 'submitting' && state === 'submitted') {
+        operation.state = 'submission-unknown'
+        return operation
+      }
+      Object.assign(operation, { state, updatedAt: '2026-08-09T00:01:00.000Z' }, update)
+      return operation
+    },
+  }
+  const jellyfin = {
+    listAlbums: async () => ({ items: libraryAlbums, total: libraryAlbums.length }),
+    listAlbumTracks: async albumId => ({ items: albumId === 'album-1' || albumId === 'album-2' ? [{ id: `track-${albumId}`, title: 'Track', artists: ['Artist'] }] : [], total: 1 }),
+    getAlbumArtwork: async () => null,
+  }
+  const app = buildApp({ beets, lidarr: null, jellyfin, acquisitionRepository, logger: false })
   t.after(() => app.close())
 
   const crossOrigin = await app.inject({ method: 'POST', url: '/api/imports/preview', headers: { origin: 'https://evil.example' }, payload: { providerPath: folder.providerPath, hash: folder.hash } })
@@ -263,8 +294,45 @@ test('beets workflow gates mutations on the current album tree and validated cho
   const imported = await app.inject({ method: 'POST', url: '/api/imports/import', payload: { providerPath: folder.providerPath, hash: folder.hash, sessionId: session.id, choices: [{ taskId: 'task-1', candidateId: 'candidate-1', duplicateAction: 'keep' }] } })
   assert.equal(imported.statusCode, 202)
   assert.equal(imported.json().jobId, 'import-job')
+  assert.equal(imported.json().importOperationId, 'import-operation-1')
+  assert.deepEqual(operations[0].selections, [{ taskId: 'task-1', candidateId: 'candidate-1', duplicateAction: 'keep', artist: 'Artist', album: 'Album', trackCount: 1 }])
+  assert.equal(operations[0].state, 'submitted')
   const duplicateImport = await app.inject({ method: 'POST', url: '/api/imports/import', payload: { providerPath: folder.providerPath, hash: folder.hash, sessionId: session.id, choices: [{ taskId: 'task-1', candidateId: 'candidate-1', duplicateAction: 'keep' }] } })
   assert.equal(duplicateImport.statusCode, 409)
+
+  session.progress = 40
+  session.tasks[0].chosenCandidateId = 'candidate-1'
+  session.tasks.push({ id: 'unapproved-task', chosenCandidateId: 'other-candidate', currentMetadata: {}, items: [], candidates: [] })
+  assert.equal((await app.inject({ method: 'POST', url: '/api/imports/operations/import-operation-1/reconcile', payload: {} })).json().state, 'submitted')
+  session.tasks.pop()
+  const providerCompleted = await app.inject({ method: 'POST', url: '/api/imports/operations/import-operation-1/reconcile', payload: {} })
+  assert.equal(providerCompleted.json().state, 'provider-completed')
+  libraryAlbums = [
+    { id: 'album-1', title: 'Album', albumArtist: 'Artist', trackCount: 1, hasArtwork: false },
+    { id: 'album-2', title: 'Album', albumArtist: 'Artist', trackCount: 1, hasArtwork: false },
+  ]
+  assert.equal((await app.inject({ method: 'POST', url: '/api/imports/operations/import-operation-1/reconcile', payload: {} })).json().state, 'provider-completed')
+  libraryAlbums = libraryAlbums.slice(0, 1)
+  const confirmed = await app.inject({ method: 'POST', url: '/api/imports/operations/import-operation-1/reconcile', payload: {} })
+  assert.equal(confirmed.json().state, 'library-confirmed')
+  assert.deepEqual(confirmed.json().libraryAlbumIds, ['album-1'])
+  assert.deepEqual((await app.inject({ method: 'GET', url: '/api/imports/operations' })).json(), { configured: true, items: operations })
+
+  session.id = 'session-2'
+  session.progress = 20
+  delete session.tasks[0].chosenCandidateId
+  beets.enqueueImport = async () => { throw new Error('unexpected provider failure') }
+  const failedSubmission = await app.inject({ method: 'POST', url: '/api/imports/import', payload: { providerPath: folder.providerPath, hash: folder.hash, sessionId: session.id, choices: [{ taskId: 'task-1', candidateId: 'candidate-1', duplicateAction: 'skip' }] } })
+  assert.equal(failedSubmission.statusCode, 500)
+  assert.equal(operations[1].state, 'submission-unknown')
+
+  session.id = 'session-3'
+  beets.enqueueImport = async (request, context) => ({ jobId: 'accepted-but-not-persisted', kind: 'import_candidate', providerPath: request.providerPath, hash: request.hash, operationId: context.operationId })
+  loseSubmissionCas = true
+  const lostDurability = await app.inject({ method: 'POST', url: '/api/imports/import', payload: { providerPath: folder.providerPath, hash: folder.hash, sessionId: session.id, choices: [{ taskId: 'task-1', candidateId: 'candidate-1', duplicateAction: 'skip' }] } })
+  assert.equal(lostDurability.statusCode, 503)
+  assert.equal(lostDurability.json().error.providerCode, 'outcome-unknown')
+  assert.equal(operations[2].state, 'submission-unknown')
   assert.deepEqual(calls.map(([kind]) => kind), ['preview', 'import'])
 })
 

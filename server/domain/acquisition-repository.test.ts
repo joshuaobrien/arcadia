@@ -113,7 +113,7 @@ test('acquisition repository migrates version 1 without changing wanted releases
 
   const migrated = new DatabaseSync(path)
   const version = migrated.prepare('PRAGMA user_version').get() as { user_version: number }
-  assert.equal(version.user_version, 3)
+  assert.equal(version.user_version, 4)
   migrated.close()
 })
 
@@ -123,11 +123,53 @@ test('acquisition repository rejects a database created by a newer schema', asyn
   t.after(() => rm(directory, { recursive: true, force: true }))
 
   const database = new DatabaseSync(path)
-  database.exec('PRAGMA user_version = 4')
+  database.exec('PRAGMA user_version = 5')
   database.close()
 
   assert.throws(
     () => new AcquisitionRepository(path),
-    /database schema 4 is newer than supported schema 3/,
+    /database schema 5 is newer than supported schema 4/,
   )
+})
+
+test('beets import operations persist exact selections, deduplicate sessions, and transition', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'needle-beets-operations-'))
+  const path = join(directory, 'needle.sqlite')
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const repository = new AcquisitionRepository(path)
+  const input = { sessionId: 'session-1', providerPath: '/inbox/Album', hash: 'hash-1', selections: [{
+    taskId: 'task-1', candidateId: 'candidate-1', duplicateAction: 'keep' as const,
+    artist: 'Artist', album: 'Album', year: 2026, trackCount: 9,
+  }] }
+  const first = repository.createBeetsImportOperation(input)
+  const duplicate = repository.createBeetsImportOperation({ ...input, hash: 'must-not-replace', selections: [] })
+  assert.equal(first.created, true)
+  assert.equal(duplicate.created, false)
+  assert.deepEqual(duplicate.operation, first.operation)
+  const submitted = repository.transitionBeetsImportOperation(first.operation.id, 'submitting', 'submitted', { providerJobId: 'job-1' })!
+  assert.equal(submitted.state, 'submitted')
+  assert.equal(submitted.providerJobId, 'job-1')
+  repository.transitionBeetsImportOperation(first.operation.id, 'submitted', 'provider-completed')!
+  const confirmed = repository.transitionBeetsImportOperation(first.operation.id, 'provider-completed', 'library-confirmed', { libraryAlbumIds: ['album-1', 'album-1'] })!
+  assert.deepEqual(confirmed.libraryAlbumIds, ['album-1'])
+  assert.equal(repository.transitionBeetsImportOperation(first.operation.id, 'submitted', 'provider-completed')!.state, 'library-confirmed')
+  repository.close()
+
+  const reopened = new AcquisitionRepository(path)
+  assert.deepEqual(reopened.getBeetsImportOperation(first.operation.id), confirmed)
+  assert.deepEqual(reopened.listBeetsImportOperations(), [confirmed])
+  reopened.close()
+})
+
+test('beets import operations recover interrupted submissions as unknown on reopen', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'needle-beets-recovery-'))
+  const path = join(directory, 'needle.sqlite')
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const repository = new AcquisitionRepository(path)
+  const created = repository.createBeetsImportOperation({ sessionId: 'session-interrupted', providerPath: '/inbox/Album', hash: 'hash', selections: [] }).operation
+  repository.close()
+
+  const reopened = new AcquisitionRepository(path)
+  assert.equal(reopened.getBeetsImportOperation(created.id)?.state, 'submission-unknown')
+  reopened.close()
 })

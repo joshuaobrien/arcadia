@@ -1,6 +1,6 @@
 import type { OperationContext, PageRequest } from './common.js'
 import { AdapterError } from './errors.js'
-import type { LibraryAlbum, LibraryAlbumQuery, LibraryArtwork, LibraryCatalogPort, LibraryCatalogTrack } from './library-catalog.js'
+import type { LibraryAlbum, LibraryAlbumQuery, LibraryArtwork, LibraryCatalogPort, LibraryCatalogTrack, LibraryTrackPageRequest } from './library-catalog.js'
 
 type JsonObject = Record<string, unknown>
 type Fetch = typeof globalThis.fetch
@@ -39,7 +39,7 @@ export class JellyfinAdapter implements LibraryCatalogPort {
 
   async listAlbums(query: LibraryAlbumQuery, context: OperationContext) {
     const offset = pageOffset(query)
-    const albums = await this.#allAlbums(context)
+    const albums = await this.#allAlbums(context, query.fresh)
     const term = query.term?.trim().toLowerCase()
     const matches = term
       ? albums.filter(item => item.title.toLowerCase().includes(term) || item.albumArtist.toLowerCase().includes(term))
@@ -48,10 +48,10 @@ export class JellyfinAdapter implements LibraryCatalogPort {
     return { items: matches.slice(offset, end), total: matches.length, ...(end < matches.length ? { nextCursor: String(end) } : {}) }
   }
 
-  async listAlbumTracks(albumId: string, page: PageRequest, context: OperationContext) {
+  async listAlbumTracks(albumId: string, page: LibraryTrackPageRequest, context: OperationContext) {
     assertItemId(albumId)
     const offset = pageOffset(page)
-    const tracks = await this.#allAlbumTracks(albumId, context)
+    const tracks = await this.#allAlbumTracks(albumId, context, page.fresh)
     const end = Math.min(tracks.length, offset + page.limit)
     return { items: tracks.slice(offset, end), total: tracks.length, ...(end < tracks.length ? { nextCursor: String(end) } : {}) }
   }
@@ -79,7 +79,8 @@ export class JellyfinAdapter implements LibraryCatalogPort {
     return { contentType, data }
   }
 
-  async #allAlbums(context: OperationContext): Promise<LibraryAlbum[]> {
+  async #allAlbums(context: OperationContext, fresh = false): Promise<LibraryAlbum[]> {
+    if (fresh) this.#albumsCache = undefined
     if (this.#albumsCache && this.#albumsCache.expiresAt > Date.now()) return this.#albumsCache.value
     const value = this.#json<JellyfinPage>('Items', {
       IncludeItemTypes: 'MusicAlbum',
@@ -98,7 +99,8 @@ export class JellyfinAdapter implements LibraryCatalogPort {
     return value
   }
 
-  async #allAlbumTracks(albumId: string, context: OperationContext): Promise<LibraryCatalogTrack[]> {
+  async #allAlbumTracks(albumId: string, context: OperationContext, fresh = false): Promise<LibraryCatalogTrack[]> {
+    if (fresh) this.#tracksCache.delete(albumId)
     const hit = this.#tracksCache.get(albumId)
     if (hit && hit.expiresAt > Date.now()) return hit.value
     for (const [id, entry] of this.#tracksCache) {
