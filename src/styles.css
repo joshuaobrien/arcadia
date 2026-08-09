@@ -116,6 +116,23 @@ main { width: min(1160px, calc(100% - 48px)); margin: 0 auto; padding: 42px 0 70
 .wanted-row strong { overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .wanted-row small, .wanted-row time { margin-top: 3px; color: #62665f; font-size: 7px; }
 .wanted-row time { text-align: right; }
+.inbox-grid { margin-bottom: 13px; display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; }
+.inbox-card { min-width: 0; padding: 11px; background: var(--surface); border: 1px solid #73756d; box-shadow: inset 1px 1px #f1f0e8, inset -1px -1px #92948b; }
+.inbox-card header { display: flex; justify-content: space-between; gap: 8px; }
+.inbox-card header strong { overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.inbox-card header span, .inbox-card > small { color: #62665f; font-size: 7px; }
+.inbox-card > b { margin: 13px 0 10px; display: block; color: #3f5365; font-size: 15px; font-weight: 500; }
+.inbox-card dl { margin: 0 0 10px; padding: 7px 0; display: grid; grid-template-columns: 1fr 1fr; border-block: 1px solid #96988f; }
+.inbox-card dl div { display: flex; flex-direction: column; gap: 3px; }
+.inbox-card dt { color: #62665f; font-size: 6px; text-transform: uppercase; }
+.inbox-card dd { margin: 0; font-size: 9px; }
+.import-row { min-height: 65px; padding: 8px 10px; display: grid; grid-template-columns: 48px minmax(0,1fr) auto; align-items: center; gap: 11px; border-bottom: 1px solid #96988f; }
+.import-row:last-child { border: 0; }
+.import-row > div:nth-child(2) { min-width: 0; display: flex; flex-direction: column; }
+.import-row strong { overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.import-row small { margin-top: 4px; overflow: hidden; color: #62665f; font-size: 7px; text-overflow: ellipsis; white-space: nowrap; }
+.state-tag.previewed, .state-tag.imported { color: #2c4338; background: #aebeb3; border-color: #778b7f; }
+.state-tag.pending, .state-tag.previewing, .state-tag.importing { color: #34485a; background: #aebac3; border-color: #748794; }
 .album-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; }
 .album-card { min-width: 0; min-height: 250px; padding: 18px 14px 11px; display: flex; flex-direction: column; align-items: stretch; color: var(--ink); background: #c7c7be; border: 1px solid #70726a; box-shadow: inset 1px 1px #f1f0e8, inset -1px -1px #92948b; text-align: left; }
 .album-card:hover { background: #cecec5; }
@@ -148,7 +165,7 @@ main { width: min(1160px, calc(100% - 48px)); margin: 0 auto; padding: 42px 0 70
 .spinning { animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-@media (max-width: 760px) {
+@media (max-width: 820px) {
   .header { height: auto; min-height: 106px; padding: 10px 14px 9px; flex-wrap: wrap; }
   .brand { width: auto; margin-right: auto; }
   .connection { min-width: 148px; }
@@ -167,6 +184,7 @@ main { width: min(1160px, calc(100% - 48px)); margin: 0 auto; padding: 42px 0 70
   .history-row time { display: none; }
   .wanted-row { grid-template-columns: 43px minmax(0,1fr) auto; }
   .wanted-row time { display: none; }
+  .inbox-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
   .album-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
   .library-track-row { grid-template-columns: 28px minmax(0,1fr) 110px; }
   .library-track-row > span { display: none; }
@@ -192,6 +210,8 @@ main { width: min(1160px, calc(100% - 48px)); margin: 0 auto; padding: 42px 0 70
   .result-actions { grid-column: 2; justify-self: start; }
   .queue-row { grid-template-columns: 42px minmax(0,1fr); }
   .state-tag { grid-column: 2; justify-self: start; }
+  .inbox-grid { grid-template-columns: 1fr; }
+  .import-row { grid-template-columns: 43px minmax(0,1fr); }
   .album-grid { grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px; }
   .album-card { min-height: 212px; padding: 12px 9px 9px; }
   .album-case { width: 108px; height: 108px; margin-bottom: 14px; box-shadow: 4px 6px #999990, inset 2px 0 rgba(255,255,255,.65); }

@@ -192,6 +192,29 @@ test('Lidarr API reports an unconfigured adapter without making a request', asyn
   assert.equal(artists.json().error.code, 'unavailable')
 })
 
+test('beets read routes expose normalized items and truthful unconfigured errors', async (t) => {
+  const unconfigured = buildApp({ beets: null, lidarr: null, jellyfin: null, logger: false })
+  t.after(() => unconfigured.close())
+  assert.deepEqual((await unconfigured.inject({ method: 'GET', url: '/api/services/beets' })).json(), { configured: false })
+  const missing = await unconfigured.inject({ method: 'GET', url: '/api/imports/inboxes' })
+  assert.equal(missing.statusCode, 503)
+  assert.deepEqual(missing.json().error, { code: 'unavailable', adapterId: 'beets', message: 'beets-flask is not configured', retryable: false })
+
+  const beets = {
+    adapterId: 'beets', kind: 'beets',
+    probe: async () => ({ adapterId: 'beets', kind: 'beets', state: 'available', checkedAt: '2026-08-09T00:00:00Z', latencyMs: 2, version: '2.3.1', apiVersion: 'v1' }),
+    listInboxes: async () => [{ name: 'Inbox', providerPath: '/inbox', taggedCount: 1, importedCount: 0, bytes: 12, fileCount: 2 }],
+    listFolders: async () => [{ name: 'Inbox', providerPath: '/inbox', hash: 'abc', album: false, type: 'directory', children: [] }],
+    listFolderStatuses: async () => [{ providerPath: '/inbox/Album', hash: 'def', status: 'previewed' }],
+  }
+  const app = buildApp({ beets, lidarr: null, jellyfin: null, logger: false })
+  t.after(() => app.close())
+  assert.equal((await app.inject({ method: 'GET', url: '/api/services/beets' })).json().health.version, '2.3.1')
+  assert.deepEqual((await app.inject({ method: 'GET', url: '/api/imports/inboxes' })).json(), { items: await beets.listInboxes() })
+  assert.deepEqual((await app.inject({ method: 'GET', url: '/api/imports/folders' })).json(), { items: await beets.listFolders() })
+  assert.deepEqual((await app.inject({ method: 'GET', url: '/api/imports/status' })).json(), { items: await beets.listFolderStatuses() })
+})
+
 test('acquisition API records Needle-owned wanted state without calling Lidarr', async (t) => {
   const calls = []
   const jobs = []
