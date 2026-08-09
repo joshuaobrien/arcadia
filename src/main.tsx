@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { createRoot } from 'react-dom/client'
-import { Activity, ArrowLeft, Bookmark, Check, Disc3, LibraryBig, PackageOpen, Radio, RefreshCw, Search, ShieldCheck } from 'lucide-react'
+import { Activity, ArrowLeft, Bookmark, Check, Disc3, House, LibraryBig, PackageOpen, Radio, RefreshCw, Search, ShieldCheck } from 'lucide-react'
 import './styles.css'
 
 interface ProviderRef {
@@ -244,7 +244,7 @@ interface MusicSearchResponse {
   items: MusicRelease[]
 }
 
-type View = 'library' | 'imports' | 'wanted' | 'activity'
+type View = 'home' | 'library' | 'imports' | 'wanted' | 'activity'
 
 async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   const response = await fetch(path, { signal })
@@ -833,6 +833,9 @@ function Header({ view, setView, lidarr, beets, library, acquisitions }: {
         <span>needle<small>your music, end to end</small></span>
       </div>
       <nav aria-label="Primary">
+        <button className={view === 'home' ? 'active' : ''} onClick={() => setView('home')}>
+          <House size={14} /> Home
+        </button>
         <button className={view === 'library' ? 'active' : ''} onClick={() => setView('library')}>
           <LibraryBig size={14} /> Collection
         </button>
@@ -852,6 +855,119 @@ function Header({ view, setView, lidarr, beets, library, acquisitions }: {
         <code>system</code>
       </div>
     </header>
+  )
+}
+
+function HomeView({ lidarr, beets, imports, acquisitions, library, setView }: {
+  lidarr: LidarrReadModel
+  beets: BeetsReadModel
+  imports: BeetsImportOperationsModel
+  acquisitions: AcquisitionsModel
+  library: LibraryModel
+  setView: (view: View) => void
+}) {
+  const stagedAlbums = beets.folders
+    .flatMap(root => collectStagedAlbums(root))
+    .filter(folder => {
+      const state = currentFolderStatus(folder, beets.folderStatuses)
+      return state !== 'imported' && state !== 'importing' && state !== 'deleting' && state !== 'deleted'
+    })
+  const uncertainImports = imports.items.filter(item => item.state === 'submission-unknown')
+  const activeJourneys = acquisitions.items.filter(item => item.state !== 'completed' && item.state !== 'failed' && item.state !== 'cancelled')
+  const recentlyCollected = imports.items
+    .filter(item => item.state === 'library-confirmed')
+    .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))
+    .slice(0, 5)
+  const refreshing = lidarr.loading || beets.loading || imports.loading || acquisitions.loading || library.loading
+
+  function discover(event: FormEvent<HTMLFormElement>) {
+    library.search(event)
+    if (library.term.trim()) setView('library')
+  }
+
+  return (
+    <section>
+      <div className="page-heading">
+        <div><p>00 / NEEDLE</p><h1>Your music, end to end</h1></div>
+        <button className="button" disabled={refreshing} onClick={() => {
+          void lidarr.refresh()
+          void beets.refresh()
+          void imports.refresh()
+          void acquisitions.refresh()
+          void library.refresh()
+        }}>
+          <RefreshCw size={13} className={refreshing ? 'spinning' : ''} /> Refresh
+        </button>
+      </div>
+
+      <form className="search-form home-search" onSubmit={discover}>
+        <Search size={17} />
+        <input
+          aria-label="Discover an album or artist"
+          value={library.term}
+          onChange={event => library.setTerm(event.target.value)}
+          placeholder="discover an album or artist"
+        />
+        <button className="button primary" disabled={library.loading}>Discover</button>
+      </form>
+
+      {beets.error && <div className="error-strip">{beets.error}</div>}
+      {imports.error && <div className="error-strip">{imports.error}</div>}
+      {acquisitions.error && <div className="error-strip">{acquisitions.error}</div>}
+      {library.error && <div className="error-strip">{library.error}</div>}
+
+      <div className="home-grid">
+        <section className="panel home-panel">
+          <header><h2>Needs review</h2><span>{stagedAlbums.length + uncertainImports.length}</span></header>
+          {uncertainImports.map(item => {
+            const first = item.selections[0]
+            return <button className="home-row attention" key={item.id} onClick={() => setView('activity')}>
+              <Radio size={17} />
+              <div><strong>{first?.album ?? 'Import outcome unknown'}</strong><small>Inspect before taking another action</small></div>
+              <span className="state-tag selection-required">Attention</span>
+            </button>
+          })}
+          {stagedAlbums.map(folder => {
+            const state = currentFolderStatus(folder, beets.folderStatuses)
+            return <button className="home-row" key={`${folder.providerPath}:${folder.hash}`} disabled={!folder.hash} onClick={() => {
+              setView('imports')
+              void beets.openFolder(folder)
+            }}>
+              <PackageOpen size={17} />
+              <div><strong>{folder.name}</strong><small>{countFiles(folder)} files · choose metadata</small></div>
+              <span className={`state-tag ${state ?? 'unknown'}`}>{state === 'previewed' ? 'ready' : 'review'}</span>
+            </button>
+          })}
+          {!refreshing && !stagedAlbums.length && !uncertainImports.length && <p className="empty-row">Nothing needs your attention</p>}
+          {refreshing && !stagedAlbums.length && !uncertainImports.length && <p className="empty-row">Checking staged music…</p>}
+        </section>
+
+        <section className="panel home-panel">
+          <header><h2>In motion</h2><span>{activeJourneys.length}</span></header>
+          {activeJourneys.map(item => <button className="home-row" key={item.id} onClick={() => setView('wanted')}>
+            <Disc3 size={17} />
+            <div><strong>{item.release}</strong><small>{item.artist ?? 'Release journey'}</small></div>
+            <span className={`state-tag ${item.state}`}>{item.state.replace('-', ' ')}</span>
+          </button>)}
+          {!acquisitions.loading && !activeJourneys.length && <p className="empty-row">No active journeys</p>}
+          {acquisitions.loading && !activeJourneys.length && <p className="empty-row">Checking journeys…</p>}
+        </section>
+
+        <section className="panel home-panel recent">
+          <header><h2>Recently collected</h2><span>{recentlyCollected.length}</span></header>
+          {recentlyCollected.map(item => {
+            const first = item.selections[0]
+            return <button className="home-row" key={item.id} onClick={() => setView('library')}>
+              <Check size={17} />
+              <div><strong>{first?.album ?? item.providerPath.split('/').filter(Boolean).pop() ?? 'Collected release'}</strong><small>{first?.artist ?? `${first?.trackCount ?? 0} tracks`}</small></div>
+              <span className="state-tag">In collection</span>
+            </button>
+          })}
+          {!imports.loading && !recentlyCollected.length && <p className="empty-row">Newly verified music will appear here</p>}
+          {imports.loading && !recentlyCollected.length && <p className="empty-row">Checking your collection…</p>}
+        </section>
+      </div>
+    </section>
   )
 }
 
@@ -1277,7 +1393,7 @@ function WantedView({ acquisitions }: { acquisitions: AcquisitionsModel }) {
 }
 
 function App() {
-  const [view, setView] = useState<View>('library')
+  const [view, setView] = useState<View>('home')
   const lidarr = useLidarrReadModel()
   const acquisitions = useAcquisitions()
   const importOperations = useBeetsImportOperations(acquisitions.refresh)
@@ -1288,6 +1404,7 @@ function App() {
     <div className="app-shell">
       <Header view={view} setView={setView} lidarr={lidarr} beets={beets} library={library} acquisitions={acquisitions} />
       <main>
+        {view === 'home' && <HomeView lidarr={lidarr} beets={beets} imports={importOperations} acquisitions={acquisitions} library={library} setView={setView} />}
         {view === 'library' && <LibraryView library={library} acquisitions={acquisitions} />}
         {view === 'imports' && <ImportsView beets={beets} />}
         {view === 'wanted' && <WantedView acquisitions={acquisitions} />}
