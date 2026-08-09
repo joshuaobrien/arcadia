@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { FormEvent, ReactNode } from 'react'
+import type { FormEvent } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Activity, ArrowLeft, Bookmark, Check, Disc3, LibraryBig, Radio, RefreshCw, Search } from 'lucide-react'
 import './styles.css'
@@ -12,8 +12,6 @@ interface ProviderRef {
 interface CatalogArtist {
   ref: ProviderRef
   name: string
-  disambiguation?: string
-  musicBrainzArtistId?: string
 }
 
 interface CatalogRelease {
@@ -59,6 +57,7 @@ interface AcquisitionJob {
   state: 'wanted'
   artist?: string
   release?: string
+  musicBrainzReleaseGroupId?: string
   searchRefs: ProviderRef[]
   createdAt: string
   updatedAt: string
@@ -96,6 +95,7 @@ interface LibraryAlbum {
   id: string
   title: string
   albumArtist: string
+  musicBrainzReleaseGroupId?: string
   year?: number
   trackCount?: number
   hasArtwork: boolean
@@ -114,7 +114,28 @@ interface ErrorResponse {
   error?: { message?: string }
 }
 
-type View = 'library' | 'catalog' | 'wanted' | 'activity'
+interface MusicRelease {
+  key: string
+  title: string
+  artist: string
+  year?: number
+  state: 'in-library' | 'wanted' | 'can-request'
+  musicBrainzReleaseGroupId?: string
+  libraryAlbum?: LibraryAlbum
+  catalogRelease?: CatalogRelease
+  acquisition?: AcquisitionJob
+}
+
+interface MusicSearchResponse {
+  sources: {
+    library: 'available' | 'unconfigured' | 'unavailable'
+    catalog: 'available' | 'unconfigured' | 'unavailable'
+    wanted: 'available' | 'unconfigured' | 'unavailable'
+  }
+  items: MusicRelease[]
+}
+
+type View = 'library' | 'wanted' | 'activity'
 
 async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   const response = await fetch(path, { signal })
@@ -190,7 +211,10 @@ function useAcquisitions() {
     try {
       const result = await getJson<AcquisitionResponse>('/api/acquisitions', signal)
       setConfigured(result.configured)
-      setItems(result.items)
+      setItems(current => [
+        ...result.items,
+        ...current.filter(item => !result.items.some(next => next.id === item.id)),
+      ])
     } catch (requestError) {
       if (!isAbortError(requestError)) setError(errorMessage(requestError))
     } finally {
@@ -205,7 +229,7 @@ function useAcquisitions() {
   }, [refresh])
 
   async function wantRelease(release: CatalogRelease) {
-    setSavingRef(release.ref.nativeId)
+    setSavingRef(providerRefKey(release.ref))
     setError(null)
     try {
       const job = await postJson<AcquisitionJob>('/api/acquisitions', { release })
@@ -243,6 +267,7 @@ function useLibrary() {
   const [tracks, setTracks] = useState<LibraryTrack[]>([])
   const [term, setTerm] = useState('')
   const [activeTerm, setActiveTerm] = useState('')
+  const [searchResult, setSearchResult] = useState<MusicSearchResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [openingAlbum, setOpeningAlbum] = useState<string | null>(null)
@@ -261,6 +286,7 @@ function useLibrary() {
       const next = await getJson<LibraryPage<LibraryAlbum>>(`/api/library/albums?${params}`, signal)
       if (request !== albumRequest.current) return
       setPage(next)
+      setSearchResult(null)
       setArtworkRevision(current => current + 1)
       setSelectedAlbum(null)
       setTracks([])
@@ -280,14 +306,37 @@ function useLibrary() {
   function search(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const query = term.trim()
+    if (!query) {
+      clearSearch()
+      return
+    }
     setActiveTerm(query)
-    loadAlbums(query)
+    searchReleases(query)
   }
 
   function clearSearch() {
     setTerm('')
     setActiveTerm('')
     loadAlbums('')
+  }
+
+  async function searchReleases(query: string) {
+    const request = ++albumRequest.current
+    setLoading(true)
+    setLoadingMore(false)
+    setSearchResult(null)
+    setError(null)
+    try {
+      const next = await getJson<MusicSearchResponse>(`/api/music/releases?term=${encodeURIComponent(query)}`)
+      if (request !== albumRequest.current) return
+      setSearchResult(next)
+      setSelectedAlbum(null)
+      setTracks([])
+    } catch (requestError) {
+      if (request === albumRequest.current) setError(errorMessage(requestError))
+    } finally {
+      if (request === albumRequest.current) setLoading(false)
+    }
   }
 
   async function loadMore() {
@@ -332,6 +381,7 @@ function useLibrary() {
 
   return {
     page,
+    searchResult,
     selectedAlbum,
     tracks,
     loading,
@@ -344,7 +394,7 @@ function useLibrary() {
     setTerm,
     search,
     clearSearch,
-    refresh: () => loadAlbums(activeTerm),
+    refresh: () => activeTerm ? searchReleases(activeTerm) : loadAlbums(''),
     loadMore,
     openAlbum,
     closeAlbum: () => setSelectedAlbum(null),
@@ -391,9 +441,6 @@ function Header({ view, setView, lidarr, acquisitions }: {
         <button className={view === 'library' ? 'active' : ''} onClick={() => setView('library')}>
           <LibraryBig size={14} /> Library
         </button>
-        <button className={view === 'catalog' ? 'active' : ''} onClick={() => setView('catalog')}>
-          <Search size={14} /> Catalog
-        </button>
         {acquisitions.configured && <button className={view === 'wanted' ? 'active' : ''} onClick={() => setView('wanted')}>
           <Bookmark size={14} /> Wanted
         </button>}
@@ -425,105 +472,6 @@ function IntegrationState({ lidarr }: { lidarr: LidarrReadModel }) {
   )
 }
 
-function CatalogView({ lidarr, acquisitions }: { lidarr: LidarrReadModel; acquisitions: AcquisitionsModel }) {
-  const [term, setTerm] = useState('')
-  const [results, setResults] = useState<{ artists: CatalogArtist[]; releases: CatalogRelease[] }>({ artists: [], releases: [] })
-  const [hasSearched, setHasSearched] = useState(false)
-  const [searching, setSearching] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  async function searchCatalog(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const query = term.trim()
-    if (!query) return
-    setSearching(true)
-    setError(null)
-    try {
-      const encoded = encodeURIComponent(query)
-      const [artists, releases] = await Promise.all([
-        getJson<CatalogArtist[]>(`/api/services/lidarr/artists?term=${encoded}`),
-        getJson<CatalogRelease[]>(`/api/services/lidarr/releases?term=${encoded}`),
-      ])
-      setResults({ artists, releases })
-      setHasSearched(true)
-    } catch (requestError) {
-      setError(errorMessage(requestError))
-    } finally {
-      setSearching(false)
-    }
-  }
-
-  const available = lidarr.status?.configured && lidarr.status.health?.state === 'available' && !lidarr.error
-
-  return (
-    <section>
-      <div className="page-heading">
-        <div><p>02 / LIDARR CATALOG</p><h1>Catalog lookup</h1></div>
-        <span>READ ONLY</span>
-      </div>
-
-      {!available ? <IntegrationState lidarr={lidarr} /> : <>
-        <form className="search-form" onSubmit={searchCatalog}>
-          <Search size={17} />
-          <input
-            aria-label="Artist or release"
-            value={term}
-            onChange={event => setTerm(event.target.value)}
-            placeholder="artist or release"
-            autoFocus
-          />
-          <button className="button primary" disabled={searching || !term.trim()}>
-            {searching ? 'Searching…' : 'Search'}
-          </button>
-        </form>
-        {error && <div className="error-strip">{error}</div>}
-        {acquisitions.error && <div className="error-strip">{acquisitions.error}</div>}
-        {!hasSearched ? <div className="idle-state"><div className="compact-disc"><i /></div><span>Enter an artist or release.</span></div> :
-          <div className="catalog-results">
-            <ResultPanel title="Artists" count={results.artists.length} empty="No artists found">
-              {results.artists.map(artist => (
-                <article className="result-row" key={artist.ref.nativeId}>
-                  <div className="media-object disc"><i /></div>
-                  <div><strong>{artist.name}</strong><small>{artist.disambiguation ?? artist.musicBrainzArtistId ?? 'Artist'}</small></div>
-                  <code>ARTIST</code>
-                </article>
-              ))}
-            </ResultPanel>
-            <ResultPanel title="Releases" count={results.releases.length} empty="No releases found">
-              {results.releases.map(release => (
-                <article className="result-row" key={release.ref.nativeId}>
-                  <div className="media-object case"><i /></div>
-                  <div><strong>{release.title}</strong><small>{release.artistName ?? release.releaseType ?? release.musicBrainzReleaseGroupId}</small></div>
-                  <div className="result-actions">
-                    <code>{release.releaseDate?.slice(0, 4) ?? 'RELEASE'}</code>
-                    {acquisitions.configured && <button
-                      className={`want-button ${acquisitions.includes(release) ? 'saved' : ''}`}
-                      disabled={acquisitions.includes(release) || acquisitions.savingRef !== null}
-                      onClick={() => acquisitions.wantRelease(release)}
-                    >
-                      {acquisitions.includes(release)
-                        ? <><Check size={11} /> Wanted</>
-                        : acquisitions.savingRef === release.ref.nativeId ? 'Saving…' : <><Bookmark size={11} /> Want</>}
-                    </button>}
-                  </div>
-                </article>
-              ))}
-            </ResultPanel>
-          </div>}
-      </>}
-    </section>
-  )
-}
-
-function ResultPanel({ title, count, empty, children }: { title: string; count: number; empty: string; children: ReactNode }) {
-  return (
-    <section className="panel">
-      <header><h2>{title}</h2><span>{count}</span></header>
-      {count ? children : <p className="empty-row">{empty}</p>}
-    </section>
-  )
-}
-
 function formatBytes(value?: number): string {
   if (typeof value !== 'number' || !Number.isFinite(value)) return 'size unknown'
   const units = ['B', 'KB', 'MB', 'GB']
@@ -544,10 +492,54 @@ function formatDuration(value?: number): string {
   return `${minutes}:${seconds.toString().padStart(2, '0')}`
 }
 
-function LibraryView({ library }: { library: LibraryModel }) {
+function UnifiedReleaseCard({ item, library, acquisitions, libraryAvailable }: {
+  item: MusicRelease
+  library: LibraryModel
+  acquisitions: AcquisitionsModel
+  libraryAvailable: boolean
+}) {
+  const album = item.libraryAlbum
+  const release = item.catalogRelease
+  const wanted = item.state === 'wanted' || Boolean(release && acquisitions.includes(release))
+
+  if (album) {
+    return (
+      <button className="album-card release-card" onClick={() => library.openAlbum(album)} disabled={library.openingAlbum !== null}>
+        <AlbumArtwork album={album} key={`${album.id}:${library.artworkRevision}`} />
+        <strong>{item.title}</strong>
+        <small>{item.artist}</small>
+        <div className="album-meta"><span>{item.year ?? '—'}</span><span className="release-state present">In library</span></div>
+      </button>
+    )
+  }
+
+  return (
+    <article className="album-card release-card missing">
+      <div className="album-case"><i /></div>
+      <strong>{item.title}</strong>
+      <small>{item.artist}</small>
+      <div className="album-meta">
+        <span>{item.year ?? '—'}</span>
+        {wanted ? <span className="release-state wanted"><Check size={9} /> Wanted</span>
+          : !libraryAvailable ? <span className="release-state unknown">Library unknown</span>
+            : release && acquisitions.configured ? <button
+            className="want-button"
+            disabled={acquisitions.savingRef !== null}
+            onClick={() => acquisitions.wantRelease(release)}
+          >
+            {acquisitions.savingRef === providerRefKey(release.ref) ? 'Saving…' : <><Bookmark size={10} /> Want</>}
+          </button>
+            : <span className="release-state requestable">Can request</span>}
+      </div>
+    </article>
+  )
+}
+
+function LibraryView({ library, acquisitions }: { library: LibraryModel; acquisitions: AcquisitionsModel }) {
   const page = library.page
   const unavailable = page && (!page.configured || !page.mounted)
   const album = library.selectedAlbum
+  const searchResult = library.searchResult
 
   return (
     <section>
@@ -563,14 +555,10 @@ function LibraryView({ library }: { library: LibraryModel }) {
           </button>}
       </div>
       {library.error && <div className="error-strip">{library.error}</div>}
-      {library.loading && !page ? <div className="idle-state"><Disc3 size={34} className="spinning" /><span>Reading Jellyfin catalog</span></div>
-        : unavailable ? <div className="integration-state">
-          <LibraryBig size={21} />
-          <strong>{page.configured ? 'Jellyfin unavailable' : 'Jellyfin not configured'}</strong>
-          <small>{page.configured ? 'The Jellyfin catalog is unavailable.' : 'Set JELLYFIN_URL and JELLYFIN_API_KEY.'}</small>
-          <button className="button" onClick={library.refresh}><RefreshCw size={13} /> Retry</button>
-        </div>
-          : album ? <section className="panel library-panel">
+      {acquisitions.error && <div className="error-strip">{acquisitions.error}</div>}
+      {library.loading && !page && !library.activeTerm
+        ? <div className="idle-state"><Disc3 size={34} className="spinning" /><span>Reading Jellyfin catalog</span></div>
+        : album ? <section className="panel library-panel">
             <header><h2>{album.albumArtist}</h2><span>{library.tracks.length} tracks</span></header>
             {library.tracks.map(track => (
               <article className="library-track-row" key={track.id ?? track.relativePath}>
@@ -591,24 +579,46 @@ function LibraryView({ library }: { library: LibraryModel }) {
               />
               {library.activeTerm && <button className="button" type="button" onClick={library.clearSearch}>Clear</button>}
               <button className="button primary" disabled={library.loading}>Find</button>
-              <code>{page?.total ?? 0}</code>
+              <code>{library.activeTerm ? searchResult?.items.length ?? 0 : page?.total ?? 0}</code>
             </form>
-            <div className="album-grid">
-              {page?.items.map(item => (
-                <button className="album-card" key={item.id} onClick={() => library.openAlbum(item)} disabled={library.openingAlbum !== null}>
-                  <AlbumArtwork album={item} key={`${item.id}:${library.artworkRevision}`} />
-                  <strong>{item.title}</strong>
-                  <small>{item.albumArtist}</small>
-                  <div className="album-meta"><span>{item.year ?? '—'}</span><span>{item.trackCount ? `${item.trackCount} tracks` : 'Album'}</span></div>
+            {library.activeTerm ? <>
+              {searchResult && sourceWarning(searchResult.sources) && <div className="source-strip">{sourceWarning(searchResult.sources)}</div>}
+              {library.loading ? <div className="idle-state compact"><Disc3 size={28} className="spinning" /><span>Reading music index</span></div>
+                : <div className="album-grid">
+                  {searchResult?.items.map(item => (
+                  <UnifiedReleaseCard
+                    item={item}
+                    library={library}
+                    acquisitions={acquisitions}
+                    libraryAvailable={searchResult.sources.library === 'available'}
+                    key={item.key}
+                  />
+                  ))}
+                </div>}
+              {!library.loading && !searchResult?.items.length && <div className="panel"><p className="empty-row">No matching releases</p></div>}
+            </> : unavailable ? <div className="integration-state">
+              <LibraryBig size={21} />
+              <strong>{page.configured ? 'Jellyfin unavailable' : 'Jellyfin not configured'}</strong>
+              <small>{page.configured ? 'The Jellyfin catalog is unavailable.' : 'Set JELLYFIN_URL and JELLYFIN_API_KEY.'}</small>
+              <button className="button" onClick={library.refresh}><RefreshCw size={13} /> Retry</button>
+            </div> : <>
+              <div className="album-grid">
+                {page?.items.map(item => (
+                  <button className="album-card" key={item.id} onClick={() => library.openAlbum(item)} disabled={library.openingAlbum !== null}>
+                    <AlbumArtwork album={item} key={`${item.id}:${library.artworkRevision}`} />
+                    <strong>{item.title}</strong>
+                    <small>{item.albumArtist}</small>
+                    <div className="album-meta"><span>{item.year ?? '—'}</span><span>{item.trackCount ? `${item.trackCount} tracks` : 'Album'}</span></div>
+                  </button>
+                ))}
+              </div>
+              {!page?.items.length && <div className="panel"><p className="empty-row">No albums found</p></div>}
+              {page?.nextCursor && <footer className="library-footer">
+                <button className="button" disabled={library.loadingMore} onClick={library.loadMore}>
+                  {library.loadingMore ? 'Loading…' : 'Load 48 more'}
                 </button>
-              ))}
-            </div>
-            {!page?.items.length && <div className="panel"><p className="empty-row">{library.activeTerm ? 'No matching albums' : 'No albums found'}</p></div>}
-            {page?.nextCursor && <footer className="library-footer">
-              <button className="button" disabled={library.loadingMore} onClick={library.loadMore}>
-                {library.loadingMore ? 'Loading…' : 'Load 48 more'}
-              </button>
-            </footer>}
+              </footer>}
+            </>}
           </>}
     </section>
   )
@@ -701,10 +711,9 @@ function App() {
     <div className="app-shell">
       <Header view={view} setView={setView} lidarr={lidarr} acquisitions={acquisitions} />
       <main>
-        {view === 'library' && <LibraryView library={library} />}
-        {view === 'catalog' && <CatalogView lidarr={lidarr} acquisitions={acquisitions} />}
+        {view === 'library' && <LibraryView library={library} acquisitions={acquisitions} />}
         {view === 'wanted' && <WantedView acquisitions={acquisitions} />}
-        {view === 'activity' && <ActivityView lidarr={lidarr} sectionNumber={acquisitions.configured ? '04' : '03'} />}
+        {view === 'activity' && <ActivityView lidarr={lidarr} sectionNumber={acquisitions.configured ? '03' : '02'} />}
       </main>
     </div>
   )
@@ -716,6 +725,19 @@ function isAbortError(error: unknown): boolean {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unexpected request failure'
+}
+
+function providerRefKey(ref: ProviderRef): string {
+  return JSON.stringify([ref.adapterId, ref.nativeId])
+}
+
+function sourceWarning(sources: MusicSearchResponse['sources']): string {
+  const messages = [
+    sources.library === 'available' ? null : `Jellyfin library ${sources.library === 'unconfigured' ? 'not configured' : 'unavailable'}`,
+    sources.catalog === 'available' ? null : `Lidarr catalog ${sources.catalog === 'unconfigured' ? 'not configured' : 'unavailable'}`,
+    sources.wanted === 'available' ? null : 'Wanted state not configured',
+  ].filter(Boolean)
+  return messages.join(' · ')
 }
 
 const root = document.getElementById('root')

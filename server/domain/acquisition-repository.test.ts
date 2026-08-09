@@ -12,6 +12,7 @@ const release: CatalogRelease = {
   artistRef: { adapterId: 'lidarr', nativeId: 'artist:id:7' },
   artistName: 'Broadcast',
   title: 'Tender Buttons',
+  musicBrainzReleaseGroupId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
 }
 
 test('acquisition repository persists wanted releases and deduplicates provider references', async (t) => {
@@ -30,6 +31,7 @@ test('acquisition repository persists wanted releases and deduplicates provider 
   assert.equal(first.job.state, 'wanted')
   assert.equal(first.job.artist, 'Broadcast')
   assert.equal(first.job.release, 'Tender Buttons')
+  assert.equal(first.job.musicBrainzReleaseGroupId, release.musicBrainzReleaseGroupId)
 
   const reopened = new AcquisitionRepository(path)
   assert.deepEqual(reopened.list(), [first.job])
@@ -111,7 +113,7 @@ test('acquisition repository migrates version 1 without changing wanted releases
 
   const migrated = new DatabaseSync(path)
   const version = migrated.prepare('PRAGMA user_version').get() as { user_version: number }
-  assert.equal(version.user_version, 2)
+  assert.equal(version.user_version, 3)
   migrated.close()
 })
 
@@ -121,11 +123,11 @@ test('acquisition repository rejects a database created by a newer schema', asyn
   t.after(() => rm(directory, { recursive: true, force: true }))
 
   const database = new DatabaseSync(path)
-  database.exec('PRAGMA user_version = 3')
+  database.exec('PRAGMA user_version = 4')
   database.close()
 
   assert.throws(
     () => new AcquisitionRepository(path),
-    /database schema 3 is newer than supported schema 2/,
+    /database schema 4 is newer than supported schema 3/,
   )
 })

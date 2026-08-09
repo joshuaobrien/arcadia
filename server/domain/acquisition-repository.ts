@@ -5,7 +5,7 @@ import { DatabaseSync } from 'node:sqlite'
 import type { CatalogRelease } from '../integrations/catalog.js'
 import type { AcquisitionDefaults, AcquisitionJob } from './acquisition.js'
 
-const SCHEMA_VERSION = 2
+const SCHEMA_VERSION = 3
 
 interface AcquisitionRow {
   id: string
@@ -14,6 +14,7 @@ interface AcquisitionRow {
   native_id: string
   artist: string | null
   release: string
+  musicbrainz_release_group_id: string | null
   created_at: string
   updated_at: string
 }
@@ -60,7 +61,7 @@ export class AcquisitionRepository {
 
   list(): readonly AcquisitionJob[] {
     const rows = this.#database.prepare(`
-      SELECT id, state, adapter_id, native_id, artist, release, created_at, updated_at
+      SELECT id, state, adapter_id, native_id, artist, release, musicbrainz_release_group_id, created_at, updated_at
       FROM acquisitions
       ORDER BY created_at DESC, id DESC
     `).all() as unknown as AcquisitionRow[]
@@ -121,10 +122,11 @@ export class AcquisitionRepository {
   wantRelease(release: CatalogRelease): WantReleaseResult {
     const id = randomUUID()
     const now = new Date().toISOString()
+    const musicBrainzReleaseGroupId = release.musicBrainzReleaseGroupId?.trim().toLowerCase() ?? null
     const result = this.#database.prepare(`
       INSERT INTO acquisitions (
-        id, state, adapter_id, native_id, artist, release, created_at, updated_at
-      ) VALUES (?, 'wanted', ?, ?, ?, ?, ?, ?)
+        id, state, adapter_id, native_id, artist, release, musicbrainz_release_group_id, created_at, updated_at
+      ) VALUES (?, 'wanted', ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT (adapter_id, native_id) DO NOTHING
     `).run(
       id,
@@ -132,12 +134,13 @@ export class AcquisitionRepository {
       release.ref.nativeId,
       release.artistName ?? null,
       release.title,
+      musicBrainzReleaseGroupId,
       now,
       now,
     )
 
     const row = this.#database.prepare(`
-      SELECT id, state, adapter_id, native_id, artist, release, created_at, updated_at
+      SELECT id, state, adapter_id, native_id, artist, release, musicbrainz_release_group_id, created_at, updated_at
       FROM acquisitions
       WHERE adapter_id = ? AND native_id = ?
     `).get(release.ref.adapterId, release.ref.nativeId) as unknown as AcquisitionRow | undefined
@@ -185,6 +188,14 @@ export class AcquisitionRepository {
         PRAGMA user_version = 2;
       `)
     }
+    if (row.user_version < 3) {
+      this.#transaction(`
+        ALTER TABLE acquisitions ADD COLUMN musicbrainz_release_group_id TEXT;
+        CREATE INDEX acquisitions_musicbrainz_release_group
+          ON acquisitions (musicbrainz_release_group_id);
+        PRAGMA user_version = 3;
+      `)
+    }
   }
 
   #transaction(sql: string): void {
@@ -205,6 +216,9 @@ function toJob(row: AcquisitionRow): AcquisitionJob {
     state: row.state,
     artist: row.artist ?? undefined,
     release: row.release,
+    ...(row.musicbrainz_release_group_id
+      ? { musicBrainzReleaseGroupId: row.musicbrainz_release_group_id }
+      : {}),
     searchRefs: [{ adapterId: row.adapter_id, nativeId: row.native_id }],
     createdAt: row.created_at,
     updatedAt: row.updated_at,

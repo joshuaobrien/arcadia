@@ -17,6 +17,7 @@ export interface AcquisitionJob {
   state: AcquisitionState
   artist?: string
   release?: string
+  musicBrainzReleaseGroupId?: string
   searchRefs: readonly ProviderRef[]
   selectedCandidateRef?: ProviderRef
   transferRef?: ProviderRef

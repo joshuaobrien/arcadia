@@ -58,7 +58,9 @@ main { width: min(1160px, calc(100% - 48px)); margin: 0 auto; padding: 42px 0 70
 .search-form input:focus { border-color: var(--blue); box-shadow: inset 0 0 0 1px var(--blue); }
 .library-search code { min-width: 35px; color: #555a54; font-size: 8px; text-align: center; }
 .error-strip { margin: -7px 0 15px; padding: 8px 10px; color: #4d282e; background: #cbb7b8; border: 1px solid #896369; font-size: 8px; }
+.source-strip { margin: -7px 0 15px; padding: 7px 10px; color: #554a32; background: #c9bd9e; border: 1px solid #958663; font-size: 7px; }
 .idle-state, .integration-state { min-height: 255px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #5f635c; background: #c8c8c0; border: 1px solid var(--line); box-shadow: inset 1px 1px #f2f1e9, inset -1px -1px #96988f; font-size: 8px; }
+.idle-state.compact { min-height: 150px; }
 .integration-state svg { margin-bottom: 12px; color: #526b7f; }
 .integration-state strong { color: #292c28; font-size: 10px; font-weight: 600; }
 .integration-state small { margin: 6px 0 15px; color: #60645e; font-size: 8px; text-align: center; }
@@ -124,6 +126,16 @@ main { width: min(1160px, calc(100% - 48px)); margin: 0 auto; padding: 42px 0 70
 .album-card > strong { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .album-card > small { margin-top: 4px; overflow: hidden; color: #5c6059; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
 .album-meta { margin-top: auto; padding-top: 11px; display: flex; justify-content: space-between; gap: 5px; color: #60645e; border-top: 1px solid #92948c; font-size: 6px; text-transform: uppercase; }
+.release-card.missing { cursor: default; }
+.release-card.missing .album-case::before { background: repeating-linear-gradient(135deg,#777b76 0 1px,#a5a69e 1px 5px); }
+.release-card > small { margin-bottom: 7px; }
+.release-card .album-meta { min-height: 29px; align-items: center; }
+.release-state { display: inline-flex; align-items: center; gap: 4px; }
+.release-state.present { color: #355743; }
+.release-state.wanted { color: #554a2f; }
+.release-state.requestable { color: #42566a; }
+.release-state.unknown { color: #684c50; }
+.release-card .want-button { min-height: 24px; padding-inline: 7px; }
 .library-track-row { min-height: 57px; padding: 7px 11px; display: grid; grid-template-columns: 28px minmax(0,1fr) 150px 72px; align-items: center; gap: 11px; border-bottom: 1px solid #96988f; }
 .library-track-row:last-child { border: 0; }
 .library-track-row > b { color: #59615a; font-size: 8px; font-weight: 500; text-align: center; }
