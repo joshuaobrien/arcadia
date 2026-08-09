@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { createRoot } from 'react-dom/client'
-import { Activity, ArrowLeft, Bookmark, Check, Disc3, LibraryBig, Radio, RefreshCw, Search } from 'lucide-react'
+import { Activity, ArrowLeft, Bookmark, Check, Disc3, LibraryBig, PackageOpen, Radio, RefreshCw, Search } from 'lucide-react'
 import './styles.css'
 
 interface ProviderRef {
@@ -30,6 +30,43 @@ interface LidarrStatus {
     state: 'available' | 'degraded' | 'unavailable'
     version?: string
   }
+}
+
+interface BeetsStatus {
+  configured: boolean
+  health?: {
+    state: 'available' | 'degraded' | 'unavailable'
+    version?: string
+  }
+}
+
+interface BeetsInbox {
+  name: string
+  providerPath: string
+  taggedCount: number
+  importedCount: number
+  bytes: number | null
+  fileCount: number | null
+  lastCreatedAt?: string
+}
+
+interface BeetsInboxEntry {
+  name: string
+  providerPath: string
+  hash: string
+  album: boolean
+  type: 'directory' | 'file'
+  children: BeetsInboxEntry[]
+}
+
+type BeetsImportStatus =
+  | 'unknown' | 'failed' | 'not-started' | 'pending' | 'previewing'
+  | 'previewed' | 'importing' | 'imported' | 'deleting' | 'deleted'
+
+interface BeetsFolderStatus {
+  providerPath: string
+  hash: string
+  status: BeetsImportStatus
 }
 
 interface QueueItem {
@@ -135,7 +172,7 @@ interface MusicSearchResponse {
   items: MusicRelease[]
 }
 
-type View = 'library' | 'wanted' | 'activity'
+type View = 'library' | 'imports' | 'wanted' | 'activity'
 
 async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   const response = await fetch(path, { signal })
@@ -197,6 +234,56 @@ function useLidarrReadModel() {
 }
 
 type LidarrReadModel = ReturnType<typeof useLidarrReadModel>
+
+function useBeetsReadModel() {
+  const [status, setStatus] = useState<BeetsStatus | null>(null)
+  const [inboxes, setInboxes] = useState<BeetsInbox[]>([])
+  const [folders, setFolders] = useState<BeetsInboxEntry[]>([])
+  const [folderStatuses, setFolderStatuses] = useState<BeetsFolderStatus[]>([])
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const activeRequest = useRef(0)
+
+  const refresh = useCallback(async (signal?: AbortSignal) => {
+    const request = ++activeRequest.current
+    setLoading(true)
+    setError(null)
+    try {
+      const nextStatus = await getJson<BeetsStatus>('/api/services/beets', signal)
+      if (request !== activeRequest.current) return
+      setStatus(nextStatus)
+      if (!nextStatus.configured || nextStatus.health?.state !== 'available') {
+        setInboxes([])
+        setFolders([])
+        setFolderStatuses([])
+        return
+      }
+      const [inboxPage, folderPage, statusPage] = await Promise.all([
+        getJson<Page<BeetsInbox>>('/api/imports/inboxes', signal),
+        getJson<Page<BeetsInboxEntry>>('/api/imports/folders', signal),
+        getJson<Page<BeetsFolderStatus>>('/api/imports/status', signal),
+      ])
+      if (request !== activeRequest.current) return
+      setInboxes(inboxPage.items)
+      setFolders(folderPage.items)
+      setFolderStatuses(statusPage.items)
+    } catch (requestError) {
+      if (request === activeRequest.current && !isAbortError(requestError)) setError(errorMessage(requestError))
+    } finally {
+      if (request === activeRequest.current && !signal?.aborted) setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    refresh(controller.signal)
+    return () => controller.abort()
+  }, [refresh])
+
+  return { status, inboxes, folders, folderStatuses, error, loading, refresh: () => refresh() }
+}
+
+type BeetsReadModel = ReturnType<typeof useBeetsReadModel>
 
 function useAcquisitions() {
   const [configured, setConfigured] = useState(false)
@@ -441,6 +528,9 @@ function Header({ view, setView, lidarr, acquisitions }: {
         <button className={view === 'library' ? 'active' : ''} onClick={() => setView('library')}>
           <LibraryBig size={14} /> Library
         </button>
+        <button className={view === 'imports' ? 'active' : ''} onClick={() => setView('imports')}>
+          <PackageOpen size={14} /> Imports
+        </button>
         {acquisitions.configured && <button className={view === 'wanted' ? 'active' : ''} onClick={() => setView('wanted')}>
           <Bookmark size={14} /> Wanted
         </button>}
@@ -472,7 +562,7 @@ function IntegrationState({ lidarr }: { lidarr: LidarrReadModel }) {
   )
 }
 
-function formatBytes(value?: number): string {
+function formatBytes(value?: number | null): string {
   if (typeof value !== 'number' || !Number.isFinite(value)) return 'size unknown'
   const units = ['B', 'KB', 'MB', 'GB']
   let size = value
@@ -676,6 +766,57 @@ function ActivityView({ lidarr, sectionNumber }: { lidarr: LidarrReadModel; sect
   )
 }
 
+function ImportsView({ beets }: { beets: BeetsReadModel }) {
+  const available = beets.status?.configured && beets.status.health?.state === 'available' && !beets.error
+  const albums = beets.folders.flatMap(root => collectStagedAlbums(root))
+
+  return (
+    <section>
+      <div className="page-heading">
+        <div><p>02 / BEETS STAGING</p><h1>Imports</h1></div>
+        <button className="button" onClick={beets.refresh} disabled={beets.loading}>
+          <RefreshCw size={13} className={beets.loading ? 'spinning' : ''} /> Refresh
+        </button>
+      </div>
+      {!available ? <div className="integration-state">
+        <PackageOpen size={21} />
+        <strong>{beets.loading ? 'Reading beets inboxes' : beets.error ?? (!beets.status?.configured ? 'beets-flask is not configured' : 'beets-flask is unavailable')}</strong>
+        <small>Staging and import state require the beets-flask connection.</small>
+        {!beets.loading && <button className="button" onClick={beets.refresh}><RefreshCw size={13} /> Retry</button>}
+      </div> : <>
+        <div className="inbox-grid">
+          {beets.inboxes.map(inbox => (
+            <article className="inbox-card" key={inbox.providerPath}>
+              <header><strong>{inbox.name}</strong><span>{inbox.fileCount === null ? 'file count unknown' : `${inbox.fileCount} files`}</span></header>
+              <b>{formatBytes(inbox.bytes)}</b>
+              <dl>
+                <div><dt>Tagged</dt><dd>{inbox.taggedCount}</dd></div>
+                <div><dt>Imported</dt><dd>{inbox.importedCount}</dd></div>
+              </dl>
+              <small>{inbox.lastCreatedAt ? `Latest ${new Date(inbox.lastCreatedAt).toLocaleString()}` : 'No import session recorded'}</small>
+            </article>
+          ))}
+        </div>
+        <section className="panel imports-panel">
+          <header><h2>Staged albums</h2><span>{albums.length}</span></header>
+          {albums.length ? albums.map(entry => {
+            const exactStatus = beets.folderStatuses.find(item => item.providerPath === entry.providerPath && item.hash === entry.hash)
+            const status = exactStatus?.status ?? beets.folderStatuses.find(item => item.providerPath === entry.providerPath)?.status
+            const inbox = beets.inboxes.find(item => entry.providerPath === item.providerPath || entry.providerPath.startsWith(`${item.providerPath}/`))
+            return (
+              <article className="import-row" key={`${entry.providerPath}:${entry.hash}`}>
+                <div className="media-object case"><i /></div>
+                <div><strong>{entry.name}</strong><small>{inbox?.name ?? 'Beets inbox'} · {countFiles(entry)} files</small></div>
+                <span className={`state-tag ${status ?? 'unknown'}`}>{(status ?? 'untracked').replace('-', ' ')}</span>
+              </article>
+            )
+          }) : <p className="empty-row">No staged albums detected</p>}
+        </section>
+      </>}
+    </section>
+  )
+}
+
 function WantedView({ acquisitions }: { acquisitions: AcquisitionsModel }) {
   return (
     <section>
@@ -704,6 +845,7 @@ function WantedView({ acquisitions }: { acquisitions: AcquisitionsModel }) {
 function App() {
   const [view, setView] = useState<View>('library')
   const lidarr = useLidarrReadModel()
+  const beets = useBeetsReadModel()
   const acquisitions = useAcquisitions()
   const library = useLibrary()
 
@@ -712,8 +854,9 @@ function App() {
       <Header view={view} setView={setView} lidarr={lidarr} acquisitions={acquisitions} />
       <main>
         {view === 'library' && <LibraryView library={library} acquisitions={acquisitions} />}
+        {view === 'imports' && <ImportsView beets={beets} />}
         {view === 'wanted' && <WantedView acquisitions={acquisitions} />}
-        {view === 'activity' && <ActivityView lidarr={lidarr} sectionNumber={acquisitions.configured ? '03' : '02'} />}
+        {view === 'activity' && <ActivityView lidarr={lidarr} sectionNumber={acquisitions.configured ? '04' : '03'} />}
       </main>
     </div>
   )
@@ -729,6 +872,17 @@ function errorMessage(error: unknown): string {
 
 function providerRefKey(ref: ProviderRef): string {
   return JSON.stringify([ref.adapterId, ref.nativeId])
+}
+
+function collectStagedAlbums(entry: BeetsInboxEntry): BeetsInboxEntry[] {
+  return [
+    ...(entry.album ? [entry] : []),
+    ...entry.children.flatMap(child => collectStagedAlbums(child)),
+  ]
+}
+
+function countFiles(entry: BeetsInboxEntry): number {
+  return entry.type === 'file' ? 1 : entry.children.reduce((total, child) => total + countFiles(child), 0)
 }
 
 function sourceWarning(sources: MusicSearchResponse['sources']): string {

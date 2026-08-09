@@ -6,6 +6,7 @@ import { dirname, extname, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createLidarrAdapterFromEnv } from './integrations/lidarr.js'
 import { createJellyfinAdapterFromEnv } from './integrations/jellyfin.js'
+import { createBeetsFlaskAdapterFromEnv } from './integrations/beets-flask.js'
 import { isAdapterError } from './integrations/errors.js'
 import { AcquisitionRepository } from './domain/acquisition-repository.js'
 import type { AcquisitionAutomationPort } from './integrations/acquisition.js'
@@ -15,6 +16,7 @@ import type { AcquisitionDefaults } from './domain/acquisition.js'
 import { readCanonicalLibrary } from './library.js'
 import type { LibraryInventory } from './library.js'
 import type { LibraryAlbum, LibraryCatalogPort } from './integrations/library-catalog.js'
+import type { BeetsImportPort } from './integrations/beets-import.js'
 import { mergeMusicReleases } from './music-releases.js'
 
 const AUDIO_EXTENSIONS = new Set([
@@ -67,6 +69,7 @@ interface BuildAppOptions {
   libraryPath?: string
   lidarr?: LidarrReadAdapter | null
   jellyfin?: LibraryCatalogPort | null
+  beets?: BeetsImportPort | null
   acquisitionRepository?: AcquisitionRepositoryPort | null
   staticRoot?: string | null
 }
@@ -213,6 +216,7 @@ export function buildApp(options: BuildAppOptions = {}) {
   const libraryPath = options.libraryPath ?? process.env.MUSIC_LIBRARY_PATH
   const lidarr = options.lidarr === undefined ? createLidarrAdapterFromEnv() : options.lidarr
   const jellyfin = options.jellyfin === undefined ? createJellyfinAdapterFromEnv() : options.jellyfin
+  const beets = options.beets === undefined ? createBeetsFlaskAdapterFromEnv() : options.beets
   const acquisitionRepository = options.acquisitionRepository === undefined
     ? process.env.NEEDLE_DATABASE_PATH ? new AcquisitionRepository(process.env.NEEDLE_DATABASE_PATH) : null
     : options.acquisitionRepository
@@ -281,6 +285,24 @@ export function buildApp(options: BuildAppOptions = {}) {
       if (!isAdapterError(error)) throw error
       reply.code(error.code === 'not-found' ? 404 : error.code === 'invalid-request' ? 400 : 502)
         .send({ error: error.toJSON() })
+      return undefined
+    }
+  }
+
+  async function beetsRoute<T>(
+    reply: FastifyReply,
+    operation: (adapter: BeetsImportPort, context: OperationContext) => Promise<T>,
+  ): Promise<T | undefined> {
+    if (!beets) {
+      reply.code(503).send({ error: { code: 'unavailable', adapterId: 'beets', message: 'beets-flask is not configured', retryable: false } })
+      return undefined
+    }
+    try {
+      return await operation(beets, { operationId: crypto.randomUUID() })
+    } catch (error) {
+      if (!isAdapterError(error)) throw error
+      const status = error.code === 'invalid-request' ? 400 : error.code === 'not-found' ? 404 : error.code === 'unsupported' ? 501 : 502
+      reply.code(status).send({ error: error.toJSON() })
       return undefined
     }
   }
@@ -564,6 +586,24 @@ export function buildApp(options: BuildAppOptions = {}) {
       limit: Math.min(100, Math.max(1, Number(request.query?.limit) || 25)),
     }, context),
   ))
+
+  app.get('/api/services/beets', async (_request, reply) => {
+    if (!beets) return { configured: false }
+    const health = await beetsRoute(reply, (adapter, context) => adapter.probe(context))
+    return reply.sent ? undefined : { configured: true, health }
+  })
+  app.get('/api/imports/inboxes', async (_request, reply) => {
+    const items = await beetsRoute(reply, (adapter, context) => adapter.listInboxes(context))
+    return reply.sent ? undefined : { items }
+  })
+  app.get('/api/imports/folders', async (_request, reply) => {
+    const items = await beetsRoute(reply, (adapter, context) => adapter.listFolders(context))
+    return reply.sent ? undefined : { items }
+  })
+  app.get('/api/imports/status', async (_request, reply) => {
+    const items = await beetsRoute(reply, (adapter, context) => adapter.listFolderStatuses(context))
+    return reply.sent ? undefined : { items }
+  })
 
   return app
 }
