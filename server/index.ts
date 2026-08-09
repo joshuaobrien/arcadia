@@ -75,6 +75,10 @@ interface PageQuery {
   limit?: number
 }
 
+interface LibraryAlbumQuery extends PageQuery {
+  term?: string
+}
+
 interface HistoryQuery extends PageQuery {
   since?: string
 }
@@ -312,13 +316,14 @@ export function buildApp(options: BuildAppOptions = {}) {
         ? artwork.data
         : Buffer.from(artwork.data.buffer, artwork.data.byteOffset, artwork.data.byteLength))
   })
-  app.get<{ Querystring: PageQuery }>('/api/library/albums', {
-    schema: { querystring: libraryPageQuerySchema() },
+  app.get<{ Querystring: LibraryAlbumQuery }>('/api/library/albums', {
+    schema: { querystring: libraryAlbumQuerySchema() },
   }, async (request, reply) => {
     if (!jellyfin) return { configured: false, mounted: false, scannedAt: null, total: 0, items: [] }
     const page = await libraryCatalogRoute(reply, (adapter, context) => adapter.listAlbums({
       cursor: request.query?.cursor,
       limit: request.query?.limit ?? 50,
+      term: request.query?.term,
     }, context))
     return reply.sent ? undefined : { configured: true, mounted: true, scannedAt: null, ...page }
   })
@@ -545,6 +550,17 @@ function libraryPageQuerySchema() {
     properties: {
       cursor: { type: 'string', pattern: '^(0|[1-9][0-9]*)$', maxLength: 16 },
       limit: { type: 'integer', minimum: 1, maximum: 100, default: 50 },
+    },
+  }
+}
+
+function libraryAlbumQuerySchema() {
+  const page = libraryPageQuerySchema()
+  return {
+    ...page,
+    properties: {
+      ...page.properties,
+      term: { type: 'string', minLength: 1, maxLength: 200 },
     },
   }
 }

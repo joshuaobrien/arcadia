@@ -80,11 +80,15 @@ test('library tracks API returns a stable paginated canonical inventory', async 
 
 test('library browser proxies read-only Jellyfin albums, tracks, and artwork', async (t) => {
   const albumId = 'a'.repeat(32)
+  let albumQuery
   const jellyfin = {
-    listAlbums: async () => ({
-      items: [{ id: albumId, title: 'Tender Buttons', albumArtist: 'Broadcast', year: 2005, trackCount: 12, hasArtwork: true }],
-      total: 1,
-    }),
+    listAlbums: async (query) => {
+      albumQuery = query
+      return {
+        items: [{ id: albumId, title: 'Tender Buttons', albumArtist: 'Broadcast', year: 2005, trackCount: 12, hasArtwork: true }],
+        total: 1,
+      }
+    },
     listAlbumTracks: async () => ({
       items: [{ id: 'b'.repeat(32), title: 'I Found the F', artists: ['Broadcast'], trackNumber: 1, durationSeconds: 123 }],
       total: 1,
@@ -94,12 +98,13 @@ test('library browser proxies read-only Jellyfin albums, tracks, and artwork', a
   const app = buildApp({ jellyfin, lidarr: null, logger: false })
   t.after(() => app.close())
 
-  const albums = await app.inject({ method: 'GET', url: '/api/library/albums' })
+  const albums = await app.inject({ method: 'GET', url: '/api/library/albums?term=Broadcast' })
   const tracks = await app.inject({ method: 'GET', url: `/api/library/albums/${albumId}/tracks` })
   const artwork = await app.inject({ method: 'GET', url: `/api/library/albums/${albumId}/artwork` })
 
   assert.equal(albums.json().configured, true)
   assert.equal(albums.json().items[0].title, 'Tender Buttons')
+  assert.equal(albumQuery.term, 'Broadcast')
   assert.equal(tracks.json().items[0].title, 'I Found the F')
   assert.equal(artwork.headers['content-type'], 'image/jpeg')
   assert.equal(artwork.body, 'artwork')

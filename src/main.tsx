@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Activity, ArrowLeft, Bookmark, Check, Disc3, LibraryBig, Radio, RefreshCw, Search } from 'lucide-react'
@@ -241,44 +241,70 @@ function useLibrary() {
   const [page, setPage] = useState<LibraryPage<LibraryAlbum> | null>(null)
   const [selectedAlbum, setSelectedAlbum] = useState<LibraryAlbum | null>(null)
   const [tracks, setTracks] = useState<LibraryTrack[]>([])
+  const [term, setTerm] = useState('')
+  const [activeTerm, setActiveTerm] = useState('')
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [openingAlbum, setOpeningAlbum] = useState<string | null>(null)
   const [artworkRevision, setArtworkRevision] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  const albumRequest = useRef(0)
 
-  const refresh = useCallback(async (signal?: AbortSignal) => {
+  const loadAlbums = useCallback(async (query: string, signal?: AbortSignal) => {
+    const request = ++albumRequest.current
     setLoading(true)
+    setLoadingMore(false)
     setError(null)
     try {
-      setPage(await getJson<LibraryPage<LibraryAlbum>>('/api/library/albums?limit=48', signal))
+      const params = new URLSearchParams({ limit: '48' })
+      if (query) params.set('term', query)
+      const next = await getJson<LibraryPage<LibraryAlbum>>(`/api/library/albums?${params}`, signal)
+      if (request !== albumRequest.current) return
+      setPage(next)
       setArtworkRevision(current => current + 1)
       setSelectedAlbum(null)
       setTracks([])
     } catch (requestError) {
-      if (!isAbortError(requestError)) setError(errorMessage(requestError))
+      if (request === albumRequest.current && !isAbortError(requestError)) setError(errorMessage(requestError))
     } finally {
-      if (!signal?.aborted) setLoading(false)
+      if (request === albumRequest.current && !signal?.aborted) setLoading(false)
     }
   }, [])
 
   useEffect(() => {
     const controller = new AbortController()
-    refresh(controller.signal)
+    loadAlbums('', controller.signal)
     return () => controller.abort()
-  }, [refresh])
+  }, [loadAlbums])
+
+  function search(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const query = term.trim()
+    setActiveTerm(query)
+    loadAlbums(query)
+  }
+
+  function clearSearch() {
+    setTerm('')
+    setActiveTerm('')
+    loadAlbums('')
+  }
 
   async function loadMore() {
     if (!page?.nextCursor) return
+    const request = albumRequest.current
     setLoadingMore(true)
     setError(null)
     try {
-      const next = await getJson<LibraryPage<LibraryAlbum>>(`/api/library/albums?limit=48&cursor=${page.nextCursor}`)
+      const params = new URLSearchParams({ limit: '48', cursor: page.nextCursor })
+      if (activeTerm) params.set('term', activeTerm)
+      const next = await getJson<LibraryPage<LibraryAlbum>>(`/api/library/albums?${params}`)
+      if (request !== albumRequest.current) return
       setPage(current => current ? { ...next, items: [...current.items, ...next.items] } : next)
     } catch (requestError) {
-      setError(errorMessage(requestError))
+      if (request === albumRequest.current) setError(errorMessage(requestError))
     } finally {
-      setLoadingMore(false)
+      if (request === albumRequest.current) setLoadingMore(false)
     }
   }
 
@@ -313,7 +339,12 @@ function useLibrary() {
     openingAlbum,
     artworkRevision,
     error,
-    refresh: () => refresh(),
+    term,
+    activeTerm,
+    setTerm,
+    search,
+    clearSearch,
+    refresh: () => loadAlbums(activeTerm),
     loadMore,
     openAlbum,
     closeAlbum: () => setSelectedAlbum(null),
@@ -550,6 +581,18 @@ function LibraryView({ library }: { library: LibraryModel }) {
               </article>
             ))}
           </section> : <>
+            <form className="search-form library-search" onSubmit={library.search}>
+              <Search size={17} />
+              <input
+                aria-label="Album or album artist"
+                value={library.term}
+                onChange={event => library.setTerm(event.target.value)}
+                placeholder="album or album artist"
+              />
+              {library.activeTerm && <button className="button" type="button" onClick={library.clearSearch}>Clear</button>}
+              <button className="button primary" disabled={library.loading}>Find</button>
+              <code>{page?.total ?? 0}</code>
+            </form>
             <div className="album-grid">
               {page?.items.map(item => (
                 <button className="album-card" key={item.id} onClick={() => library.openAlbum(item)} disabled={library.openingAlbum !== null}>
@@ -560,7 +603,7 @@ function LibraryView({ library }: { library: LibraryModel }) {
                 </button>
               ))}
             </div>
-            {!page?.items.length && <div className="panel"><p className="empty-row">No audio files found</p></div>}
+            {!page?.items.length && <div className="panel"><p className="empty-row">{library.activeTerm ? 'No matching albums' : 'No albums found'}</p></div>}
             {page?.nextCursor && <footer className="library-footer">
               <button className="button" disabled={library.loadingMore} onClick={library.loadMore}>
                 {library.loadingMore ? 'Loading…' : 'Load 48 more'}

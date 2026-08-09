@@ -96,3 +96,25 @@ test('Jellyfin adapter fetches bounded resized artwork', async () => {
   assert.equal(artwork?.contentType, 'image/jpeg')
   assert.equal(new TextDecoder().decode(artwork?.data), 'jpeg bytes')
 })
+
+test('Jellyfin adapter filters cached albums by title or album artist before paging', async () => {
+  let requests = 0
+  const adapter = new JellyfinAdapter({
+    baseUrl: 'http://jellyfin.test:8096',
+    apiKey: 'secret-key',
+    fetch: async () => {
+      requests += 1
+      return json({ Items: [
+        { Id: 'a'.repeat(32), Name: 'Tender Buttons', AlbumArtist: 'Broadcast' },
+        { Id: 'b'.repeat(32), Name: 'Dots and Loops', AlbumArtist: 'Stereolab' },
+      ] })
+    },
+  })
+
+  const byTitle = await adapter.listAlbums({ limit: 10, term: 'tender' }, context)
+  const byArtist = await adapter.listAlbums({ limit: 10, term: 'STEREOLAB' }, context)
+
+  assert.deepEqual(byTitle.items.map(item => item.title), ['Tender Buttons'])
+  assert.deepEqual(byArtist.items.map(item => item.title), ['Dots and Loops'])
+  assert.equal(requests, 1)
+})
