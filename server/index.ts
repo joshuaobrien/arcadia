@@ -5,14 +5,16 @@ import { readdir, statfs } from 'node:fs/promises'
 import { dirname, extname, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createLidarrAdapterFromEnv } from './integrations/lidarr.js'
+import { createJellyfinAdapterFromEnv } from './integrations/jellyfin.js'
 import { isAdapterError } from './integrations/errors.js'
 import { AcquisitionRepository } from './domain/acquisition-repository.js'
 import type { AcquisitionAutomationPort } from './integrations/acquisition.js'
 import type { CatalogLookupPort, CatalogRelease } from './integrations/catalog.js'
 import type { OperationContext } from './integrations/common.js'
 import type { AcquisitionDefaults } from './domain/acquisition.js'
-import { libraryAlbumId, listLibraryAlbums, readCanonicalLibrary } from './library.js'
+import { readCanonicalLibrary } from './library.js'
 import type { LibraryInventory } from './library.js'
+import type { LibraryCatalogPort } from './integrations/library-catalog.js'
 
 const AUDIO_EXTENSIONS = new Set([
   '.aac',
@@ -63,6 +65,7 @@ interface BuildAppOptions {
   walkmanPath?: string
   libraryPath?: string
   lidarr?: LidarrReadAdapter | null
+  jellyfin?: LibraryCatalogPort | null
   acquisitionRepository?: AcquisitionRepositoryPort | null
   staticRoot?: string | null
 }
@@ -74,10 +77,6 @@ interface PageQuery {
 
 interface HistoryQuery extends PageQuery {
   since?: string
-}
-
-interface LibraryTracksQuery extends PageQuery {
-  albumId?: string
 }
 
 const cache = new Map<string, { createdAt: number; value: MediaScan }>()
@@ -208,6 +207,7 @@ export function buildApp(options: BuildAppOptions = {}) {
   const walkmanPath = options.walkmanPath ?? process.env.WALKMAN_PATH
   const libraryPath = options.libraryPath ?? process.env.MUSIC_LIBRARY_PATH
   const lidarr = options.lidarr === undefined ? createLidarrAdapterFromEnv() : options.lidarr
+  const jellyfin = options.jellyfin === undefined ? createJellyfinAdapterFromEnv() : options.jellyfin
   const acquisitionRepository = options.acquisitionRepository === undefined
     ? process.env.NEEDLE_DATABASE_PATH ? new AcquisitionRepository(process.env.NEEDLE_DATABASE_PATH) : null
     : options.acquisitionRepository
@@ -260,44 +260,88 @@ export function buildApp(options: BuildAppOptions = {}) {
     }
   }
 
+  async function libraryCatalogRoute<T>(
+    reply: FastifyReply,
+    operation: (adapter: LibraryCatalogPort, context: OperationContext) => Promise<T>,
+  ): Promise<T | undefined> {
+    if (!jellyfin) {
+      reply.code(503).send({
+        error: { code: 'unavailable', adapterId: 'jellyfin', message: 'Jellyfin is not configured', retryable: false },
+      })
+      return undefined
+    }
+    try {
+      return await operation(jellyfin, { operationId: crypto.randomUUID() })
+    } catch (error) {
+      if (!isAdapterError(error)) throw error
+      reply.code(error.code === 'not-found' ? 404 : error.code === 'invalid-request' ? 400 : 502)
+        .send({ error: error.toJSON() })
+      return undefined
+    }
+  }
+
   app.get('/api/health', async () => ({ status: 'ok' }))
   app.get('/api/device', async () => ({
     profile: { manufacturer: 'Sony', model: 'NW-A55' },
     ...(await cachedScan(walkmanPath)),
   }))
   app.get('/api/library', async () => cachedScan(libraryPath))
+  app.get<{ Params: { albumId: string } }>('/api/library/albums/:albumId/artwork', {
+    exposeHeadRoute: false,
+    schema: {
+      params: {
+        type: 'object',
+        required: ['albumId'],
+        additionalProperties: false,
+        properties: { albumId: { type: 'string', pattern: '^[a-fA-F0-9-]{32,36}$' } },
+      },
+    },
+  }, async (request, reply) => {
+    reply
+      .header('Cache-Control', 'no-store')
+      .header('X-Content-Type-Options', 'nosniff')
+    const artwork = await libraryCatalogRoute(reply, (adapter, context) => (
+      adapter.getAlbumArtwork(request.params.albumId, context)
+    ))
+    if (reply.sent) return
+    if (!artwork) return reply.code(404).send()
+    return reply
+      .type(artwork.contentType)
+      .header('Cache-Control', 'private, max-age=300')
+      .send(Buffer.isBuffer(artwork.data)
+        ? artwork.data
+        : Buffer.from(artwork.data.buffer, artwork.data.byteOffset, artwork.data.byteLength))
+  })
   app.get<{ Querystring: PageQuery }>('/api/library/albums', {
+    schema: { querystring: libraryPageQuerySchema() },
+  }, async (request, reply) => {
+    if (!jellyfin) return { configured: false, mounted: false, scannedAt: null, total: 0, items: [] }
+    const page = await libraryCatalogRoute(reply, (adapter, context) => adapter.listAlbums({
+      cursor: request.query?.cursor,
+      limit: request.query?.limit ?? 50,
+    }, context))
+    return reply.sent ? undefined : { configured: true, mounted: true, scannedAt: null, ...page }
+  })
+  app.get<{ Params: { albumId: string }; Querystring: PageQuery }>('/api/library/albums/:albumId/tracks', {
+    schema: {
+      params: {
+        type: 'object',
+        required: ['albumId'],
+        additionalProperties: false,
+        properties: { albumId: { type: 'string', pattern: '^[a-fA-F0-9-]{32,36}$' } },
+      },
+      querystring: libraryPageQuerySchema(),
+    },
+  }, async (request, reply) => libraryCatalogRoute(reply, (adapter, context) => adapter.listAlbumTracks(
+    request.params.albumId,
+    { cursor: request.query?.cursor, limit: request.query?.limit ?? 100 },
+    context,
+  )))
+  app.get<{ Querystring: PageQuery }>('/api/library/tracks', {
     schema: { querystring: libraryPageQuerySchema() },
   }, async (request) => {
     const inventory = await cachedLibrary(libraryPath)
-    const albums = listLibraryAlbums(inventory.tracks)
-    const offset = Math.min(albums.length, Number(request.query?.cursor) || 0)
-    const limit = request.query?.limit ?? 50
-    const end = Math.min(albums.length, offset + limit)
-    return {
-      configured: inventory.configured,
-      mounted: inventory.mounted,
-      scannedAt: inventory.scannedAt,
-      total: albums.length,
-      items: albums.slice(offset, end),
-      ...(end < albums.length ? { nextCursor: String(end) } : {}),
-    }
-  })
-  app.get<{ Querystring: LibraryTracksQuery }>('/api/library/tracks', {
-    schema: {
-      querystring: {
-        ...libraryPageQuerySchema(),
-        properties: {
-          ...libraryPageQuerySchema().properties,
-          albumId: { type: 'string', pattern: '^[a-f0-9]{64}$' },
-        },
-      },
-    },
-  }, async (request) => {
-    const inventory = await cachedLibrary(libraryPath)
-    const tracks = request.query.albumId
-      ? inventory.tracks.filter(track => libraryAlbumId(track) === request.query.albumId)
-      : inventory.tracks
+    const tracks = inventory.tracks
     const offset = Math.min(tracks.length, Number(request.query?.cursor) || 0)
     const limit = request.query?.limit ?? 50
     const end = Math.min(tracks.length, offset + limit)

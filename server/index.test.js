@@ -66,8 +66,6 @@ test('library tracks API returns a stable paginated canonical inventory', async 
 
   const first = await app.inject({ method: 'GET', url: '/api/library/tracks?limit=1' })
   const second = await app.inject({ method: 'GET', url: `/api/library/tracks?limit=1&cursor=${first.json().nextCursor}` })
-  const albums = await app.inject({ method: 'GET', url: '/api/library/albums' })
-  const albumTracks = await app.inject({ method: 'GET', url: `/api/library/tracks?albumId=${albums.json().items[0].id}` })
 
   assert.equal(first.statusCode, 200)
   assert.equal(first.json().configured, true)
@@ -78,16 +76,33 @@ test('library tracks API returns a stable paginated canonical inventory', async 
   assert.equal(first.json().nextCursor, '1')
   assert.equal(second.json().items[0].relativePath, 'Artist/Album/02 Second.mp3')
   assert.equal(second.json().nextCursor, undefined)
-  assert.equal(albums.json().total, 1)
-  assert.deepEqual(albums.json().items[0], {
-    id: albums.json().items[0].id,
-    title: 'Album',
-    albumArtist: 'Artist',
-    trackCount: 2,
-    totalBytes: 28,
-    formats: ['FLAC', 'MP3'],
-  })
-  assert.equal(albumTracks.json().total, 2)
+})
+
+test('library browser proxies read-only Jellyfin albums, tracks, and artwork', async (t) => {
+  const albumId = 'a'.repeat(32)
+  const jellyfin = {
+    listAlbums: async () => ({
+      items: [{ id: albumId, title: 'Tender Buttons', albumArtist: 'Broadcast', year: 2005, trackCount: 12, hasArtwork: true }],
+      total: 1,
+    }),
+    listAlbumTracks: async () => ({
+      items: [{ id: 'b'.repeat(32), title: 'I Found the F', artists: ['Broadcast'], trackNumber: 1, durationSeconds: 123 }],
+      total: 1,
+    }),
+    getAlbumArtwork: async () => ({ contentType: 'image/jpeg', data: new TextEncoder().encode('artwork') }),
+  }
+  const app = buildApp({ jellyfin, lidarr: null, logger: false })
+  t.after(() => app.close())
+
+  const albums = await app.inject({ method: 'GET', url: '/api/library/albums' })
+  const tracks = await app.inject({ method: 'GET', url: `/api/library/albums/${albumId}/tracks` })
+  const artwork = await app.inject({ method: 'GET', url: `/api/library/albums/${albumId}/artwork` })
+
+  assert.equal(albums.json().configured, true)
+  assert.equal(albums.json().items[0].title, 'Tender Buttons')
+  assert.equal(tracks.json().items[0].title, 'I Found the F')
+  assert.equal(artwork.headers['content-type'], 'image/jpeg')
+  assert.equal(artwork.body, 'artwork')
 })
 
 test('Lidarr API reports an unconfigured adapter without making a request', async (t) => {

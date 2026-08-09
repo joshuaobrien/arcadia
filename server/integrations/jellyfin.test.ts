@@ -1,0 +1,98 @@
+import assert from 'node:assert/strict'
+import test from 'node:test'
+import { JellyfinAdapter } from './jellyfin.js'
+
+const context = { operationId: 'operation-123' }
+const albumId = 'a'.repeat(32)
+
+function json(value: unknown): Response {
+  return new Response(JSON.stringify(value), { headers: { 'content-type': 'application/json' } })
+}
+
+test('Jellyfin adapter reads albums and tracks with API-key authentication', async () => {
+  const calls: URL[] = []
+  const adapter = new JellyfinAdapter({
+    baseUrl: 'http://jellyfin.test:8096',
+    apiKey: 'secret-key',
+    fetch: async (input, init) => {
+      const url = new URL(input instanceof Request ? input.url : input)
+      calls.push(url)
+      assert.equal(init?.headers && (init.headers as Record<string, string>).Authorization, 'MediaBrowser Token="secret-key"')
+      assert.equal(init?.headers && (init.headers as Record<string, string>)['X-Needle-Operation-Id'], context.operationId)
+      if (url.searchParams.get('IncludeItemTypes') === 'MusicAlbum') return json({
+        Items: [
+          {
+            Id: 'c'.repeat(32),
+            Name: 'Tender Buttons',
+            AlbumArtist: 'Broadcast',
+            ProductionYear: 2005,
+            ChildCount: 12,
+            ImageTags: { Primary: 'image-tag' },
+          },
+          {
+            Id: albumId,
+            Name: 'Tender Buttons',
+            AlbumArtist: 'Broadcast',
+            ProductionYear: 2005,
+            ChildCount: 12,
+            ImageTags: { Primary: 'image-tag' },
+          },
+        ],
+        TotalRecordCount: 2,
+      })
+      return json({
+        Items: [{
+          Id: 'b'.repeat(32),
+          Name: 'I Found the F',
+          Artists: ['Broadcast'],
+          ParentIndexNumber: 1,
+          IndexNumber: 1,
+          RunTimeTicks: 1_235_000_000,
+          MediaSources: [{ Container: 'flac', Size: 12345 }],
+        }],
+        TotalRecordCount: 1,
+      })
+    },
+  })
+
+  const albums = await adapter.listAlbums({ limit: 1 }, context)
+  const tracks = await adapter.listAlbumTracks(albumId, { limit: 100 }, context)
+
+  assert.deepEqual(albums, {
+    items: [{ id: albumId, title: 'Tender Buttons', albumArtist: 'Broadcast', year: 2005, trackCount: 12, hasArtwork: true }],
+    total: 2,
+    nextCursor: '1',
+  })
+  assert.deepEqual(tracks.items[0], {
+    id: 'b'.repeat(32),
+    title: 'I Found the F',
+    artists: ['Broadcast'],
+    trackNumber: 1,
+    discNumber: 1,
+    durationSeconds: 123.5,
+    format: 'FLAC',
+    bytes: 12345,
+  })
+  assert.equal(calls[0].searchParams.get('StartIndex'), null)
+  assert.equal(calls[1].searchParams.get('ParentId'), albumId)
+  assert.equal(calls[1].searchParams.get('StartIndex'), null)
+})
+
+test('Jellyfin adapter fetches bounded resized artwork', async () => {
+  const adapter = new JellyfinAdapter({
+    baseUrl: 'http://jellyfin.test:8096',
+    apiKey: 'secret-key',
+    fetch: async (input) => {
+      const url = new URL(input instanceof Request ? input.url : input)
+      assert.equal(url.pathname, `/Items/${albumId}/Images/Primary`)
+      assert.equal(url.searchParams.get('maxWidth'), '600')
+      assert.equal(url.searchParams.get('format'), 'jpg')
+      return new Response('jpeg bytes', { headers: { 'content-type': 'image/jpeg' } })
+    },
+  })
+
+  const artwork = await adapter.getAlbumArtwork(albumId, context)
+
+  assert.equal(artwork?.contentType, 'image/jpeg')
+  assert.equal(new TextDecoder().decode(artwork?.data), 'jpeg bytes')
+})

@@ -35,10 +35,14 @@ services:
     environment:
       - LIDARR_URL=http://lidarr:8686
       - LIDARR_API_KEY=${LIDARR_API_KEY}
+      - JELLYFIN_URL=http://jellyfin:8096
+      - JELLYFIN_API_KEY=${JELLYFIN_API_KEY}
+      - MUSIC_LIBRARY_PATH=/music
       - NEEDLE_DATABASE_PATH=/data/needle.sqlite
       - TZ=Etc/UTC
     volumes:
       - needle-data:/data
+      - /path/to/music:/music:ro
     ports:
       - "8787:8787"
     restart: unless-stopped
@@ -49,6 +53,10 @@ volumes:
 
 `LIDARR_URL` names the Lidarr origin visible from the Needle container and must not include `/api/v1`. When both services belong to the same Compose project, the Lidarr service name resolves directly through Compose DNS.
 
+`JELLYFIN_URL` and `JELLYFIN_API_KEY` provide Needle's read-only library browser with album, track, and artwork metadata. Create the key in Jellyfin under **Dashboard → Advanced → API Keys**. Needle does not send a Jellyfin user ID or call mutation endpoints.
+
+`MUSIC_LIBRARY_PATH` points to the canonical audio filesystem inside the Needle container. Mount the corresponding host directory read-only; Needle uses these bytes for inventory and future device synchronization, while Jellyfin supplies the browsing projection.
+
 `NEEDLE_DATABASE_PATH` enables Needle-owned durable state in SQLite. The named volume preserves the database, write-ahead log, and shared-memory files across container replacement. Needle currently runs as a single writer; do not run multiple replicas against the same database.
 
-Needle does not expose Lidarr mutation operations over HTTP. The current production surface is connection status, catalog lookup, durable wanted state, acquisition queue, and acquisition history.
+Needle does not expose Lidarr or Jellyfin mutation operations over HTTP.
