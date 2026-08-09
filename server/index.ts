@@ -14,7 +14,8 @@ import type { OperationContext } from './integrations/common.js'
 import type { AcquisitionDefaults } from './domain/acquisition.js'
 import { readCanonicalLibrary } from './library.js'
 import type { LibraryInventory } from './library.js'
-import type { LibraryCatalogPort } from './integrations/library-catalog.js'
+import type { LibraryAlbum, LibraryCatalogPort } from './integrations/library-catalog.js'
+import { mergeMusicReleases } from './music-releases.js'
 
 const AUDIO_EXTENSIONS = new Set([
   '.aac',
@@ -285,6 +286,38 @@ export function buildApp(options: BuildAppOptions = {}) {
   }
 
   app.get('/api/health', async () => ({ status: 'ok' }))
+  app.get<{ Querystring: { term: string } }>('/api/music/releases', {
+    schema: {
+      querystring: {
+        type: 'object',
+        required: ['term'],
+        additionalProperties: false,
+        properties: { term: { type: 'string', minLength: 1, maxLength: 200 } },
+      },
+    },
+  }, async (request) => {
+    const operationId = crypto.randomUUID()
+    const [libraryResult, catalogResult] = await Promise.all([
+      readProjection(jellyfin !== null, [], () => listAllMatchingAlbums(
+        jellyfin!,
+        request.query.term,
+        { operationId: `${operationId}:library` },
+      )),
+      readProjection(lidarr !== null, [], () => lidarr!.lookupReleases(
+        request.query.term,
+        { operationId: `${operationId}:catalog` },
+      )),
+    ])
+    const acquisitions = acquisitionRepository?.list() ?? []
+    return {
+      sources: {
+        library: libraryResult.state,
+        catalog: catalogResult.state,
+        wanted: acquisitionRepository ? 'available' : 'unconfigured',
+      },
+      items: mergeMusicReleases(libraryResult.value, catalogResult.value, acquisitions, request.query.term),
+    }
+  })
   app.get('/api/device', async () => ({
     profile: { manufacturer: 'Sony', model: 'NW-A55' },
     ...(await cachedScan(walkmanPath)),
@@ -391,7 +424,10 @@ export function buildApp(options: BuildAppOptions = {}) {
               title: { type: 'string', minLength: 1, maxLength: 500 },
               releaseDate: { type: 'string', minLength: 1, maxLength: 40 },
               releaseType: { type: 'string', minLength: 1, maxLength: 100 },
-              musicBrainzReleaseGroupId: { type: 'string', minLength: 1, maxLength: 100 },
+              musicBrainzReleaseGroupId: {
+                type: 'string',
+                pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+              },
               monitored: { type: 'boolean' },
               images: { type: 'array', maxItems: 20, items: { type: 'string', maxLength: 2000 } },
             },
@@ -579,6 +615,35 @@ function providerRefSchema() {
 
 function sameRef(left: { adapterId: string; nativeId: string }, right: { adapterId: string; nativeId: string }): boolean {
   return left.adapterId === right.adapterId && left.nativeId === right.nativeId
+}
+
+async function readProjection<T>(
+  configured: boolean,
+  empty: T,
+  operation: () => Promise<T>,
+): Promise<{ state: 'available' | 'unconfigured' | 'unavailable'; value: T }> {
+  if (!configured) return { state: 'unconfigured', value: empty }
+  try {
+    return { state: 'available', value: await operation() }
+  } catch (error) {
+    if (!isAdapterError(error)) throw error
+    return { state: 'unavailable', value: empty }
+  }
+}
+
+async function listAllMatchingAlbums(
+  adapter: LibraryCatalogPort,
+  term: string,
+  context: OperationContext,
+): Promise<LibraryAlbum[]> {
+  const items: LibraryAlbum[] = []
+  let cursor: string | undefined
+  do {
+    const page = await adapter.listAlbums({ cursor, limit: 100, term }, context)
+    items.push(...page.items)
+    cursor = page.nextCursor
+  } while (cursor)
+  return items
 }
 
 function hasErrorCode(error: unknown, code: string): boolean {

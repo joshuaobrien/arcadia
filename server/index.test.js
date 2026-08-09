@@ -110,6 +110,75 @@ test('library browser proxies read-only Jellyfin albums, tracks, and artwork', a
   assert.equal(artwork.body, 'artwork')
 })
 
+test('music search combines library, catalog, and wanted state by MusicBrainz identity', async (t) => {
+  const musicBrainzReleaseGroupId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+  const wanted = {
+    id: 'wanted-1',
+    state: 'wanted',
+    artist: 'Broadcast',
+    release: 'Tender Buttons',
+    musicBrainzReleaseGroupId,
+    searchRefs: [{ adapterId: 'lidarr', nativeId: 'album:mbid:a' }],
+    createdAt: '2026-08-09T00:00:00Z',
+    updatedAt: '2026-08-09T00:00:00Z',
+  }
+  const acquisitionRepository = {
+    list: () => [wanted],
+    wantRelease: () => { throw new Error('not used') },
+    getDefaults: () => null,
+    setDefaults: defaults => defaults,
+  }
+  let libraryPages = 0
+  const jellyfin = {
+    listAlbums: async ({ cursor }) => {
+      libraryPages += 1
+      return cursor ? { items: [{
+        id: 'a'.repeat(32),
+        title: 'Tender Buttons',
+        albumArtist: 'Broadcast',
+        musicBrainzReleaseGroupId,
+        hasArtwork: true,
+      }], total: 1 } : { items: [], total: 1, nextCursor: '100' }
+    },
+    listAlbumTracks: async () => ({ items: [], total: 0 }),
+    getAlbumArtwork: async () => null,
+  }
+  const lidarr = {
+    probe: async () => ({ adapterId: 'lidarr', kind: 'lidarr', state: 'available', checkedAt: '2026-08-09T00:00:00Z', latencyMs: 1 }),
+    lookupArtists: async () => [],
+    lookupReleases: async () => [
+      {
+        ref: { adapterId: 'lidarr', nativeId: 'album:mbid:a' },
+        artistRef: { adapterId: 'lidarr', nativeId: 'artist:mbid:b' },
+        artistName: 'Broadcast',
+        title: 'Tender Buttons',
+        musicBrainzReleaseGroupId,
+      },
+      {
+        ref: { adapterId: 'lidarr', nativeId: 'album:mbid:c' },
+        artistRef: { adapterId: 'lidarr', nativeId: 'artist:mbid:b' },
+        artistName: 'Broadcast',
+        title: 'Work and Non Work',
+        musicBrainzReleaseGroupId: 'ffffffff-bbbb-cccc-dddd-eeeeeeeeeeee',
+      },
+    ],
+    listQueue: async () => ({ items: [] }),
+    listHistory: async () => ({ items: [] }),
+  }
+  const app = buildApp({ jellyfin, lidarr, acquisitionRepository, logger: false })
+  t.after(() => app.close())
+
+  const response = await app.inject({ method: 'GET', url: '/api/music/releases?term=Broadcast' })
+
+  assert.equal(response.statusCode, 200)
+  assert.deepEqual(response.json().sources, { library: 'available', catalog: 'available', wanted: 'available' })
+  assert.equal(response.json().items.length, 2)
+  assert.equal(response.json().items[0].state, 'in-library')
+  assert.equal(response.json().items[0].acquisition.id, 'wanted-1')
+  assert.equal(response.json().items[1].state, 'can-request')
+  assert.equal(libraryPages, 2)
+})
+
 test('Lidarr API reports an unconfigured adapter without making a request', async (t) => {
   const app = buildApp({ lidarr: null, logger: false })
   t.after(() => app.close())

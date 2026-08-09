@@ -88,7 +88,7 @@ export class JellyfinAdapter implements LibraryCatalogPort {
       EnableImageTypes: 'Primary',
       ImageTypeLimit: 1,
       EnableUserData: 'false',
-      Fields: 'ChildCount',
+      Fields: 'ChildCount,ProviderIds',
     }, context).then(response => (response.Items ?? []).map(album).sort(compareAlbums))
     const entry = { expiresAt: Date.now() + 5 * 60_000, value }
     this.#albumsCache = entry
@@ -127,7 +127,17 @@ export class JellyfinAdapter implements LibraryCatalogPort {
   async #json<T>(path: string, query: Record<string, string | number>, context: OperationContext): Promise<T> {
     const response = await this.#request(path, query, context, 'application/json')
     if (!response.ok) throw this.#responseError(response.status)
-    return await response.json() as T
+    try {
+      return await response.json() as T
+    } catch (error) {
+      throw new AdapterError({
+        code: 'transient-provider-failure',
+        adapterId: 'jellyfin',
+        message: 'Jellyfin returned an invalid response',
+        retryable: true,
+        providerStatus: response.status,
+      }, { cause: error })
+    }
   }
 
   async #request(
@@ -177,10 +187,13 @@ export function createJellyfinAdapterFromEnv(env: NodeJS.ProcessEnv = process.en
 
 function album(value: JsonObject): LibraryAlbum {
   const imageTags = object(value.ImageTags)
+  const providerIds = object(value.ProviderIds)
+  const musicBrainzReleaseGroupId = optionalString(providerIds.MusicBrainzReleaseGroup)
   return {
     id: string(value.Id),
     title: string(value.Name),
     albumArtist: string(value.AlbumArtist) || string(array(value.AlbumArtists)[0]?.Name) || 'Unknown artist',
+    ...(musicBrainzReleaseGroupId ? { musicBrainzReleaseGroupId } : {}),
     year: optionalNumber(value.ProductionYear),
     trackCount: optionalNumber(value.ChildCount),
     hasArtwork: typeof imageTags.Primary === 'string' && imageTags.Primary.length > 0,
@@ -277,6 +290,10 @@ function number(value: unknown): number {
 function optionalNumber(value: unknown): number | undefined {
   const result = Number(value)
   return value !== undefined && value !== null && Number.isFinite(result) ? result : undefined
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value : undefined
 }
 
 function object(value: unknown): JsonObject {

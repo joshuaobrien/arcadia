@@ -4,6 +4,7 @@ export interface LibraryAlbum {
   id: string
   title: string
   albumArtist: string
+  musicBrainzReleaseGroupId?: string
   year?: number
   trackCount?: number
   hasArtwork: boolean

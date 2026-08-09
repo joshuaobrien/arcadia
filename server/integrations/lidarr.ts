@@ -432,7 +432,12 @@ export class LidarrAdapter implements CatalogLookupPort, AcquisitionAutomationPo
     }
     if (response.status === 204 || response.headers.get('content-length') === '0') return undefined as T
     const text = await response.text()
-    return text.length === 0 ? undefined as T : JSON.parse(text) as T
+    if (text.length === 0) return undefined as T
+    try {
+      return JSON.parse(text) as T
+    } catch (error) {
+      throw this.#error('transient-provider-failure', 'Lidarr returned an invalid response', true, response.status, error)
+    }
   }
 
   #error(

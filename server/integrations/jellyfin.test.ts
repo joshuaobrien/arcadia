@@ -28,6 +28,7 @@ test('Jellyfin adapter reads albums and tracks with API-key authentication', asy
             ProductionYear: 2005,
             ChildCount: 12,
             ImageTags: { Primary: 'image-tag' },
+            ProviderIds: { MusicBrainzReleaseGroup: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' },
           },
           {
             Id: albumId,
@@ -36,6 +37,7 @@ test('Jellyfin adapter reads albums and tracks with API-key authentication', asy
             ProductionYear: 2005,
             ChildCount: 12,
             ImageTags: { Primary: 'image-tag' },
+            ProviderIds: { MusicBrainzReleaseGroup: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' },
           },
         ],
         TotalRecordCount: 2,
@@ -59,7 +61,7 @@ test('Jellyfin adapter reads albums and tracks with API-key authentication', asy
   const tracks = await adapter.listAlbumTracks(albumId, { limit: 100 }, context)
 
   assert.deepEqual(albums, {
-    items: [{ id: albumId, title: 'Tender Buttons', albumArtist: 'Broadcast', year: 2005, trackCount: 12, hasArtwork: true }],
+    items: [{ id: albumId, title: 'Tender Buttons', albumArtist: 'Broadcast', musicBrainzReleaseGroupId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', year: 2005, trackCount: 12, hasArtwork: true }],
     total: 2,
     nextCursor: '1',
   })
