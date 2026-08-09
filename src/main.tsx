@@ -123,6 +123,7 @@ interface BeetsImportOperation {
     year?: number
     trackCount: number
   }[]
+  acquisitionId?: string
   providerJobId?: string
   libraryAlbumIds: string[]
   createdAt: string
@@ -156,11 +157,12 @@ interface HistoryItem {
 
 interface AcquisitionJob {
   id: string
-  state: 'wanted'
+  state: 'wanted' | 'searching' | 'selection-required' | 'queued' | 'transferring' | 'importing' | 'completed' | 'failed' | 'cancelled'
   artist?: string
   release?: string
   musicBrainzReleaseGroupId?: string
   searchRefs: ProviderRef[]
+  importRef?: ProviderRef
   createdAt: string
   updatedAt: string
 }
@@ -226,7 +228,7 @@ interface MusicRelease {
   title: string
   artist: string
   year?: number
-  state: 'in-library' | 'wanted' | 'can-request'
+  state: 'in-library' | 'wanted' | 'importing' | 'selection-required' | 'can-request'
   musicBrainzReleaseGroupId?: string
   libraryAlbum?: LibraryAlbum
   catalogRelease?: CatalogRelease
@@ -327,7 +329,7 @@ function useLidarrReadModel() {
 
 type LidarrReadModel = ReturnType<typeof useLidarrReadModel>
 
-function useBeetsImportOperations() {
+function useBeetsImportOperations(onLifecycleChange: () => void) {
   const [configured, setConfigured] = useState(false)
   const [items, setItems] = useState<BeetsImportOperation[]>([])
   const [loading, setLoading] = useState(true)
@@ -348,6 +350,7 @@ function useBeetsImportOperations() {
           if (pending.length) {
             await Promise.allSettled(pending.map(item => postJson<BeetsImportOperation>(`/api/imports/operations/${encodeURIComponent(item.id)}/reconcile`, {}, signal)))
             page = await getJson<BeetsImportOperationsResponse>('/api/imports/operations', signal)
+            onLifecycleChange()
           }
         }
         if (request !== activeRequest.current || signal?.aborted) return
@@ -362,7 +365,7 @@ function useBeetsImportOperations() {
     inFlight.current = run
     void run.finally(() => { if (inFlight.current === run) inFlight.current = null })
     return run
-  }, [])
+  }, [onLifecycleChange])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -376,7 +379,7 @@ function useBeetsImportOperations() {
 
 type BeetsImportOperationsModel = ReturnType<typeof useBeetsImportOperations>
 
-function useBeetsReadModel() {
+function useBeetsReadModel(acquisitions: readonly AcquisitionJob[], onLifecycleChange: () => void) {
   const [status, setStatus] = useState<BeetsStatus | null>(null)
   const [inboxes, setInboxes] = useState<BeetsInbox[]>([])
   const [folders, setFolders] = useState<BeetsInboxEntry[]>([])
@@ -388,9 +391,19 @@ function useBeetsReadModel() {
   const [workflowState, setWorkflowState] = useState<'idle' | 'previewing' | 'review' | 'importing' | 'completed' | 'provider-imported' | 'submission-unknown'>('idle')
   const [selectedCandidates, setSelectedCandidates] = useState<Record<string, string>>({})
   const [duplicateActions, setDuplicateActions] = useState<Record<string, 'skip' | 'keep'>>({})
+  const [acquisitionDecision, setAcquisitionDecision] = useState<string | null | undefined>(undefined)
   const [approved, setApproved] = useState(false)
   const activeRequest = useRef(0)
   const submissionInFlight = useRef(false)
+  const wantedAcquisitions = acquisitions.filter(item => item.state === 'wanted')
+  const decisionValid = acquisitionDecision === null || (typeof acquisitionDecision === 'string' && wantedAcquisitions.some(item => item.id === acquisitionDecision))
+
+  useEffect(() => {
+    if (typeof acquisitionDecision === 'string' && !wantedAcquisitions.some(item => item.id === acquisitionDecision)) {
+      setAcquisitionDecision(undefined)
+      setApproved(false)
+    }
+  }, [acquisitionDecision, wantedAcquisitions])
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     const request = ++activeRequest.current
@@ -436,6 +449,7 @@ function useBeetsReadModel() {
     setPreview(null)
     setSelectedCandidates({})
     setDuplicateActions({})
+    setAcquisitionDecision(undefined)
     setApproved(false)
     setError(null)
     setWorkflowState('previewing')
@@ -497,7 +511,7 @@ function useBeetsReadModel() {
   }
 
   async function importSelection() {
-    if (!selectedFolder || !preview || !approved || submissionInFlight.current) return
+    if (!selectedFolder || !preview || !approved || !decisionValid || submissionInFlight.current) return
     const choices = preview.tasks.map(task => ({
       taskId: task.id,
       candidateId: selectedCandidates[task.id],
@@ -514,7 +528,9 @@ function useBeetsReadModel() {
         hash: selectedFolder.hash,
         sessionId: preview.id,
         choices,
+        acquisitionId: acquisitionDecision,
       }, 'import_candidate')
+      onLifecycleChange()
       await waitForImportCompletion(selectedFolder, preview.id, choices, request)
       if (request !== activeRequest.current) return
       setWorkflowState('completed')
@@ -551,14 +567,17 @@ function useBeetsReadModel() {
     setWorkflowState('idle')
     setSelectedCandidates({})
     setDuplicateActions({})
+    setAcquisitionDecision(undefined)
     setApproved(false)
     setError(null)
   }
 
   return {
     status, inboxes, folders, folderStatuses, error, loading, refresh: () => refresh(),
-    selectedFolder, preview, workflowState, selectedCandidates, duplicateActions, approved,
+    selectedFolder, preview, workflowState, selectedCandidates, duplicateActions, acquisitionDecision, approved,
+    wantedAcquisitions, decisionValid,
     openFolder, closeFolder, importSelection, setApproved,
+    setAcquisitionDecision: (id: string | null) => { setApproved(false); setAcquisitionDecision(id) },
     selectCandidate: (taskId: string, candidateId: string) => { setApproved(false); setSelectedCandidates(current => ({ ...current, [taskId]: candidateId })) },
     setDuplicateAction: (taskId: string, action: 'skip' | 'keep') => { setApproved(false); setDuplicateActions(current => ({ ...current, [taskId]: action })) },
   }
@@ -572,22 +591,25 @@ function useAcquisitions() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [savingRef, setSavingRef] = useState<string | null>(null)
+  const activeRequest = useRef(0)
 
-  const refresh = useCallback(async (signal?: AbortSignal) => {
-    setLoading(true)
-    setError(null)
-    try {
-      const result = await getJson<AcquisitionResponse>('/api/acquisitions', signal)
-      setConfigured(result.configured)
-      setItems(current => [
-        ...result.items,
-        ...current.filter(item => !result.items.some(next => next.id === item.id)),
-      ])
-    } catch (requestError) {
-      if (!isAbortError(requestError)) setError(errorMessage(requestError))
-    } finally {
-      if (!signal?.aborted) setLoading(false)
-    }
+  const refresh = useCallback((signal?: AbortSignal) => {
+    const request = ++activeRequest.current
+    const run = (async () => {
+      setLoading(true)
+      setError(null)
+      try {
+        const result = await getJson<AcquisitionResponse>('/api/acquisitions', signal)
+        if (request !== activeRequest.current || signal?.aborted) return
+        setConfigured(result.configured)
+        setItems(result.items)
+      } catch (requestError) {
+        if (request === activeRequest.current && !isAbortError(requestError)) setError(errorMessage(requestError))
+      } finally {
+        if (request === activeRequest.current && !signal?.aborted) setLoading(false)
+      }
+    })()
+    return run
   }, [])
 
   useEffect(() => {
@@ -615,13 +637,15 @@ function useAcquisitions() {
     )))
   }
 
+  const refreshNow = useCallback(() => refresh(), [refresh])
+
   return {
     configured,
     items,
     loading,
     error,
     savingRef,
-    refresh: () => refresh(),
+    refresh: refreshNow,
     wantRelease,
     includes,
   }
@@ -813,7 +837,7 @@ function Header({ view, setView, lidarr, acquisitions }: {
           <PackageOpen size={14} /> Imports
         </button>
         {acquisitions.configured && <button className={view === 'wanted' ? 'active' : ''} onClick={() => setView('wanted')}>
-          <Bookmark size={14} /> Wanted
+          <Bookmark size={14} /> Journeys
         </button>}
         <button className={view === 'activity' ? 'active' : ''} onClick={() => setView('activity')}>
           <Activity size={14} /> Activity
@@ -891,7 +915,10 @@ function UnifiedReleaseCard({ item, library, acquisitions, libraryAvailable }: {
       <small>{item.artist}</small>
       <div className="album-meta">
         <span>{item.year ?? '—'}</span>
-        {wanted ? <span className="release-state wanted"><Check size={9} /> Wanted</span>
+        {item.state === 'importing' ? <span className="release-state importing"><Radio size={9} /> Importing</span>
+          : item.state === 'selection-required' ? <span className="release-state selection-required">Needs attention</span>
+            : item.state === 'in-library' ? <span className="release-state present"><Check size={9} /> In library</span>
+              : wanted ? <span className="release-state wanted"><Check size={9} /> Wanted</span>
           : !libraryAvailable ? <span className="release-state unknown">Library unknown</span>
             : release && acquisitions.configured ? <button
             className="want-button"
@@ -1059,7 +1086,7 @@ function ActivityView({ lidarr, imports, sectionNumber }: { lidarr: LidarrReadMo
 function ImportOperationRow({ item }: { item: BeetsImportOperation }) {
   const first = item.selections[0]
   const title = first?.album ?? item.providerPath.split('/').filter(Boolean).pop() ?? 'Beets import'
-  const detail = [first?.artist, item.selections.length > 1 ? `${item.selections.length} reviewed tasks` : `${first?.trackCount ?? 0} tracks`].filter(Boolean).join(' · ')
+  const detail = [first?.artist, item.selections.length > 1 ? `${item.selections.length} reviewed tasks` : `${first?.trackCount ?? 0} tracks`, item.acquisitionId ? 'Linked journey' : 'No wanted release'].filter(Boolean).join(' · ')
   const labels: Record<BeetsImportOperationState, string> = {
     submitting: 'submission pending',
     submitted: 'beets submitted',
@@ -1187,15 +1214,31 @@ function ImportReview({ beets, folder }: { beets: BeetsReadModel; folder: BeetsI
             </label>
           </section>
         ))}
+        <section className="panel lifecycle-link-panel">
+          <header><h2>Release journey</h2><span>Explicit link</span></header>
+          <label className="duplicate-policy">
+            Does this import fulfill a wanted release?
+            <select
+              value={beets.acquisitionDecision === undefined ? '' : beets.acquisitionDecision ?? '__none__'}
+              onChange={event => beets.setAcquisitionDecision(event.target.value === '__none__' ? null : event.target.value)}
+              disabled={locked}
+            >
+              <option value="" disabled>Choose a lifecycle decision</option>
+              <option value="__none__">No — this is not tied to a wanted release</option>
+              {beets.wantedAcquisitions.map(item => <option value={item.id} key={item.id}>{item.artist ? `${item.artist} — ` : ''}{item.release ?? item.id}</option>)}
+            </select>
+          </label>
+          <p className="lifecycle-note">Needle cannot safely infer this association from beets metadata. A selected journey moves to importing now and completes only after Jellyfin confirmation.</p>
+        </section>
         <section className="import-approval panel">
           {beets.workflowState === 'completed' ? <div className="completion-message"><Check size={18} /><strong>Beets workflow completed</strong><small>Canonical-library presence has not yet been confirmed through Jellyfin.</small></div>
             : beets.workflowState === 'provider-imported' ? <div className="completion-message"><Check size={18} /><strong>Beets reports this folder as imported</strong><small>This is historical provider state; Needle did not record or verify the choices used for that import.</small></div>
             : beets.workflowState === 'submission-unknown' ? <div className="completion-message unknown"><Radio size={18} /><strong>Submission outcome unknown</strong><small>Do not retry. Refresh the Imports page and inspect beets status before taking another action.</small></div> : <>
             <label>
-              <input type="checkbox" checked={beets.approved} onChange={event => beets.setApproved(event.target.checked)} disabled={busy || !allSelected} />
+              <input type="checkbox" checked={beets.approved} onChange={event => beets.setApproved(event.target.checked)} disabled={busy || !allSelected || !beets.decisionValid} />
               <span><strong>I approve these choices</strong><small>Beets will run the selected metadata and duplicate policy. A skipped duplicate may complete without adding another library copy. Staging files are retained.</small></span>
             </label>
-            <button className="button primary" onClick={beets.importSelection} disabled={!allSelected || !beets.approved || busy}>
+            <button className="button primary" onClick={beets.importSelection} disabled={!allSelected || !beets.approved || !beets.decisionValid || busy}>
               <ShieldCheck size={13} /> {beets.workflowState === 'importing' ? 'Importing…' : 'Import selected metadata'}
             </button>
           </>}
@@ -1209,22 +1252,22 @@ function WantedView({ acquisitions }: { acquisitions: AcquisitionsModel }) {
   return (
     <section>
       <div className="page-heading">
-        <div><p>03 / NEEDLE STATE</p><h1>Wanted releases</h1></div>
+        <div><p>03 / NEEDLE STATE</p><h1>Release journeys</h1></div>
         <button className="button" onClick={acquisitions.refresh} disabled={acquisitions.loading}>
           <RefreshCw size={13} className={acquisitions.loading ? 'spinning' : ''} /> Refresh
         </button>
       </div>
       {acquisitions.error && <div className="error-strip">{acquisitions.error}</div>}
       <section className="panel wanted-panel">
-        <header><h2>Acquisition intent</h2><span>{acquisitions.items.length}</span></header>
+        <header><h2>Acquisition lifecycle</h2><span>{acquisitions.items.length}</span></header>
         {acquisitions.items.length ? acquisitions.items.map(item => (
           <article className="wanted-row" key={item.id}>
             <div className="media-object case"><i /></div>
             <div><strong>{item.release}</strong><small>{item.artist ?? item.searchRefs[0]?.nativeId}</small></div>
-            <span className="state-tag">{item.state}</span>
+            <span className={`state-tag ${item.state}`}>{item.state.replace('-', ' ')}</span>
             <time>{new Date(item.createdAt).toLocaleString()}</time>
           </article>
-        )) : <p className="empty-row">No wanted releases</p>}
+        )) : <p className="empty-row">No release journeys yet</p>}
       </section>
     </section>
   )
@@ -1233,9 +1276,9 @@ function WantedView({ acquisitions }: { acquisitions: AcquisitionsModel }) {
 function App() {
   const [view, setView] = useState<View>('library')
   const lidarr = useLidarrReadModel()
-  const importOperations = useBeetsImportOperations()
-  const beets = useBeetsReadModel()
   const acquisitions = useAcquisitions()
+  const importOperations = useBeetsImportOperations(acquisitions.refresh)
+  const beets = useBeetsReadModel(acquisitions.items, acquisitions.refresh)
   const library = useLibrary()
 
   return (

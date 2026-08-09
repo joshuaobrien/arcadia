@@ -57,6 +57,17 @@ test('unified releases retain wanted records when catalog lookup is unavailable'
   assert.equal(item.title, 'Tender Buttons')
 })
 
+test('unified releases project linked import lifecycle without fuzzy identity', () => {
+  const base = {
+    id: 'wanted-1', artist: 'Broadcast', release: 'Tender Buttons',
+    searchRefs: [{ adapterId: 'lidarr', nativeId: 'album:mbid:a' }],
+    createdAt: '2026-08-09T00:00:00Z', updatedAt: '2026-08-09T00:00:00Z',
+  }
+  assert.equal(mergeMusicReleases([], [], [{ ...base, state: 'importing' }], 'broadcast')[0].state, 'importing')
+  assert.equal(mergeMusicReleases([], [], [{ ...base, state: 'selection-required' }], 'broadcast')[0].state, 'selection-required')
+  assert.equal(mergeMusicReleases([], [], [{ ...base, state: 'completed' }], 'broadcast')[0].state, 'in-library')
+})
+
 test('invalid MusicBrainz values and delimiter-bearing refs cannot collide', () => {
   const items = mergeMusicReleases([], [
     {
