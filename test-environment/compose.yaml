@@ -1,21 +1,6 @@
 name: needle-test
 
 services:
-  lidarr:
-    image: ${LIDARR_IMAGE:-ghcr.io/linuxserver-labs/prarr@sha256:106b3bec92f4372d123b437cc8d9115375eaba2d9974756ef83ca569952f1ac0}
-    environment:
-      PUID: "1000"
-      PGID: "1000"
-      TZ: Etc/UTC
-    volumes:
-      - ./state/lidarr:/config
-      - ./state/staging:/data/staging
-      - ./state/downloads:/downloads
-      - ./state/music:/music:ro
-    ports:
-      - "127.0.0.1:8686:8686"
-    restart: unless-stopped
-
   slskd:
     image: ${SLSKD_IMAGE:-slskd/slskd@sha256:ecd4026d4f8fb504e2cc55323efa2c1f5b56d20d3686b018249cc36b48ea17a6}
     init: true
@@ -74,9 +59,6 @@ services:
       PORT: "8787"
       MUSIC_LIBRARY_PATH: /music
       NEEDLE_DATABASE_PATH: /data/needle.sqlite
-      LIDARR_URL: http://lidarr:8686
-      LIDARR_API_KEY: needle-test-lidarr-api-key
-      LIDARR_PATH_MAPPINGS: '[{"id":"slsk-downloads","providerPrefix":"/downloads","needlePrefix":"/music_path/inbox"}]'
       SLSKD_URL: http://slskd:5030
       SLSKD_API_KEY: needle-test-slskd-api-key
       SLSKD_DOWNLOADS_ROOT: /downloads
@@ -90,7 +72,6 @@ services:
     ports:
       - "127.0.0.1:${PORT:-8787}:8787"
     depends_on:
-      - lidarr
       - slskd
       - beets-flask
       - jellyfin

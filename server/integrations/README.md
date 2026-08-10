@@ -1,78 +1,22 @@
 # Integration boundaries
 
-Needle owns wanted state, sync intent, search selections, transfer correlation, and transfer history. External services are capability adapters rather than domain authorities.
+Needle owns durable acquisition intent and workflow state. External systems expose capabilities, not domain authority.
 
-| Port | Adapter | Notes |
-| --- | --- | --- |
-| `CatalogLookupPort` | Lidarr, MusicBrainz | MusicBrainz IDs are cross-provider identities; provider IDs remain opaque. |
-| `AcquisitionAutomationPort` | Lidarr | Wanted state, searches, queue, and history only. It has no library mutation operations. |
-| `BeetsImportPort` | beets-flask | Inbox reads and explicit preview/candidate import jobs. |
+| Adapter | Responsibility |
+| --- | --- |
+| MusicBrainz | Artist, release-group, concrete-edition, media, and track identity. |
+| slskd | Soulseek search, candidate files, direct batch submission, and transfer reconciliation. |
+| beets-flask | Explicit metadata preview and approved import; sole canonical-library mutation owner. |
+| Jellyfin | Read-only library projection, artwork, refresh after import, and audio streaming. |
 
-Search, transfer, and notification ports will be defined when their first adapters are implemented. Their provider constraints remain recorded below to inform those designs.
+Every provider identifier carries an `adapterId`, every mutation receives a Needle operation ID, and provider paths become usable only through explicit mappings. Needle's SQLite ledger remains authoritative when transient provider records disappear.
 
-The beets-flask adapter is configured with `BEETS_URL` (for example, `http://beets-flask:5001`). Its mutation contract uses the internal API of the pinned, tested beets-flask 1.2.x line, not a stable public API. Needle must be the sole mutation client and staging content must remain immutable while preview or import jobs are active. Candidate imports require an explicit choice per task and duplicate handling is limited to `skip` or `keep`. Delete is not supported.
+## Direct acquisition
 
-## Adapter rules
+`SLSKD_URL` and `SLSKD_API_KEY` configure slskd. `SLSKD_DOWNLOADS_ROOT` chooses its download root. `SLSKD_PATH_MAPPINGS` is a JSON array of `{ id, providerPrefix, needlePrefix }` objects mapping completed downloads into the inbox namespace shared with beets. Search uses MusicBrainz release editions and tracks to score Soulseek candidates before submitting exact files.
 
-1. Vendor transport DTOs never escape an adapter. Preserve unmodeled fields in `raw` only where diagnostics or compatibility require them.
-2. Every provider identifier is paired with `adapterId`. Display names are never identifiers.
-3. Every mutation receives a Needle `operationId`. Adapters use it for tags, categories, batch IDs, or logs where the provider permits correlation.
-4. Paths are assumed to exist in the provider's container namespace. A path only becomes usable by Needle after an explicit mapping.
-5. Normalized states always retain `rawState`. SABnzbd post-processing, qBittorrent seeding, and Soulseek queueing are not interchangeable.
-6. Unsupported controls fail before making a remote request. The UI reads adapter capabilities rather than guessing from provider type.
-7. Needle persists its own ledger. qBittorrent has no durable deleted-transfer history, Prowlarr search handles expire, and slskd records can be cleared.
-8. List operations are cursor-paginated even when an upstream API uses page numbers. The adapter owns cursor translation.
+## Import and library
 
-`AcquisitionJob` belongs to Needle's domain rather than an integration. It links provider operations without making provider records authoritative.
+`BEETS_URL` configures beets-flask. Candidate imports require an explicit choice per task; duplicate handling is limited to `skip` or `keep`, and delete is unsupported. Needle persists the exact approval and confirms completion against Jellyfin.
 
-## Provider-specific constraints
-
-### Lidarr
-
-- `/api/v1`, authenticated with `X-Api-Key`.
-- Artist/release lookup and wanted-state monitoring are catalog-aware.
-- Artist and release searches are runtime command jobs. Command names and payloads must be version-gated.
-- Lidarr may dispatch downloads into staging, but does not import, move, retag, or delete canonical library files.
-- Queue removal, blocklisting, rescans, and downloaded-folder imports are deliberately absent from the Needle adapter.
-
-Needle configures the adapter through `LIDARR_URL` and `LIDARR_API_KEY`. The URL is the Lidarr origin or configured URL base, without `/api/v1`.
-
-The server currently exposes the read model at:
-
-- `GET /api/services/lidarr`
-- `GET /api/services/lidarr/artists?term=...`
-- `GET /api/services/lidarr/releases?term=...`
-- `GET /api/services/lidarr/profiles`
-- `GET /api/services/lidarr/roots`
-- `GET /api/services/lidarr/queue?limit=...&cursor=...`
-- `GET /api/services/lidarr/history?limit=...&cursor=...&since=...`
-
-The adapter also implements artist creation, wanted-state monitoring, acquisition search submission, and command polling. These mutations are not exposed over HTTP until Needle's acquisition workflow can persist intent and operation results.
-
-### Prowlarr
-
-- `/api/v1`, authenticated with `X-Api-Key`.
-- Search results represent downloadable releases, not catalog entities.
-- Searches are synchronous.
-- Grab handles depend on an in-memory result cache and expire. Prefer extracting a magnet/download URL and enqueueing through a selected transfer adapter.
-
-### slskd
-
-- `/api/v0`; treat the API as unstable and pin tested versions.
-- Searches are retained asynchronous jobs with explicit stop and delete operations.
-- Downloads use the batch endpoint and identify remote files by username, path, and size.
-- General pause/resume must not be advertised unless verified against the connected version.
-
-### qBittorrent
-
-- `/api/v2`; cookie login is the compatibility baseline.
-- Enqueue does not reliably return the resulting hash. Parse the info hash or reconcile using Needle tags/categories.
-- Completed torrents only remain visible while retained. Persist history before deletion.
-- Pause/resume endpoint names differ between 4.x and 5.x and require version gating.
-
-### SABnzbd
-
-- Mode-based `/api`; the API key is generally a query parameter and must be redacted from logs.
-- Enqueue returns stable `nzo_id` values.
-- Active queue and history are separate. A missing queue item must be checked in history before being marked missing.
-- Mutation success booleans are not always authoritative; verify resulting state.
+`JELLYFIN_URL` and `JELLYFIN_API_KEY` configure read-only browsing and playback. Jellyfin never mutates the canonical library through Needle. beets owns files; Jellyfin reads them.

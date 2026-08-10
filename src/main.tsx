@@ -25,7 +25,7 @@ interface CatalogRelease {
   musicBrainzReleaseGroupId?: string
 }
 
-interface LidarrStatus {
+interface AcquisitionSourceStatus {
   configured: boolean
   health?: {
     state: 'available' | 'degraded' | 'unavailable'
@@ -40,8 +40,6 @@ interface BeetsStatus {
     version?: string
   }
 }
-
-type SlskdStatus = LidarrStatus
 
 interface DirectEdition {
   id: string
@@ -163,26 +161,6 @@ interface BeetsImportOperationsResponse {
   items: BeetsImportOperation[]
 }
 
-interface QueueItem {
-  ref: ProviderRef
-  title: string
-  state: string
-  protocol?: string
-  bytesTotal?: number
-  bytesRemaining?: number
-  artist?: CatalogArtist
-  release?: CatalogRelease
-}
-
-interface HistoryItem {
-  ref: ProviderRef
-  eventType: string
-  occurredAt: string
-  underlyingDownloadRef?: string
-  artist?: CatalogArtist
-  release?: CatalogRelease
-}
-
 interface AcquisitionJob {
   id: string
   state: 'wanted' | 'searching' | 'selection-required' | 'queued' | 'transferring' | 'importing' | 'completed' | 'failed' | 'cancelled'
@@ -198,31 +176,14 @@ interface AcquisitionJob {
   updatedAt: string
 }
 
-interface Page<T> {
-  items: T[]
-  nextCursor?: string
-}
-
 interface AcquisitionResponse {
   configured: boolean
   items: AcquisitionJob[]
 }
 
-interface AcquisitionDefaults {
-  root: ProviderRef
-  qualityProfile: ProviderRef
-  metadataProfile?: ProviderRef
-}
-
-interface AcquisitionRoot {
-  ref: ProviderRef
-  path: { providerPath: string }
-}
-
-interface AcquisitionProfile {
-  ref: ProviderRef
-  name: string
-  kind: 'metadata' | 'quality'
+interface Page<T> {
+  items: T[]
+  nextCursor?: string
 }
 
 type JourneyStage = 'requested' | 'queued' | 'downloading' | 'review' | 'importing' | 'verifying' | 'collected' | 'attention'
@@ -353,32 +314,6 @@ async function postJson<T>(path: string, payload: unknown, signal?: AbortSignal)
   return body
 }
 
-async function putJson<T>(path: string, payload: unknown): Promise<T> {
-  const response = await fetch(path, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
-  const body = await response.json() as T & ErrorResponse
-  if (!response.ok) throw requestError(body, response.status)
-  return body
-}
-
-async function getPages<T>(path: string, signal: AbortSignal | undefined, follow: boolean): Promise<T[]> {
-  const items: T[] = []
-  const cursors = new Set<string>()
-  let cursor: string | undefined
-  do {
-    const page = await getJson<Page<T>>(`${path}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, signal)
-    items.push(...page.items)
-    if (!follow || !page.nextCursor) break
-    if (cursors.has(page.nextCursor)) throw new Error('Needle received a repeated activity cursor')
-    cursors.add(page.nextCursor)
-    cursor = page.nextCursor
-  } while (cursor)
-  return items
-}
-
 async function postBeetsMutation(path: string, payload: { providerPath: string; hash: string; [key: string]: unknown }, kind: BeetsJobAcknowledgement['kind']): Promise<BeetsJobAcknowledgement> {
   let response: Response
   try {
@@ -400,68 +335,6 @@ async function postBeetsMutation(path: string, payload: { providerPath: string; 
   return body
 }
 
-function useLidarrReadModel(historySince?: string) {
-  const [status, setStatus] = useState<LidarrStatus | null>(null)
-  const [queue, setQueue] = useState<QueueItem[]>([])
-  const [history, setHistory] = useState<HistoryItem[]>([])
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [snapshotAvailable, setSnapshotAvailable] = useState(false)
-  const activeRequest = useRef(0)
-
-  const refresh = useCallback(async (signal?: AbortSignal, background = false) => {
-    const request = ++activeRequest.current
-    if (!background) setLoading(true)
-    try {
-      const nextStatus = await getJson<LidarrStatus>('/api/services/lidarr', signal)
-      if (!nextStatus.configured || nextStatus.health?.state !== 'available') {
-        if (request !== activeRequest.current || signal?.aborted) return
-        setStatus(nextStatus)
-        setQueue([])
-        setHistory([])
-        setSnapshotAvailable(true)
-        setError(null)
-        return
-      }
-
-      const historyPath = `/api/services/lidarr/history?limit=100${historySince ? `&since=${encodeURIComponent(historySince)}` : ''}`
-      const [nextQueue, nextHistory] = await Promise.all([
-        getPages<QueueItem>('/api/services/lidarr/queue?limit=100', signal, true),
-        getPages<HistoryItem>(historyPath, signal, Boolean(historySince)),
-      ])
-      if (request !== activeRequest.current || signal?.aborted) return
-      setStatus(nextStatus)
-      setQueue(nextQueue)
-      setHistory(nextHistory)
-      setSnapshotAvailable(true)
-      setError(null)
-    } catch (requestError) {
-      if (request === activeRequest.current && !isAbortError(requestError)) setError(errorMessage(requestError))
-    } finally {
-      if (request === activeRequest.current && !signal?.aborted) setLoading(false)
-    }
-  }, [historySince])
-
-  useEffect(() => {
-    const controller = new AbortController()
-    let timer: number | undefined
-    setSnapshotAvailable(false)
-    const poll = async (background: boolean) => {
-      await refresh(controller.signal, background)
-      if (!controller.signal.aborted) timer = window.setTimeout(() => { void poll(true) }, 7_500)
-    }
-    void poll(false)
-    return () => {
-      controller.abort()
-      if (timer !== undefined) window.clearTimeout(timer)
-    }
-  }, [refresh])
-
-  return { status, queue, history, error, loading, snapshotAvailable, refresh: () => refresh() }
-}
-
-type LidarrReadModel = ReturnType<typeof useLidarrReadModel>
-
 interface JourneyActivity {
   label: string
   className: string
@@ -469,13 +342,13 @@ interface JourneyActivity {
   percent?: number
 }
 
-function journeyActivity(item: AcquisitionJob, lidarr: LidarrReadModel): JourneyActivity {
+function journeyActivity(item: AcquisitionJob): JourneyActivity {
   if (item.state !== 'wanted') {
     const states: Record<Exclude<AcquisitionJob['state'], 'wanted'>, JourneyActivity> = {
       searching: { label: 'Searching', className: 'searching', detail: 'Looking for this release' },
       'selection-required': { label: 'Needs attention', className: 'selection-required', detail: 'Review the acquisition outcome' },
       queued: { label: 'Queued', className: 'queued', detail: 'Waiting to download' },
-      transferring: { label: 'Downloading', className: 'downloading', detail: 'Transfer in progress' },
+      transferring: { label: 'Transferring', className: 'downloading', detail: 'Transfer in progress' },
       importing: { label: 'Importing', className: 'importing', detail: 'Moving into your collection' },
       completed: item.importRef ? { label: 'Collected', className: 'completed', detail: 'Verified in your collection' } : { label: 'Ready for review', className: 'completed', detail: 'Downloaded · ready for review' },
       failed: { label: 'Failed', className: 'failed', detail: 'Acquisition needs attention' },
@@ -483,55 +356,7 @@ function journeyActivity(item: AcquisitionJob, lidarr: LidarrReadModel): Journey
     }
     return states[item.state]
   }
-
-  if (lidarr.error) return { label: 'Unavailable', className: 'unknown', detail: 'Progress is temporarily unavailable' }
-  if (!lidarr.snapshotAvailable) return { label: 'Checking', className: 'unknown', detail: 'Checking search and download activity' }
-  if (!lidarr.status?.configured || lidarr.status.health?.state !== 'available') {
-    return { label: 'Unavailable', className: 'unknown', detail: 'Progress is temporarily unavailable' }
-  }
-
-  const queueItem = lidarr.queue.find(candidate => releaseMatchesJourney(item, candidate.release))
-  if (queueItem) {
-    const percent = queueItem.bytesTotal
-      ? Math.max(0, Math.min(100, Math.round(((queueItem.bytesTotal - (queueItem.bytesRemaining ?? queueItem.bytesTotal)) / queueItem.bytesTotal) * 100)))
-      : undefined
-    const states: Record<string, Omit<JourneyActivity, 'percent'>> = {
-      queued: { label: 'Queued', className: 'queued', detail: 'Waiting to download' },
-      downloading: { label: percent === undefined ? 'Downloading' : `${percent}%`, className: 'downloading', detail: `Downloading · ${formatBytes(queueItem.bytesTotal)}` },
-      paused: { label: 'Paused', className: 'paused', detail: 'Download paused' },
-      'post-processing': { label: 'Finishing', className: 'post-processing', detail: 'Download complete · preparing review' },
-      completed: { label: 'Downloaded', className: 'completed', detail: 'Waiting for import review' },
-      failed: { label: 'Failed', className: 'failed', detail: 'Download needs attention' },
-      unknown: { label: 'In progress', className: 'unknown', detail: 'Checking download state' },
-    }
-    return { ...(states[queueItem.state] ?? states.unknown), ...(percent === undefined ? {} : { percent }) }
-  }
-
-  const recognizedHistory = lidarr.history
-    .filter(event => releaseMatchesJourney(item, event.release) && Date.parse(event.occurredAt) >= Date.parse(item.createdAt))
-    .sort((left, right) => Date.parse(right.occurredAt) - Date.parse(left.occurredAt))
-  for (const historyItem of recognizedHistory) {
-    switch (historyItem.eventType.toLowerCase()) {
-      case 'downloadfailed':
-      case 'albumimportincomplete':
-      case 'downloadignored':
-        return { label: 'Needs attention', className: 'failed', detail: 'Download did not complete cleanly' }
-      case 'downloadfolderimported':
-      case 'trackfileimported':
-        return { label: 'Ready', className: 'completed', detail: 'Downloaded · ready for review' }
-      case 'grabbed':
-        return { label: 'Queued', className: 'queued', detail: 'Release sent to the download client' }
-    }
-  }
-  return { label: 'Requested', className: 'searching', detail: 'Search requested · waiting for a download' }
-}
-
-function releaseMatchesJourney(item: AcquisitionJob, release?: CatalogRelease): boolean {
-  if (!release) return false
-  const itemMusicBrainzId = item.musicBrainzReleaseGroupId?.toLowerCase()
-  const releaseMusicBrainzId = release.musicBrainzReleaseGroupId?.toLowerCase()
-  if (itemMusicBrainzId && releaseMusicBrainzId) return itemMusicBrainzId === releaseMusicBrainzId
-  return item.searchRefs.some(ref => ref.adapterId === release.ref.adapterId && ref.nativeId === release.ref.nativeId)
+  return { label: 'Requested', className: 'selection-required', detail: 'Legacy request needs attention' }
 }
 
 function useBeetsImportOperations(onLifecycleChange: () => void) {
@@ -601,14 +426,20 @@ function useBeetsReadModel(acquisitions: readonly AcquisitionJob[], onLifecycleC
   const activeRequest = useRef(0)
   const submissionInFlight = useRef(false)
   const wantedAcquisitions = acquisitions.filter(item => item.state === 'wanted')
-  const decisionValid = acquisitionDecision === null || (typeof acquisitionDecision === 'string' && wantedAcquisitions.some(item => item.id === acquisitionDecision))
+  const explicitAcquisition = typeof acquisitionDecision === 'string'
+    ? acquisitions.find(item => item.id === acquisitionDecision)
+    : undefined
+  const linkableAcquisitions = explicitAcquisition && !wantedAcquisitions.some(item => item.id === explicitAcquisition.id)
+    ? [...wantedAcquisitions, explicitAcquisition]
+    : wantedAcquisitions
+  const decisionValid = acquisitionDecision === null || (typeof acquisitionDecision === 'string' && linkableAcquisitions.some(item => item.id === acquisitionDecision))
 
   useEffect(() => {
-    if (typeof acquisitionDecision === 'string' && !wantedAcquisitions.some(item => item.id === acquisitionDecision)) {
+    if (typeof acquisitionDecision === 'string' && !acquisitions.some(item => item.id === acquisitionDecision)) {
       setAcquisitionDecision(undefined)
       setApproved(false)
     }
-  }, [acquisitionDecision, wantedAcquisitions])
+  }, [acquisitionDecision, acquisitions])
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     const request = ++activeRequest.current
@@ -785,7 +616,7 @@ function useBeetsReadModel(acquisitions: readonly AcquisitionJob[], onLifecycleC
   return {
     status, inboxes, folders, folderStatuses, error, loading, refresh: () => refresh(),
     selectedFolder, preview, workflowState, selectedCandidates, duplicateActions, acquisitionDecision, approved,
-    wantedAcquisitions, decisionValid,
+    linkableAcquisitions, decisionValid,
     openFolder, closeFolder, importSelection, setApproved,
     setAcquisitionDecision: (id: string | null) => { setApproved(false); setAcquisitionDecision(id) },
     selectCandidate: (taskId: string, candidateId: string) => { setApproved(false); setSelectedCandidates(current => ({ ...current, [taskId]: candidateId })) },
@@ -797,14 +628,11 @@ type BeetsReadModel = ReturnType<typeof useBeetsReadModel>
 
 function useAcquisitions() {
   const [configured, setConfigured] = useState(false)
-  const [direct, setDirect] = useState(false)
+  const [source, setSource] = useState<AcquisitionSourceStatus | null>(null)
   const [items, setItems] = useState<AcquisitionJob[]>([])
-  const [defaults, setDefaults] = useState<AcquisitionDefaults | null | undefined>(undefined)
-  const [roots, setRoots] = useState<AcquisitionRoot[]>([])
-  const [profiles, setProfiles] = useState<AcquisitionProfile[]>([])
   const [loading, setLoading] = useState(true)
-  const [savingDefaults, setSavingDefaults] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [sourceError, setSourceError] = useState<string | null>(null)
   const [savingRef, setSavingRef] = useState<string | null>(null)
   const activeRequest = useRef(0)
 
@@ -813,30 +641,20 @@ function useAcquisitions() {
     const run = (async () => {
       setLoading(true)
       setError(null)
+      setSourceError(null)
       try {
-        const [result, slskd] = await Promise.all([
-          getJson<AcquisitionResponse>('/api/acquisitions', signal),
-          getJson<SlskdStatus>('/api/services/slskd', signal).catch(() => null),
-        ])
+        const result = await getJson<AcquisitionResponse>('/api/acquisitions', signal)
+        let slskd: AcquisitionSourceStatus | null = null
+        try {
+          slskd = await getJson<AcquisitionSourceStatus>('/api/services/slskd', signal)
+        } catch (requestError) {
+          if (isAbortError(requestError)) throw requestError
+          setSourceError(errorMessage(requestError))
+        }
         if (request !== activeRequest.current || signal?.aborted) return
-        const directReady = !!slskd?.configured && slskd.health?.state === 'available'
-        setDirect(directReady)
+        setSource(slskd)
         setConfigured(result.configured)
         setItems(result.items)
-        if (directReady) { setDefaults(null); setRoots([]); setProfiles([]); return }
-        const defaultsResult = await getJson<{ value: AcquisitionDefaults | null }>('/api/acquisition-defaults', signal)
-        setDefaults(defaultsResult.value)
-        try {
-          const [nextRoots, nextProfiles] = await Promise.all([
-            getJson<AcquisitionRoot[]>('/api/services/lidarr/roots', signal),
-            getJson<AcquisitionProfile[]>('/api/services/lidarr/profiles', signal),
-          ])
-          if (request !== activeRequest.current || signal?.aborted) return
-          setRoots(nextRoots)
-          setProfiles(nextProfiles)
-        } catch (requestError) {
-          if (!defaultsResult.value) throw requestError
-        }
       } catch (requestError) {
         if (request === activeRequest.current && !isAbortError(requestError)) setError(errorMessage(requestError))
       } finally {
@@ -867,19 +685,6 @@ function useAcquisitions() {
     }
   }
 
-  async function saveDefaults(value: AcquisitionDefaults) {
-    setSavingDefaults(true)
-    setError(null)
-    try {
-      const result = await putJson<{ value: AcquisitionDefaults }>('/api/acquisition-defaults', value)
-      setDefaults(result.value)
-    } catch (requestError) {
-      setError(errorMessage(requestError))
-    } finally {
-      setSavingDefaults(false)
-    }
-  }
-
   function find(release: CatalogRelease) {
     const musicBrainzReleaseGroupId = release.musicBrainzReleaseGroupId?.toLowerCase()
     return items.find(item => (
@@ -894,18 +699,15 @@ function useAcquisitions() {
 
   return {
     configured,
-    direct,
+    source,
+    sourceError,
+    ready: configured && source?.configured === true && source.health?.state === 'available',
     items,
-    defaults,
-    roots,
-    profiles,
     loading,
-    savingDefaults,
     error,
     savingRef,
     refresh: refreshNow,
     wantRelease,
-    saveDefaults,
     find,
   }
 }
@@ -1259,8 +1061,7 @@ function Sidebar({ view, setView, library, acquisitions }: {
   )
 }
 
-function HomeView({ lidarr, beets, imports, acquisitions, library, setView, openJourney }: {
-  lidarr: LidarrReadModel
+function HomeView({ beets, imports, acquisitions, library, setView, openJourney }: {
   beets: BeetsReadModel
   imports: BeetsImportOperationsModel
   acquisitions: AcquisitionsModel
@@ -1280,7 +1081,7 @@ function HomeView({ lidarr, beets, imports, acquisitions, library, setView, open
     .filter(item => item.state === 'library-confirmed')
     .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))
     .slice(0, 5)
-  const refreshing = lidarr.loading || beets.loading || imports.loading || acquisitions.loading || library.loading
+  const refreshing = beets.loading || imports.loading || acquisitions.loading || library.loading
 
   function discover(event: FormEvent<HTMLFormElement>) {
     library.search(event)
@@ -1292,7 +1093,6 @@ function HomeView({ lidarr, beets, imports, acquisitions, library, setView, open
       <div className="page-heading">
         <div><p>00 / NEEDLE</p><h1>Your music, end to end</h1></div>
         <button className="button" disabled={refreshing} onClick={() => {
-          void lidarr.refresh()
           void beets.refresh()
           void imports.refresh()
           void acquisitions.refresh()
@@ -1317,7 +1117,6 @@ function HomeView({ lidarr, beets, imports, acquisitions, library, setView, open
       {imports.error && <div className="error-strip">{imports.error}</div>}
       {acquisitions.error && <div className="error-strip">{acquisitions.error}</div>}
       {library.error && <div className="error-strip">{library.error}</div>}
-      {lidarr.error && <div className="error-strip">Download progress unavailable: {lidarr.error}</div>}
 
       <div className="home-grid">
         <section className="panel home-panel">
@@ -1348,7 +1147,7 @@ function HomeView({ lidarr, beets, imports, acquisitions, library, setView, open
         <section className="panel home-panel">
           <header><h2>In motion</h2><span>{activeJourneys.length}</span></header>
           {activeJourneys.map(item => {
-            const activity = journeyActivity(item, lidarr)
+            const activity = journeyActivity(item)
             return <button className="home-row" key={item.id} onClick={() => openJourney(item.id)}>
               <Disc3 size={17} />
               <div>
@@ -1381,82 +1180,17 @@ function HomeView({ lidarr, beets, imports, acquisitions, library, setView, open
   )
 }
 
-function IntegrationState({ lidarr }: { lidarr: LidarrReadModel }) {
-  const message = lidarr.loading
-    ? 'Checking acquisition source'
-    : lidarr.error ?? (!lidarr.status?.configured ? 'Acquisition source needs setup' : 'Acquisition source unavailable')
-
-  return (
-    <div className="integration-state">
-      <Radio size={21} />
-      <strong>{message}</strong>
-      <small>{!lidarr.status?.configured ? 'Connect a download source to discover and acquire new music.' : 'Needle cannot read incoming music right now. Check the Lidarr connection.'}</small>
-      {!lidarr.loading && <button className="button" onClick={lidarr.refresh}><RefreshCw size={13} /> Retry</button>}
-    </div>
-  )
-}
-
-function AcquisitionSetup({ acquisitions, showConfigured = false }: { acquisitions: AcquisitionsModel; showConfigured?: boolean }) {
-  const [rootKey, setRootKey] = useState('')
-  const [qualityKey, setQualityKey] = useState('')
-  const [metadataKey, setMetadataKey] = useState('')
-
-  const qualityProfiles = acquisitions.profiles.filter(profile => profile.kind === 'quality')
-  const metadataProfiles = acquisitions.profiles.filter(profile => profile.kind === 'metadata')
-  useEffect(() => {
-    if (acquisitions.defaults) {
-      setRootKey(providerRefKey(acquisitions.defaults.root))
-      setQualityKey(providerRefKey(acquisitions.defaults.qualityProfile))
-      setMetadataKey(acquisitions.defaults.metadataProfile ? providerRefKey(acquisitions.defaults.metadataProfile) : '')
-      return
-    }
-    if (acquisitions.roots.length === 1) setRootKey(providerRefKey(acquisitions.roots[0].ref))
-    if (qualityProfiles.length === 1) setQualityKey(providerRefKey(qualityProfiles[0].ref))
-  }, [acquisitions.defaults, acquisitions.roots, qualityProfiles])
-
-  const root = acquisitions.roots.find(item => providerRefKey(item.ref) === rootKey)
-  const qualityProfile = qualityProfiles.find(item => providerRefKey(item.ref) === qualityKey)
-  const metadataProfile = metadataProfiles.find(item => providerRefKey(item.ref) === metadataKey)
-  if (acquisitions.direct) return showConfigured ? <section className="panel acquisition-setup configured direct">
+function AcquisitionSetup({ acquisitions }: { acquisitions: AcquisitionsModel }) {
+  if (acquisitions.ready) return <section className="panel acquisition-setup configured direct">
     <header><h2>Acquisition path</h2><span>Configured</span></header>
-    <p>MusicBrainz catalog · Soulseek acquisition · beets review</p>
-  </section> : null
-  if (acquisitions.defaults === undefined) return null
-  if (acquisitions.defaults && !showConfigured) return null
-  if (acquisitions.defaults) return <section className="panel acquisition-setup configured">
-    <header><h2>Acquisition destination</h2><span>Configured</span></header>
-    <p>Lidarr · {root?.path.providerPath ?? acquisitions.defaults.root.nativeId} · {qualityProfile?.name ?? acquisitions.defaults.qualityProfile.nativeId}{acquisitions.defaults.metadataProfile ? ` · ${metadataProfile?.name ?? acquisitions.defaults.metadataProfile.nativeId}` : ''}</p>
+    <p>MusicBrainz catalog → Soulseek acquisition → beets review</p>
   </section>
-
-  return <form className="panel acquisition-setup" onSubmit={event => {
-    event.preventDefault()
-    if (!root || !qualityProfile) return
-    void acquisitions.saveDefaults({
-      root: root.ref,
-      qualityProfile: qualityProfile.ref,
-      ...(metadataProfile ? { metadataProfile: metadataProfile.ref } : {}),
-    })
-  }}>
-    <header><h2>Use existing Lidarr setup</h2><span>One time</span></header>
-    <p>Needle found these Lidarr roots and profiles. Choose which existing destination should stage new journeys.</p>
-    <div className="setup-fields">
-      <label>Staging root<select value={rootKey} onChange={event => setRootKey(event.target.value)} required>
-        <option value="">Choose a root</option>
-        {acquisitions.roots.map(item => <option value={providerRefKey(item.ref)} key={providerRefKey(item.ref)}>{item.path.providerPath}</option>)}
-      </select></label>
-      <label>Quality profile<select value={qualityKey} onChange={event => setQualityKey(event.target.value)} required>
-        <option value="">Choose a quality profile</option>
-        {qualityProfiles.map(item => <option value={providerRefKey(item.ref)} key={providerRefKey(item.ref)}>{item.name}</option>)}
-      </select></label>
-      <label>Metadata profile<select value={metadataKey} onChange={event => setMetadataKey(event.target.value)}>
-        <option value="">Use the root default</option>
-        {metadataProfiles.map(item => <option value={providerRefKey(item.ref)} key={providerRefKey(item.ref)}>{item.name}</option>)}
-      </select></label>
-      <button className="button primary" disabled={!root || !qualityProfile || acquisitions.savingDefaults}>
-        {acquisitions.savingDefaults ? 'Saving…' : 'Save destination'}
-      </button>
-    </div>
-  </form>
+  const message = acquisitions.loading ? 'Checking acquisition source' : acquisitions.sourceError ?? acquisitions.error ?? 'Acquisition source unavailable'
+  return <div className="integration-state acquisition-setup">
+    <Radio size={21} /><strong>{message}</strong>
+    <small>Soulseek acquisition is not ready. Retry after checking the acquisition source.</small>
+    {!acquisitions.loading && <button className="button" onClick={acquisitions.refresh}><RefreshCw size={13} /> Retry</button>}
+  </div>
 }
 
 function formatBytes(value?: number | null): string {
@@ -1760,57 +1494,33 @@ function PlayerBar({ selection, close }: { selection: PlaybackSelection; close: 
   </section>
 }
 
-function QueueRow({ item }: { item: QueueItem }) {
-  const transferred = item.bytesTotal ? item.bytesTotal - (item.bytesRemaining ?? item.bytesTotal) : 0
-  const progress = item.bytesTotal ? Math.round((transferred / item.bytesTotal) * 100) : 0
-  const artist = item.artist?.name ?? item.release?.artistName
-
-  return (
-    <article className="queue-row">
-      <div className="download-object"><i /></div>
-      <div className="queue-copy">
-        <strong>{item.title}</strong>
-        <small>{[artist, item.protocol, formatBytes(item.bytesTotal)].filter(Boolean).join(' · ')}</small>
-        <div className="meter"><i style={{ width: `${progress}%` }} /></div>
-      </div>
-      <span className={`state-tag ${item.state}`}>{item.state.replace('-', ' ')}</span>
-    </article>
-  )
-}
-
-function ActivityView({ lidarr, imports, sectionNumber }: { lidarr: LidarrReadModel; imports: BeetsImportOperationsModel; sectionNumber: string }) {
-  const available = lidarr.status?.configured && lidarr.status.health?.state === 'available' && !lidarr.error
-  const refreshing = lidarr.loading || imports.loading
-  const recentHistory = lidarr.history.slice(0, 25)
+function ActivityView({ acquisitions, imports, openJourney, sectionNumber }: { acquisitions: AcquisitionsModel; imports: BeetsImportOperationsModel; openJourney: (id: string) => void; sectionNumber: string }) {
+  const refreshing = acquisitions.loading || imports.loading
+  const journeys = [...acquisitions.items].sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))
 
   return (
     <section>
       <div className="page-heading">
         <div><p>{sectionNumber} / RECENT LIBRARY ACTIVITY</p><h1>History</h1></div>
-        <button className="button" onClick={() => { void lidarr.refresh(); void imports.refresh() }} disabled={refreshing}>
+        <button className="button" onClick={() => { void acquisitions.refresh(); void imports.refresh() }} disabled={refreshing}>
           <RefreshCw size={13} className={refreshing ? 'spinning' : ''} /> Refresh
         </button>
       </div>
 
-      {!available && <IntegrationState lidarr={lidarr} />}
+      <AcquisitionSetup acquisitions={acquisitions} />
       {imports.error && <div className="error-strip">{imports.error}</div>}
       <div className="activity-grid">
-        {available && <section className="panel queue-panel">
-          <header><h2>Incoming</h2><span>{lidarr.queue.length}</span></header>
-          {lidarr.queue.length
-            ? lidarr.queue.map(item => <QueueRow item={item} key={item.ref.nativeId} />)
-            : <p className="empty-row">Nothing incoming</p>}
-        </section>}
-        {available && <section className="panel history-panel">
-          <header><h2>Recent movement</h2><span>{recentHistory.length}</span></header>
-          {recentHistory.length ? recentHistory.map(item => (
-            <article className="history-row" key={item.ref.nativeId}>
-              <span>{item.eventType}</span>
-              <div><strong>{item.release?.title ?? item.artist?.name ?? 'Unmatched acquisition'}</strong><small>{item.artist?.name ?? item.underlyingDownloadRef ?? 'Acquisition source'}</small></div>
-              <time>{new Date(item.occurredAt).toLocaleString()}</time>
-            </article>
-          )) : <p className="empty-row">No recent movement</p>}
-        </section>}
+        <section className="panel history-panel">
+          <header><h2>Journey history</h2><span>{journeys.length}</span></header>
+          {journeys.length ? journeys.map(item => {
+            const activity = journeyActivity(item)
+            return <button className="history-row journey-history-row" onClick={() => openJourney(item.id)} key={item.id}>
+              <span className={`state-tag ${activity.className}`}>{activity.label}</span>
+              <div><strong>{item.release}</strong><small>{[item.artist, activity.detail].filter(Boolean).join(' · ')}</small></div>
+              <time>{new Date(item.updatedAt).toLocaleString()}</time>
+            </button>
+          }) : <p className="empty-row">No release journeys yet</p>}
+        </section>
         <section className="panel import-history-panel">
           <header><h2>Library commits</h2><span>{imports.items.length}</span></header>
           {!imports.configured && !imports.loading ? <p className="empty-row">Needle database persistence is not configured</p>
@@ -2041,7 +1751,7 @@ function ImportReview({ beets, folder }: { beets: BeetsReadModel; folder: BeetsI
             >
               <option value="" disabled>Choose a lifecycle decision</option>
               <option value="__none__">No — this is not tied to a wanted release</option>
-              {beets.wantedAcquisitions.map(item => <option value={item.id} key={item.id}>{acquisitionOptionLabel(item)}</option>)}
+              {beets.linkableAcquisitions.map(item => <option value={item.id} key={item.id}>{acquisitionOptionLabel(item)}</option>)}
             </select>
           </label>
           <p className="lifecycle-note">Needle cannot safely infer this association from metadata alone. A selected journey moves to importing now and completes only after collection verification.</p>
@@ -2109,6 +1819,7 @@ function DirectCandidateReview({ response, error, busy, onSelect, onRetry }: { r
     <header><h2>Ranked Soulseek candidates</h2><span>{response.candidates.length}</span></header>
     {error && <div className="error-strip">{error}</div>}
     {workflow.submissionState === 'submission-unknown' && <div className="journey-attention"><Radio size={14} /><strong>Transfer submission outcome unknown — do not retry or select again.</strong></div>}
+    {workflow.submissionState === 'submitted' && workflow.error && <div className="direct-review-empty"><span>{workflow.error}</span><button className="button" disabled={busy} onClick={onRetry}><RefreshCw size={12} /> Retry transfer</button></div>}
     {!response.candidates.length && workflow.submissionState === 'none' && <div className="direct-review-empty"><span>{workflow.error ?? 'No candidates found.'}</span><button className="button" disabled={busy} onClick={onRetry}><RefreshCw size={12} /> Retry Search</button></div>}
     {!!response.candidates.length && workflow.error && workflow.submissionState === 'none' && <div className="direct-review-empty"><span>{workflow.error}</span><button className="button" disabled={busy} onClick={onRetry}><RefreshCw size={12} /> Retry Search</button></div>}
     <div className="direct-candidates">{response.candidates.slice(0, 8).map((candidate, rank) => {
@@ -2220,9 +1931,8 @@ function JourneyDetailView({ id, beets, library, setView, close }: {
   </section>
 }
 
-function WantedView({ acquisitions, lidarr, selectedJourneyId, openJourney, closeJourney, beets, library, setView }: {
+function WantedView({ acquisitions, selectedJourneyId, openJourney, closeJourney, beets, library, setView }: {
   acquisitions: AcquisitionsModel
-  lidarr: LidarrReadModel
   selectedJourneyId: string | null
   openJourney: (id: string) => void
   closeJourney: () => void
@@ -2231,22 +1941,21 @@ function WantedView({ acquisitions, lidarr, selectedJourneyId, openJourney, clos
   setView: (view: View) => void
 }) {
   if (selectedJourneyId) return <JourneyDetailView id={selectedJourneyId} beets={beets} library={library} setView={setView} close={closeJourney} />
-  const refreshing = acquisitions.loading || lidarr.loading
+  const refreshing = acquisitions.loading
   return (
     <section>
       <div className="page-heading">
         <div><p>INCOMING / ON THE WAY TO YOUR LIBRARY</p><h1>Incoming</h1></div>
-        <button className="button" onClick={() => { void acquisitions.refresh(); void lidarr.refresh() }} disabled={refreshing}>
+        <button className="button" onClick={() => { void acquisitions.refresh() }} disabled={refreshing}>
           <RefreshCw size={13} className={refreshing ? 'spinning' : ''} /> Refresh
         </button>
       </div>
       {acquisitions.error && <div className="error-strip">{acquisitions.error}</div>}
-      {lidarr.error && <div className="error-strip">Download progress unavailable: {lidarr.error}</div>}
-      <AcquisitionSetup acquisitions={acquisitions} showConfigured />
+      <AcquisitionSetup acquisitions={acquisitions} />
       <section className="panel wanted-panel">
         <header><h2>Release progress</h2><span>{acquisitions.items.length}</span></header>
         {acquisitions.items.length ? acquisitions.items.map(item => {
-          const activity = journeyActivity(item, lidarr)
+          const activity = journeyActivity(item)
           return <button className="wanted-row" key={item.id} onClick={() => openJourney(item.id)}>
             <div className="media-object case"><i /></div>
             <div>
@@ -2269,10 +1978,6 @@ function App() {
   const [playback, setPlayback] = useState<PlaybackSelection | null>(null)
   const playbackRequest = useRef(0)
   const acquisitions = useAcquisitions()
-  const activeJourneyDates = acquisitions.items
-    .filter(item => item.state !== 'completed' && item.state !== 'failed' && item.state !== 'cancelled')
-    .map(item => item.createdAt)
-  const lidarr = useLidarrReadModel(activeJourneyDates.length ? activeJourneyDates.sort()[0] : undefined)
   const importOperations = useBeetsImportOperations(acquisitions.refresh)
   const beets = useBeetsReadModel(acquisitions.items, acquisitions.refresh)
   const library = useLibrary()
@@ -2292,8 +1997,8 @@ function App() {
       <main className={view === 'library' ? 'library-main' : undefined}>
         {view === 'library' && <LibraryView library={library} acquisitions={acquisitions} playTrack={track => setPlayback({ track, requestId: ++playbackRequest.current })} />}
         {view === 'imports' && <ImportsView beets={beets} />}
-        {view === 'wanted' && <WantedView acquisitions={acquisitions} lidarr={lidarr} selectedJourneyId={selectedJourneyId} openJourney={openJourney} closeJourney={() => setSelectedJourneyId(null)} beets={beets} library={library} setView={navigate} />}
-        {view === 'activity' && <ActivityView lidarr={lidarr} imports={importOperations} sectionNumber={acquisitions.configured ? '04' : '03'} />}
+        {view === 'wanted' && <WantedView acquisitions={acquisitions} selectedJourneyId={selectedJourneyId} openJourney={openJourney} closeJourney={() => setSelectedJourneyId(null)} beets={beets} library={library} setView={navigate} />}
+        {view === 'activity' && <ActivityView acquisitions={acquisitions} imports={importOperations} openJourney={openJourney} sectionNumber={acquisitions.configured ? '04' : '03'} />}
       </main>
       {playback && <PlayerBar selection={playback} close={() => setPlayback(null)} />}
     </div>
@@ -2346,7 +2051,7 @@ function sourceWarning(sources: MusicSearchResponse['sources']): string {
     sources.library === 'available' ? null : `Jellyfin library ${sources.library === 'unconfigured' ? 'not configured' : 'unavailable'}`,
     sources.artists === 'available' ? null : `Artist index ${sources.artists}`,
     sources.tracks === 'available' ? null : `Song index ${sources.tracks}`,
-    sources.catalog === 'available' ? null : `Lidarr catalog ${sources.catalog === 'unconfigured' ? 'not configured' : 'unavailable'}`,
+    sources.catalog === 'available' ? null : `MusicBrainz catalog ${sources.catalog === 'unconfigured' ? 'not configured' : 'unavailable'}`,
     sources.wanted === 'available' ? null : 'Adding music is not configured',
   ].filter(Boolean)
   return messages.join(' · ')
