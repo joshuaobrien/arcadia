@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+for container in lidarr slskd beets-flask jellyfin; do
+  image_id="$(docker inspect --format '{{.Image}}' "$container")"
+  source_image="$(docker inspect --format '{{.Config.Image}}' "$container")"
+  digest="$(docker image inspect --format '{{join .RepoDigests "\n"}}' "$image_id" | head -n 1)"
+  printf '%-12s source=%s\n             locked=%s\n' "$container" "$source_image" "${digest:-$image_id}"
+done

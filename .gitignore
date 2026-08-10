@@ -8,3 +8,5 @@ dist/
 *.key
 .amp/in/artifacts/
 .amp/portals/
+test-environment/state/
+test-environment/runtime.env

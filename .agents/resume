@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if ! sudo docker info >/dev/null 2>&1; then
+  if ! amp orb service list | grep -q '^amp-svc-docker-daemon\.service.* active running'; then
+    amp orb service start docker-daemon --command 'sudo dockerd' >/dev/null
+  fi
+fi

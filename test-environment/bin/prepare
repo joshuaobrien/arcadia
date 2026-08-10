@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+state="$root/state"
+
+if [ ! -f "$root/runtime.env" ]; then
+  printf 'JELLYFIN_API_KEY=bootstrap-pending\n' > "$root/runtime.env"
+  chmod 600 "$root/runtime.env"
+fi
+
+mkdir -p \
+  "$state/lidarr" "$state/staging" "$state/downloads" "$state/incomplete" \
+  "$state/slskd" "$state/beets/beets" "$state/beets/beets-flask" \
+  "$state/testing" "$state/music" "$state/logs" "$state/needle" \
+  "$state/jellyfin/config" "$state/jellyfin/cache"
+
+if [ ! -f "$state/lidarr/config.xml" ]; then
+  cp "$root/config/lidarr/config.xml" "$state/lidarr/config.xml"
+fi
+cp "$root/config/slskd/slskd.yml" "$state/slskd/slskd.yml"
+cp "$root/config/beets/beets/config.yaml" "$state/beets/beets/config.yaml"
+cp "$root/config/beets/beets-flask/config.yaml" "$state/beets/beets-flask/config.yaml"
+
+library="$state/music/Needle Test Ensemble/Orb Sessions"
+inbox="$state/downloads/Needle Test Ensemble - Incoming Signals"
+mkdir -p "$library" "$inbox"
+
+if [ ! -f "$library/cover.jpg" ]; then
+  ffmpeg -hide_banner -loglevel error -y -f lavfi -i "color=c=0x405b72:s=600x600" \
+    -vf "drawgrid=w=60:h=60:t=2:c=0xd8d7ce@0.55" -frames:v 1 "$library/cover.jpg"
+fi
+
+generate_track() {
+  local destination="$1" frequency="$2" title="$3" track="$4" album="$5" album_id="$6"
+  [ -f "$destination" ] && return
+  ffmpeg -hide_banner -loglevel error -y -f lavfi -i "sine=frequency=${frequency}:duration=12" \
+    -c:a libmp3lame -q:a 5 \
+    -metadata title="$title" -metadata artist="Needle Test Ensemble" \
+    -metadata album="$album" -metadata album_artist="Needle Test Ensemble" \
+    -metadata track="$track" -metadata date="2026" \
+    -metadata MUSICBRAINZ_ALBUMID="$album_id" "$destination"
+}
+
+generate_track "$library/01 - First Contact.mp3" 440 "First Contact" 1 "Orb Sessions" "00000000-0000-4000-8000-000000000001"
+generate_track "$library/02 - Persistent State.mp3" 554 "Persistent State" 2 "Orb Sessions" "00000000-0000-4000-8000-000000000001"
+generate_track "$library/03 - Range Request.mp3" 659 "Range Request" 3 "Orb Sessions" "00000000-0000-4000-8000-000000000001"
+
+if [ ! -f "$inbox/cover.jpg" ]; then
+  ffmpeg -hide_banner -loglevel error -y -f lavfi -i "color=c=0x765157:s=600x600" \
+    -vf "drawgrid=w=75:h=75:t=3:c=0xc8b994@0.55" -frames:v 1 "$inbox/cover.jpg"
+fi
+generate_track "$inbox/01 - Download Complete.mp3" 330 "Download Complete" 1 "Incoming Signals" "00000000-0000-4000-8000-000000000002"
+generate_track "$inbox/02 - Ready for Review.mp3" 392 "Ready for Review" 2 "Incoming Signals" "00000000-0000-4000-8000-000000000002"

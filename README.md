@@ -22,6 +22,12 @@ npm run typecheck
 npm run build
 ```
 
+## Production-faithful test environment
+
+Needle includes a disposable Docker Compose environment with real Lidarr, slskd, beets-flask, and Jellyfin services, deterministic tagged music, and portable production-equivalent path mappings. It is the default runtime in Amp orbs and can also run locally.
+
+See [`test-environment/README.md`](test-environment/README.md) for startup, reset, live Soulseek credentials, and image-locking instructions.
+
 ## Docker
 
 The production image uses Node 24 LTS, builds the Vite interface, and serves it with the Fastify API on port `8787`.

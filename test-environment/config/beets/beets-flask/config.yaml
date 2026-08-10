@@ -1,0 +1,22 @@
+gui:
+  num_preview_workers: 2
+
+  library:
+    readonly: no
+    artist_separators: [",", ";", "&"]
+
+  terminal:
+    start_path: "/music_path/inbox"
+
+  inbox:
+    folders:
+      Soulseek:
+        name: "Soulseek"
+        path: "/music_path/inbox"
+        autotag: "preview"
+        auto_threshold: 0.9
+      Test:
+        name: "Test"
+        path: "/music_path/testing"
+        autotag: "preview"
+        auto_threshold: 0.9
