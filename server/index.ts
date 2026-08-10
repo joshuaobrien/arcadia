@@ -523,10 +523,31 @@ export function buildApp(options: BuildAppOptions = {}) {
       library,
     }
   })
-  app.get('/api/acquisitions', async () => ({
-    configured: acquisitionRepository !== null,
-    items: acquisitionRepository ? acquisitionRepository.list() : [],
-  }))
+  app.get('/api/acquisitions', async () => {
+    const items = acquisitionRepository ? [...acquisitionRepository.list()] : []
+    if (lidarr) {
+      const ambiguous = items.filter(item => items.some(other => other.id !== item.id
+        && other.artist?.toLowerCase() === item.artist?.toLowerCase()
+        && other.release?.toLowerCase() === item.release?.toLowerCase()))
+      const unresolved = ambiguous.filter(item => !item.releaseType || !item.releaseDate || !item.trackCount)
+      const terms = [...new Set(unresolved.flatMap(item => item.release ? [item.release] : []))]
+      const releases = (await Promise.all(terms.map(async term => {
+        try { return await lidarr.lookupReleases(term, { operationId: crypto.randomUUID() }) }
+        catch { return [] }
+      }))).flat()
+      const byMbid = new Map(releases.flatMap(release => release.musicBrainzReleaseGroupId
+        ? [[release.musicBrainzReleaseGroupId.toLowerCase(), release] as const] : []))
+      for (const item of unresolved) {
+        const release = item.musicBrainzReleaseGroupId && byMbid.get(item.musicBrainzReleaseGroupId.toLowerCase())
+        if (release) Object.assign(item, {
+          ...(release.releaseDate ? { releaseDate: release.releaseDate } : {}),
+          ...(release.releaseType ? { releaseType: release.releaseType } : {}),
+          ...(release.trackCount ? { trackCount: release.trackCount } : {}),
+        })
+      }
+    }
+    return { configured: acquisitionRepository !== null, items }
+  })
   app.get<{ Params: { id: string } }>('/api/journeys/:id', { schema: { params: {
     type: 'object', required: ['id'], additionalProperties: false,
     properties: { id: { type: 'string', minLength: 1, maxLength: 128 } },

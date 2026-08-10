@@ -676,6 +676,34 @@ test('acquisition API persists wanted state and starts one exact Lidarr album se
   assert.deepEqual(calls[3][1], { kind: 'release', release: installedRef })
 })
 
+test('acquisition list enriches ambiguous legacy journeys by exact MusicBrainz identity', async (t) => {
+  const base = { state: 'wanted', artist: 'yeule', release: 'Evangelic Girl Is a Gun',
+    createdAt: '2026-08-10T00:00:00Z', updatedAt: '2026-08-10T00:00:00Z' }
+  const jobs = [
+    { ...base, id: 'album-job', musicBrainzReleaseGroupId: '325775d4-08d2-411a-b3bb-d7e9e7a0cf92',
+      searchRefs: [{ adapterId: 'lidarr', nativeId: 'album:mbid:325775d4-08d2-411a-b3bb-d7e9e7a0cf92' }] },
+    { ...base, id: 'single-job', musicBrainzReleaseGroupId: '4292e32e-469a-4c14-a025-3abbef5fd703',
+      searchRefs: [{ adapterId: 'lidarr', nativeId: 'album:mbid:4292e32e-469a-4c14-a025-3abbef5fd703' }] },
+  ]
+  const releases = [
+    { ref: jobs[0].searchRefs[0], artistRef: { adapterId: 'lidarr', nativeId: 'artist:1' }, title: base.release,
+      musicBrainzReleaseGroupId: jobs[0].musicBrainzReleaseGroupId, releaseType: 'Album', releaseDate: '2025-05-30T00:00:00Z', trackCount: 10 },
+    { ref: jobs[1].searchRefs[0], artistRef: { adapterId: 'lidarr', nativeId: 'artist:1' }, title: base.release,
+      musicBrainzReleaseGroupId: jobs[1].musicBrainzReleaseGroupId, releaseType: 'Single', releaseDate: '2025-04-08T00:00:00Z', trackCount: 3 },
+  ]
+  const acquisitionRepository = { list: () => jobs, getDefaults: () => null, setDefaults: value => value, wantRelease: () => {} }
+  const lidarr = { lookupReleases: async term => { assert.equal(term, base.release); return releases } }
+  const app = buildApp({ acquisitionRepository, lidarr, logger: false })
+  t.after(() => app.close())
+
+  const response = await app.inject({ method: 'GET', url: '/api/acquisitions' })
+  assert.equal(response.statusCode, 200)
+  assert.deepEqual(response.json().items.map(item => [item.id, item.releaseType, item.trackCount, item.releaseDate]), [
+    ['album-job', 'Album', 10, '2025-05-30T00:00:00Z'],
+    ['single-job', 'Single', 3, '2025-04-08T00:00:00Z'],
+  ])
+})
+
 test('acquisition API requires defaults before persisting or calling Lidarr', async (t) => {
   let persisted = false
   let called = false

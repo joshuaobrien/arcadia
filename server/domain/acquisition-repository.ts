@@ -5,7 +5,7 @@ import { DatabaseSync } from 'node:sqlite'
 import type { CatalogRelease } from '../integrations/catalog.js'
 import type { AcquisitionDefaults, AcquisitionJob, AcquisitionState } from './acquisition.js'
 
-const SCHEMA_VERSION = 5
+const SCHEMA_VERSION = 6
 
 export type BeetsImportOperationState = 'submitting' | 'submitted' | 'submission-unknown' | 'provider-completed' | 'library-confirmed'
 export interface BeetsImportSelection {
@@ -44,6 +44,9 @@ interface AcquisitionRow {
   native_id: string
   artist: string | null
   release: string
+  release_date: string | null
+  release_type: string | null
+  track_count: number | null
   musicbrainz_release_group_id: string | null
   import_adapter_id: string | null
   import_native_id: string | null
@@ -98,7 +101,7 @@ export class AcquisitionRepository {
 
   list(): readonly AcquisitionJob[] {
     const rows = this.#database.prepare(`
-      SELECT id, state, adapter_id, native_id, artist, release, musicbrainz_release_group_id, import_adapter_id, import_native_id, created_at, updated_at
+      SELECT id, state, adapter_id, native_id, artist, release, release_date, release_type, track_count, musicbrainz_release_group_id, import_adapter_id, import_native_id, created_at, updated_at
       FROM acquisitions
       ORDER BY created_at DESC, id DESC
     `).all() as unknown as AcquisitionRow[]
@@ -167,7 +170,7 @@ export class AcquisitionRepository {
     const musicBrainzReleaseGroupId = release.musicBrainzReleaseGroupId?.trim().toLowerCase() ?? null
     if (musicBrainzReleaseGroupId) {
       const existing = this.#database.prepare(`
-        SELECT id, state, adapter_id, native_id, artist, release, musicbrainz_release_group_id, import_adapter_id, import_native_id, created_at, updated_at
+        SELECT id, state, adapter_id, native_id, artist, release, release_date, release_type, track_count, musicbrainz_release_group_id, import_adapter_id, import_native_id, created_at, updated_at
         FROM acquisitions
         WHERE adapter_id = ? AND musicbrainz_release_group_id = ?
       `).get(release.ref.adapterId, musicBrainzReleaseGroupId) as unknown as AcquisitionRow | undefined
@@ -175,8 +178,8 @@ export class AcquisitionRepository {
     }
     const result = this.#database.prepare(`
       INSERT INTO acquisitions (
-        id, state, adapter_id, native_id, artist, release, musicbrainz_release_group_id, created_at, updated_at
-      ) VALUES (?, 'wanted', ?, ?, ?, ?, ?, ?, ?)
+        id, state, adapter_id, native_id, artist, release, release_date, release_type, track_count, musicbrainz_release_group_id, created_at, updated_at
+      ) VALUES (?, 'wanted', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT (adapter_id, native_id) DO NOTHING
     `).run(
       id,
@@ -184,13 +187,16 @@ export class AcquisitionRepository {
       release.ref.nativeId,
       release.artistName ?? null,
       release.title,
+      release.releaseDate ?? null,
+      release.releaseType ?? null,
+      release.trackCount ?? null,
       musicBrainzReleaseGroupId,
       now,
       now,
     )
 
     const row = this.#database.prepare(`
-      SELECT id, state, adapter_id, native_id, artist, release, musicbrainz_release_group_id, import_adapter_id, import_native_id, created_at, updated_at
+      SELECT id, state, adapter_id, native_id, artist, release, release_date, release_type, track_count, musicbrainz_release_group_id, import_adapter_id, import_native_id, created_at, updated_at
       FROM acquisitions
       WHERE adapter_id = ? AND native_id = ?
     `).get(release.ref.adapterId, release.ref.nativeId) as unknown as AcquisitionRow | undefined
@@ -362,6 +368,14 @@ export class AcquisitionRepository {
         PRAGMA user_version = 5;
       `)
     }
+    if (row.user_version < 6) {
+      this.#transaction(`
+        ALTER TABLE acquisitions ADD COLUMN release_date TEXT;
+        ALTER TABLE acquisitions ADD COLUMN release_type TEXT;
+        ALTER TABLE acquisitions ADD COLUMN track_count INTEGER;
+        PRAGMA user_version = 6;
+      `)
+    }
   }
 
   #transaction(sql: string): void {
@@ -393,6 +407,9 @@ function toJob(row: AcquisitionRow): AcquisitionJob {
     state: row.state,
     artist: row.artist ?? undefined,
     release: row.release,
+    ...(row.release_date ? { releaseDate: row.release_date } : {}),
+    ...(row.release_type ? { releaseType: row.release_type } : {}),
+    ...(row.track_count !== null ? { trackCount: row.track_count } : {}),
     ...(row.musicbrainz_release_group_id
       ? { musicBrainzReleaseGroupId: row.musicbrainz_release_group_id }
       : {}),
