@@ -10,6 +10,7 @@ export interface MusicBrainzOptions {
   fetch?: Fetch
   timeoutMs?: number
   userAgent?: string
+  requestIntervalMs?: number
 }
 
 export interface ReleaseTrack { mediumPosition: number; mediumTitle?: string; mediumFormat?: string; position: number; number?: string; title: string; recordingMbid?: string; durationMs?: number; artistCredit?: string }
@@ -26,12 +27,16 @@ export class MusicBrainzAdapter implements CatalogLookupPort, ReleaseMetadataPor
   readonly #fetch: Fetch
   readonly #timeoutMs: number
   readonly #userAgent: string
+  readonly #requestIntervalMs: number
+  #requestQueue: Promise<void> = Promise.resolve()
+  #nextRequestAt = 0
 
   constructor(options: MusicBrainzOptions = {}) {
     this.#baseUrl = new URL(options.baseUrl ?? 'https://musicbrainz.org/ws/2/')
     this.#fetch = options.fetch ?? globalThis.fetch
     this.#timeoutMs = options.timeoutMs ?? 10_000
     this.#userAgent = options.userAgent ?? 'Needle/0.1 (https://github.com/joshuaobrien/needle)'
+    this.#requestIntervalMs = options.requestIntervalMs ?? 1_100
   }
 
   async probe(context: OperationContext): Promise<AdapterHealth> {
@@ -130,22 +135,44 @@ export class MusicBrainzAdapter implements CatalogLookupPort, ReleaseMetadataPor
     url.searchParams.set('fmt', 'json')
     const timeout = AbortSignal.timeout(this.#timeoutMs)
     const signal = context.signal ? AbortSignal.any([context.signal, timeout]) : timeout
-    let response: Response
-    try {
-      response = await this.#fetch(url, { signal, headers: { Accept: 'application/json', 'User-Agent': this.#userAgent, 'X-Needle-Operation-Id': context.operationId } })
-    } catch (cause) {
-      throw this.#error('unavailable', signal.aborted ? 'MusicBrainz request timed out or was cancelled' : 'MusicBrainz is unavailable', true, undefined, cause)
-    }
-    if (!response.ok) {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try { await this.#waitForRequestTurn(signal) }
+      catch (cause) { throw this.#error('unavailable', 'MusicBrainz request timed out or was cancelled', true, undefined, cause) }
+      let response: Response
+      try {
+        response = await this.#fetch(url, { signal, headers: { Accept: 'application/json', 'User-Agent': this.#userAgent, 'X-Needle-Operation-Id': context.operationId } })
+      } catch (cause) {
+        throw this.#error('unavailable', signal.aborted ? 'MusicBrainz request timed out or was cancelled' : 'MusicBrainz is unavailable', true, undefined, cause)
+      }
+      if (response.ok) {
+        try { return requiredObject(await response.json(), this) } catch (cause) {
+          if (cause instanceof AdapterError) throw cause
+          throw this.#error('transient-provider-failure', 'MusicBrainz returned an invalid response', true, response.status, cause)
+        }
+      }
       const retryAfterHeader = response.headers.get('retry-after')
       const retryAfter = retryAfterHeader === null ? undefined : Number(retryAfterHeader)
-      const code = response.status === 429 || response.status === 503 ? 'rate-limited' : response.status === 404 ? 'not-found' : response.status >= 500 ? 'transient-provider-failure' : 'invalid-request'
-      throw new AdapterError({ code, adapterId: this.adapterId, message: `MusicBrainz request failed with status ${response.status}`, retryable: response.status === 429 || response.status >= 500, providerStatus: response.status, ...(retryAfter !== undefined && Number.isFinite(retryAfter) ? { retryAfterSeconds: retryAfter } : {}) })
+      const limited = response.status === 429 || response.status === 503
+      if (limited && attempt === 0) {
+        const retryAt = Date.now() + Math.max(this.#requestIntervalMs, Number.isFinite(retryAfter) ? retryAfter! * 1_000 : 0)
+        this.#nextRequestAt = Math.max(this.#nextRequestAt, retryAt)
+        continue
+      }
+      const code = limited ? 'rate-limited' : response.status === 404 ? 'not-found' : response.status >= 500 ? 'transient-provider-failure' : 'invalid-request'
+      throw new AdapterError({ code, adapterId: this.adapterId, message: `MusicBrainz request failed with status ${response.status}`, retryable: limited || response.status >= 500, providerStatus: response.status, ...(retryAfter !== undefined && Number.isFinite(retryAfter) ? { retryAfterSeconds: retryAfter } : {}) })
     }
-    try { return requiredObject(await response.json(), this) } catch (cause) {
-      if (cause instanceof AdapterError) throw cause
-      throw this.#error('transient-provider-failure', 'MusicBrainz returned an invalid response', true, response.status, cause)
-    }
+    throw this.#error('unavailable', 'MusicBrainz retry did not complete', true)
+  }
+
+  async #waitForRequestTurn(signal: AbortSignal): Promise<void> {
+    const turn = this.#requestQueue.then(async () => {
+      const delayMs = Math.max(0, this.#nextRequestAt - Date.now())
+      if (delayMs > 0) await delay(delayMs, signal)
+      if (signal.aborted) throw signal.reason
+      this.#nextRequestAt = Date.now() + this.#requestIntervalMs
+    })
+    this.#requestQueue = turn.catch(() => {})
+    await turn
   }
 
   #id(value: unknown, resource: string): string { const id = optionalString(value)?.toLowerCase(); if (!id || !MBID.test(id)) throw this.#error('transient-provider-failure', `MusicBrainz returned ${resource} without a valid identifier`, true); return id }
@@ -163,3 +190,4 @@ function requiredNumber(value: unknown, adapter: MusicBrainzAdapter): number { i
 function nonnegativeNumber(value: unknown): number | undefined { return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined }
 function positiveNumber(value: unknown): number | undefined { return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : undefined }
 function artistCredit(value: unknown): string | undefined { const parts = array(value).flatMap(item => { const credit = object(item); const name = optionalString(credit?.name) ?? optionalString(object(credit?.artist)?.name); return name ? [`${name}${optionalString(credit?.joinphrase) ?? ''}`] : [] }); return parts.length ? parts.join('') : undefined }
+function delay(milliseconds: number, signal: AbortSignal): Promise<void> { return new Promise((resolve, reject) => { const aborted = () => { clearTimeout(timer); reject(signal.reason) }; const timer = setTimeout(() => { signal.removeEventListener('abort', aborted); resolve() }, milliseconds); signal.addEventListener('abort', aborted, { once: true }) }) }
