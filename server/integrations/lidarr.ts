@@ -197,12 +197,11 @@ export class LidarrAdapter implements CatalogLookupPort, AcquisitionAutomationPo
   }
 
   async ensureRelease(request: EnsureReleaseRequest, context: OperationContext): Promise<CatalogRelease> {
-    this.#assertAdapter(request.release.ref)
-    this.#assertAdapter(request.release.artistRef)
     const foreignAlbumId = request.release.musicBrainzReleaseGroupId?.trim().toLowerCase()
     if (!foreignAlbumId || !isMusicBrainzId(foreignAlbumId)) {
       throw this.#error('invalid-request', 'Release requires a MusicBrainz release-group ID', false)
     }
+    const suppliedArtistId = foreignMusicBrainzId(request.release.artistRef, 'artist')
 
     const existing = await this.#findAlbumByForeignId(foreignAlbumId, context)
     if (existing) return this.#awaitReleaseMetadata(existing, context)
@@ -217,6 +216,7 @@ export class LidarrAdapter implements CatalogLookupPort, AcquisitionAutomationPo
     if (!foreignArtistId || !isMusicBrainzId(foreignArtistId)) {
       throw this.#error('transient-provider-failure', 'Lidarr returned the release without an exact artist ID', true)
     }
+    if (foreignArtistId !== suppliedArtistId) throw this.#error('invalid-request', 'Release artist does not match the selected MusicBrainz artist', false)
 
     const rootId = this.#numericId(request.root, 'root')
     const root = await this.#request<JsonObject>(`rootfolder/${rootId}`, {}, context)
@@ -680,6 +680,15 @@ function optionalString(value: unknown): string | undefined {
 
 function isMusicBrainzId(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value)
+}
+
+function foreignMusicBrainzId(ref: ProviderRef, resource: string): string {
+  const prefix = `${resource}:mbid:`
+  const id = ref.nativeId.startsWith(prefix) ? ref.nativeId.slice(prefix.length).toLowerCase() : ''
+  if (!isMusicBrainzId(id)) {
+    throw new AdapterError({ code: 'invalid-request', adapterId: 'lidarr', message: `${resource} requires a valid MusicBrainz ID`, retryable: false })
+  }
+  return id
 }
 
 function number(value: unknown): number {

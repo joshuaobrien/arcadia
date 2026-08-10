@@ -6,6 +6,7 @@ import { dirname, extname, relative, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { createLidarrAdapterFromEnv } from './integrations/lidarr.js'
+import { MusicBrainzAdapter } from './integrations/musicbrainz.js'
 import { createJellyfinAdapterFromEnv } from './integrations/jellyfin.js'
 import { createBeetsFlaskAdapterFromEnv } from './integrations/beets-flask.js'
 import { isAdapterError } from './integrations/errors.js'
@@ -53,10 +54,10 @@ interface MediaScan {
   scannedAt: string | null
 }
 
-type LidarrReadAdapter = CatalogLookupPort & Pick<
-  AcquisitionAutomationPort,
+type AcquisitionAdapter = Pick<AcquisitionAutomationPort,
   'listProfiles' | 'listRoots' | 'listQueue' | 'listHistory' | 'ensureRelease' | 'setReleaseWanted' | 'startSearch'
 >
+type LidarrReadAdapter = CatalogLookupPort & AcquisitionAdapter
 
 interface AcquisitionRepositoryPort {
   list: AcquisitionRepository['list']
@@ -77,6 +78,8 @@ interface BuildAppOptions {
   walkmanPath?: string
   libraryPath?: string
   lidarr?: LidarrReadAdapter | null
+  catalog?: CatalogLookupPort | null
+  acquisitionAutomation?: AcquisitionAdapter | null
   jellyfin?: (LibraryCatalogPort & Partial<LibraryCatalogRefreshPort>) | null
   beets?: BeetsImportPort | null
   acquisitionRepository?: AcquisitionRepositoryPort | null
@@ -223,7 +226,11 @@ export function buildApp(options: BuildAppOptions = {}) {
   const app = Fastify({ logger: options.logger ?? true })
   const walkmanPath = options.walkmanPath ?? process.env.WALKMAN_PATH
   const libraryPath = options.libraryPath ?? process.env.MUSIC_LIBRARY_PATH
-  const lidarr = options.lidarr === undefined ? createLidarrAdapterFromEnv() : options.lidarr
+  const configuredLidarr = options.lidarr === undefined ? createLidarrAdapterFromEnv() : options.lidarr
+  const catalog = options.catalog === undefined
+    ? options.lidarr === undefined ? new MusicBrainzAdapter() : options.lidarr
+    : options.catalog
+  const lidarr = options.acquisitionAutomation === undefined ? configuredLidarr : options.acquisitionAutomation
   const jellyfin = options.jellyfin === undefined ? createJellyfinAdapterFromEnv() : options.jellyfin
   const beets = options.beets === undefined ? createBeetsFlaskAdapterFromEnv() : options.beets
   const acquisitionRepository = options.acquisitionRepository === undefined
@@ -254,7 +261,7 @@ export function buildApp(options: BuildAppOptions = {}) {
 
   async function lidarrRoute<T>(
     reply: FastifyReply,
-    operation: (adapter: LidarrReadAdapter, context: OperationContext) => Promise<T>,
+    operation: (adapter: AcquisitionAdapter, context: OperationContext) => Promise<T>,
   ): Promise<T | undefined> {
     if (!lidarr) {
       reply.code(503).send({
@@ -279,6 +286,16 @@ export function buildApp(options: BuildAppOptions = {}) {
             : error.code === 'unsupported' ? 501
               : 502
       reply.code(status).send({ error: error.toJSON() })
+      return undefined
+    }
+  }
+
+  async function catalogRoute<T>(reply: FastifyReply, operation: (adapter: CatalogLookupPort, context: OperationContext) => Promise<T>): Promise<T | undefined> {
+    if (!catalog) return reply.code(503).send({ error: { code: 'unavailable', adapterId: 'musicbrainz', message: 'Catalog is not configured', retryable: false } })
+    try { return await operation(catalog, { operationId: crypto.randomUUID() }) }
+    catch (error) {
+      if (!isAdapterError(error)) throw error
+      reply.code(error.code === 'invalid-request' ? 400 : error.code === 'not-found' ? 404 : 502).send({ error: error.toJSON() })
       return undefined
     }
   }
@@ -373,15 +390,15 @@ export function buildApp(options: BuildAppOptions = {}) {
         { limit: 12, term: request.query.term }, { operationId: `${operationId}:tracks` },
       )).items),
     ])
-    const catalogResult = await readProjection(lidarr !== null, { releases: [] as readonly CatalogRelease[], exactArtist: undefined as string | undefined }, async () => {
+    const catalogResult = await readProjection(catalog !== null, { releases: [] as readonly CatalogRelease[], exactArtist: undefined as string | undefined }, async () => {
       const context = { operationId: `${operationId}:catalog` }
-      const artists = await lidarr!.lookupArtists(request.query.term, context)
+      const artists = await catalog!.lookupArtists(request.query.term, context)
       const exactArtists = artists.filter(artist => normalizedSearchText(artist.name) === normalizedSearchText(request.query.term))
       if (exactArtists.length !== 1) {
-        return { releases: await lidarr!.lookupReleases(request.query.term, context), exactArtist: undefined }
+        return { releases: await catalog!.lookupReleases(request.query.term, context), exactArtist: undefined }
       }
       return {
-        releases: (await lidarr!.listArtistReleases(exactArtists[0].ref, context))
+        releases: (await catalog!.listArtistReleases(exactArtists[0].ref, context))
           .map(release => ({ ...release, artistName: exactArtists[0].name })),
         exactArtist: exactArtists[0].name,
       }
@@ -540,14 +557,14 @@ export function buildApp(options: BuildAppOptions = {}) {
   })
   app.get('/api/acquisitions', async () => {
     const items = acquisitionRepository ? [...acquisitionRepository.list()] : []
-    if (lidarr) {
+    if (catalog) {
       const ambiguous = items.filter(item => items.some(other => other.id !== item.id
         && other.artist?.toLowerCase() === item.artist?.toLowerCase()
         && other.release?.toLowerCase() === item.release?.toLowerCase()))
       const unresolved = ambiguous.filter(item => !item.releaseType || !item.releaseDate || !item.trackCount)
       const terms = [...new Set(unresolved.flatMap(item => item.release ? [item.release] : []))]
       const releases = (await Promise.all(terms.map(async term => {
-        try { return await lidarr.lookupReleases(term, { operationId: crypto.randomUUID() }) }
+        try { return await catalog.lookupReleases(term, { operationId: crypto.randomUUID() }) }
         catch { return [] }
       }))).flat()
       const byMbid = new Map(releases.flatMap(release => release.musicBrainzReleaseGroupId
@@ -656,13 +673,16 @@ export function buildApp(options: BuildAppOptions = {}) {
     if (!musicBrainzReleaseGroupId) return reply.code(400).send({
       error: { code: 'invalid-request', message: 'Release requires a MusicBrainz release-group ID' },
     })
-    if (request.body.release.ref.adapterId !== lidarr.adapterId || request.body.release.artistRef.adapterId !== lidarr.adapterId) {
+    const sourceAdapter = request.body.release.ref.adapterId
+    if (!['musicbrainz', 'lidarr'].includes(sourceAdapter) || request.body.release.artistRef.adapterId !== sourceAdapter) {
       return reply.code(400).send({ error: { code: 'invalid-request', message: 'Release does not belong to the configured acquisition source' } })
     }
     const release = {
       ...request.body.release,
       musicBrainzReleaseGroupId,
-      ref: { adapterId: lidarr.adapterId, nativeId: `album:mbid:${musicBrainzReleaseGroupId}` },
+      ref: sourceAdapter === 'musicbrainz'
+        ? { adapterId: 'musicbrainz', nativeId: `release-group:mbid:${musicBrainzReleaseGroupId}` }
+        : { adapterId: 'lidarr', nativeId: `album:mbid:${musicBrainzReleaseGroupId}` },
     }
     const result = acquisitionRepository.wantRelease(release)
     if (!result.created && result.job.state !== 'wanted') return reply.code(200).send(result.job)
@@ -730,7 +750,9 @@ export function buildApp(options: BuildAppOptions = {}) {
   })
   app.get('/api/services/lidarr', async (_request, reply) => {
     if (!lidarr) return { configured: false }
-    const health = await lidarrRoute(reply, (adapter, context) => adapter.probe(context))
+    const health = await lidarrRoute(reply, (adapter, context) => 'probe' in adapter
+      ? (adapter as AcquisitionAutomationPort).probe(context)
+      : Promise.resolve({ adapterId: 'lidarr', kind: 'lidarr' as const, state: 'available' as const, checkedAt: new Date().toISOString(), latencyMs: 0 }))
     return reply.sent ? undefined : { configured: true, health }
   })
   app.get<{ Querystring: { term: string } }>('/api/services/lidarr/artists', {
@@ -742,7 +764,7 @@ export function buildApp(options: BuildAppOptions = {}) {
         properties: { term: { type: 'string', minLength: 1, maxLength: 200 } },
       },
     },
-  }, async (request, reply) => lidarrRoute(
+  }, async (request, reply) => catalogRoute(
     reply,
     (adapter, context) => adapter.lookupArtists(request.query.term, context),
   ))
@@ -755,7 +777,7 @@ export function buildApp(options: BuildAppOptions = {}) {
         properties: { term: { type: 'string', minLength: 1, maxLength: 200 } },
       },
     },
-  }, async (request, reply) => lidarrRoute(
+  }, async (request, reply) => catalogRoute(
     reply,
     (adapter, context) => adapter.lookupReleases(request.query.term, context),
   ))
@@ -1068,7 +1090,7 @@ function journeyMatches(job: AcquisitionJob, release: CatalogRelease | undefined
   return job.searchRefs.some(ref => sameRef(ref, release.ref))
 }
 
-async function journeyDownloadProjection(lidarr: LidarrReadAdapter | null, job: NonNullable<ReturnType<AcquisitionRepository['get']>>, context: OperationContext) {
+async function journeyDownloadProjection(lidarr: AcquisitionAdapter | null, job: NonNullable<ReturnType<AcquisitionRepository['get']>>, context: OperationContext) {
   const empty: {
     state: SourceState; queue: AcquisitionQueueItem[]; history: AcquisitionHistoryItem[]
     events: Array<{ kind: string, label: string, occurredAt: string }>; outputs: string[]; downloadRefs: string[]

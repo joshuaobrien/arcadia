@@ -1,4 +1,4 @@
-export type AdapterKind = 'lidarr' | 'beets'
+export type AdapterKind = 'lidarr' | 'musicbrainz' | 'beets'
 export type Protocol = 'torrent' | 'usenet'
 export type IsoDateTime = string
 

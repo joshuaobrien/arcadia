@@ -16,6 +16,7 @@ export interface CatalogRelease {
   title: string
   releaseDate?: string
   releaseType?: string
+  secondaryTypes?: readonly string[]
   trackCount?: number
   musicBrainzReleaseGroupId?: string
   monitored?: boolean

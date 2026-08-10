@@ -149,6 +149,25 @@ test('Lidarr reuses an installed release by exact MusicBrainz identity', async (
   assert.equal(requests.length, 1)
 })
 
+test('Lidarr accepts a MusicBrainz catalog release for transitional acquisition', async () => {
+  const releaseGroupId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+  const artistId = 'bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee'
+  const adapter = mockAdapter(async () => json([{
+    id: 9, title: 'Tender Buttons', foreignAlbumId: releaseGroupId,
+    releases: [{ trackCount: 12 }], artist: { id: 7, artistName: 'Broadcast', foreignArtistId: artistId },
+  }]))
+  const release = await adapter.ensureRelease({
+    release: {
+      ref: { adapterId: 'musicbrainz', nativeId: `release-group:mbid:${releaseGroupId}` },
+      artistRef: { adapterId: 'musicbrainz', nativeId: `artist:mbid:${artistId}` },
+      artistName: 'Broadcast', title: 'Tender Buttons', musicBrainzReleaseGroupId: releaseGroupId,
+    },
+    root: { adapterId: 'lidarr', nativeId: 'root:id:1' },
+    qualityProfile: { adapterId: 'lidarr', nativeId: 'profile:quality:id:2' },
+  }, context)
+  assert.deepEqual(release.ref, { adapterId: 'lidarr', nativeId: 'album:id:9' })
+})
+
 test('Lidarr adds only the exact release without an add-time search', async () => {
   const releaseGroupId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
   const artistId = 'bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee'
