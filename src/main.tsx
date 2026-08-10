@@ -1969,7 +1969,7 @@ function App() {
   return (
     <div className={`app-shell ${playback ? 'has-player' : ''}`}>
       <Sidebar view={view} setView={navigate} library={library} acquisitions={acquisitions} />
-      <main>
+      <main className={view === 'library' ? 'library-main' : undefined}>
         {view === 'library' && <LibraryView library={library} acquisitions={acquisitions} playTrack={track => setPlayback({ track, requestId: ++playbackRequest.current })} />}
         {view === 'imports' && <ImportsView beets={beets} />}
         {view === 'wanted' && <WantedView acquisitions={acquisitions} lidarr={lidarr} selectedJourneyId={selectedJourneyId} openJourney={openJourney} closeJourney={() => setSelectedJourneyId(null)} beets={beets} library={library} setView={navigate} />}
