@@ -128,6 +128,7 @@ test('Lidarr reuses an installed release by exact MusicBrainz identity', async (
       id: 9,
       title: 'Tender Buttons',
       foreignAlbumId: releaseGroupId,
+      releases: [{ trackCount: 12 }],
       artist: { id: 7, artistName: 'Broadcast', foreignArtistId: 'bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee' },
     }])
   })
@@ -167,6 +168,7 @@ test('Lidarr adds only the exact release without an add-time search', async () =
       id: 9,
       title: 'Tender Buttons',
       foreignAlbumId: releaseGroupId,
+      releases: [{ trackCount: 12 }],
       artist: { id: 7, artistName: 'Broadcast', foreignArtistId: artistId },
     }, { status: 201 })
     throw new Error(`Unexpected request ${init.method} ${url.pathname}`)
@@ -199,6 +201,73 @@ test('Lidarr adds only the exact release without an add-time search', async () =
   assert.equal(body.artist.monitorNewItems, 'none')
   assert.deepEqual(body.artist.addOptions.albumsToMonitor, [releaseGroupId])
   assert.equal(body.artist.addOptions.searchForMissingAlbums, false)
+})
+
+test('Lidarr waits for release track counts after adding an album', async () => {
+  const releaseGroupId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+  const artistId = 'bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee'
+  const requests = []
+  const album = releases => ({
+    id: 9,
+    title: 'Dua Lipa',
+    foreignAlbumId: releaseGroupId,
+    releases,
+    artist: { id: 7, artistName: 'Dua Lipa', foreignArtistId: artistId },
+  })
+  const adapter = mockAdapter(async (input, init) => {
+    const url = new URL(input)
+    requests.push(`${init.method} ${url.pathname}`)
+    if (url.pathname === '/api/v1/album' && init.method === 'GET') return json([])
+    if (url.pathname === '/api/v1/album/lookup') return json([album([{ trackCount: 12 }])])
+    if (url.pathname === '/api/v1/rootfolder/1') return json({ id: 1, path: '/music', defaultMetadataProfileId: 3 })
+    if (url.pathname === '/api/v1/album' && init.method === 'POST') return json(album([]), { status: 201 })
+    if (url.pathname === '/api/v1/album/9') return json(album([{ trackCount: 12 }, { trackCount: 17 }]))
+    throw new Error(`Unexpected request ${init.method} ${url.pathname}`)
+  })
+
+  const installed = await adapter.ensureRelease({
+    release: {
+      ref: { adapterId: 'lidarr', nativeId: `album:mbid:${releaseGroupId}` },
+      artistRef: { adapterId: 'lidarr', nativeId: `artist:mbid:${artistId}` },
+      artistName: 'Dua Lipa',
+      title: 'Dua Lipa',
+      musicBrainzReleaseGroupId: releaseGroupId,
+    },
+    root: { adapterId: 'lidarr', nativeId: 'root:id:1' },
+    qualityProfile: { adapterId: 'lidarr', nativeId: 'profile:quality:id:2' },
+  }, context)
+
+  assert.equal(installed.trackCount, 12)
+  assert.deepEqual(requests.slice(-2), ['POST /api/v1/album', 'GET /api/v1/album/9'])
+})
+
+test('Lidarr fails safely when release track counts remain unavailable', async () => {
+  const releaseGroupId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+  const adapter = mockAdapter(async () => json([{
+    id: 9,
+    title: 'Dua Lipa',
+    foreignAlbumId: releaseGroupId,
+    releases: [],
+    artist: { id: 7, artistName: 'Dua Lipa', foreignArtistId: 'bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee' },
+  }]), { timeoutMs: 5 })
+
+  await assert.rejects(
+    () => adapter.ensureRelease({
+      release: {
+        ref: { adapterId: 'lidarr', nativeId: `album:mbid:${releaseGroupId}` },
+        artistRef: { adapterId: 'lidarr', nativeId: 'artist:mbid:bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee' },
+        artistName: 'Dua Lipa',
+        title: 'Dua Lipa',
+        musicBrainzReleaseGroupId: releaseGroupId,
+      },
+      root: { adapterId: 'lidarr', nativeId: 'root:id:1' },
+      qualityProfile: { adapterId: 'lidarr', nativeId: 'profile:quality:id:2' },
+    }, context),
+    error => error instanceof AdapterError
+      && error.code === 'transient-provider-failure'
+      && error.retryable === true
+      && /track counts/.test(error.message),
+  )
 })
 
 test('Lidarr queue maps paging, states, nested catalog data, and provider paths', async () => {

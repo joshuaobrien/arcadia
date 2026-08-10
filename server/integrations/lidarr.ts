@@ -205,7 +205,7 @@ export class LidarrAdapter implements CatalogLookupPort, AcquisitionAutomationPo
     }
 
     const existing = await this.#findAlbumByForeignId(foreignAlbumId, context)
-    if (existing) return this.#installedAlbum(existing)
+    if (existing) return this.#awaitReleaseMetadata(existing, context)
 
     const matches = await this.#request<JsonObject[]>('album/lookup', { term: `lidarr:${foreignAlbumId}` }, context)
     const exact = matches.filter(album => optionalString(album.foreignAlbumId)?.toLowerCase() === foreignAlbumId)
@@ -258,7 +258,7 @@ export class LidarrAdapter implements CatalogLookupPort, AcquisitionAutomationPo
       if (!raced) throw error
       added = raced
     }
-    return this.#installedAlbum(added)
+    return this.#awaitReleaseMetadata(added, context)
   }
 
   async setReleaseWanted(release: ProviderRef, wanted: boolean, context: OperationContext): Promise<void> {
@@ -450,6 +450,25 @@ export class LidarrAdapter implements CatalogLookupPort, AcquisitionAutomationPo
     const release = this.#album(value)
     this.#numericId(release.ref, 'album')
     return release
+  }
+
+  async #awaitReleaseMetadata(value: JsonObject, context: OperationContext): Promise<CatalogRelease> {
+    const albumId = this.#numericId(this.#installedAlbum(value).ref, 'album')
+    const deadline = Date.now() + this.#timeoutMs
+    let album = value
+    while (!hasCompleteTrackMetadata(album)) {
+      const remainingMs = deadline - Date.now()
+      if (remainingMs <= 0) {
+        throw this.#error(
+          'transient-provider-failure',
+          'Lidarr did not populate release track counts before search',
+          true,
+        )
+      }
+      await new Promise(resolve => setTimeout(resolve, Math.min(250, remainingMs)))
+      album = await this.#request<JsonObject>(`album/${albumId}`, {}, context)
+    }
+    return this.#installedAlbum(album)
   }
 
   #pageNumber(page: PageRequest): number {
@@ -690,6 +709,14 @@ function imageUrls(value: JsonObject): string[] {
     const media = object(image)
     const url = optionalString(media?.remoteUrl) ?? optionalString(media?.url)
     return url ? [url] : []
+  })
+}
+
+function hasCompleteTrackMetadata(album: JsonObject): boolean {
+  const releases = array(album.releases)
+  return releases.length > 0 && releases.every(release => {
+    const trackCount = optionalNumber(object(release)?.trackCount)
+    return trackCount !== undefined && Number.isInteger(trackCount) && trackCount > 0
   })
 }
 
