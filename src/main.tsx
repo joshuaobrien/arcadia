@@ -619,7 +619,7 @@ function useBeetsReadModel(acquisitions: readonly AcquisitionJob[], onLifecycleC
     return () => controller.abort()
   }, [refresh])
 
-  function openFolder(folder: BeetsInboxEntry, acquisitionId?: string): boolean {
+  function openFolder(folder: BeetsInboxEntry, acquisitionId?: string, automatic = false): boolean {
     if (submissionInFlight.current) return false
     submissionInFlight.current = true
     const request = ++activeRequest.current
@@ -631,11 +631,11 @@ function useBeetsReadModel(acquisitions: readonly AcquisitionJob[], onLifecycleC
     setApproved(false)
     setError(null)
     setWorkflowState('previewing')
-    void openFolderWorkflow(folder, request)
+    void openFolderWorkflow(folder, request, acquisitionId, automatic)
     return true
   }
 
-  async function openFolderWorkflow(folder: BeetsInboxEntry, request: number) {
+  async function openFolderWorkflow(folder: BeetsInboxEntry, request: number, acquisitionId: string | undefined, automatic: boolean) {
     try {
       const existingStatus = currentFolderStatus(folder, folderStatuses)
       let session: BeetsPreviewSession
@@ -658,6 +658,27 @@ function useBeetsReadModel(acquisitions: readonly AcquisitionJob[], onLifecycleC
       if (request !== activeRequest.current) return
       setPreview(session)
       setDuplicateActions(Object.fromEntries(session.tasks.map(task => [task.id, 'skip'])))
+      const acquisition = acquisitionId ? wantedAcquisitions.find(item => item.id === acquisitionId) : undefined
+      const automaticChoices = automatic && acquisition ? highConfidenceImportChoices(session, acquisition) : null
+      if (automaticChoices) {
+        setSelectedCandidates(Object.fromEntries(automaticChoices.map(choice => [choice.taskId, choice.candidateId])))
+        setApproved(true)
+        setWorkflowState('importing')
+        await postBeetsMutation('/api/imports/import', {
+          providerPath: folder.providerPath,
+          hash: folder.hash,
+          sessionId: session.id,
+          choices: automaticChoices,
+          acquisitionId,
+        }, 'import_candidate')
+        onLifecycleChange()
+        await waitForImportCompletion(folder, session.id, automaticChoices, request)
+        if (request !== activeRequest.current) return
+        setWorkflowState('completed')
+        setApproved(false)
+        await refresh()
+        return
+      }
       setWorkflowState(existingStatus === 'importing' || existingStatus === 'imported' ? 'provider-imported' : 'review')
     } catch (requestError) {
       if (request === activeRequest.current) {
@@ -1848,6 +1869,27 @@ function acquisitionOptionLabel(item: AcquisitionJob): string {
   return details.length ? `${title} · ${details.join(' · ')}` : title
 }
 
+function highConfidenceImportChoices(session: BeetsPreviewSession, acquisition: AcquisitionJob) {
+  if (session.progress !== 20 || session.tasks.length !== 1) return null
+  const task = session.tasks[0]
+  if (!task.items.length || (acquisition.trackCount && acquisition.trackCount !== task.items.length)) return null
+  const normalizedArtist = acquisition.artist?.trim().toLowerCase()
+  const normalizedAlbum = acquisition.release?.trim().toLowerCase()
+  const candidates = task.candidates.filter(candidate => candidate.kind === 'candidate'
+    && candidate.distance <= 0.05 && candidate.penalties.length === 0 && candidate.duplicateCount === 0
+    && candidate.trackCount === task.items.length
+    && candidate.artist?.trim().toLowerCase() === normalizedArtist
+    && candidate.album?.trim().toLowerCase() === normalizedAlbum
+    && candidate.source?.trim().toLowerCase() === 'musicbrainz')
+  if (!candidates.length) return null
+  const signatures = new Set(candidates.map(candidate => JSON.stringify([
+    candidate.artist?.trim().toLowerCase(), candidate.album?.trim().toLowerCase(), candidate.year, candidate.trackCount,
+  ])))
+  if (signatures.size !== 1) return null
+  const candidate = candidates.find(item => item.id === task.chosenCandidateId) ?? candidates[0]
+  return [{ taskId: task.id, candidateId: candidate.id, duplicateAction: 'skip' as const }]
+}
+
 function ImportReview({ beets, folder }: { beets: BeetsReadModel; folder: BeetsInboxEntry }) {
   const session = beets.preview
   const allSelected = Boolean(session?.tasks.length) && session!.tasks.every(task => beets.selectedCandidates[task.id])
@@ -1989,6 +2031,14 @@ function JourneyDetailView({ id, beets, library, setView, close }: {
 }) {
   const model = useJourneyDetail(id)
   const detail = model.detail
+  const automaticImportAttempt = useRef<string | null>(null)
+  useEffect(() => {
+    if (!detail?.nextAction || detail.nextAction.kind !== 'review' || beets.workflowState !== 'idle') return
+    const key = `${detail.job.id}:${detail.nextAction.folder.providerPath}:${detail.nextAction.folder.hash}`
+    if (automaticImportAttempt.current === key) return
+    automaticImportAttempt.current = key
+    if (beets.openFolder(detail.nextAction.folder, detail.job.id, true)) setView('imports')
+  }, [beets, detail, setView])
   const stages = [
     { id: 'requested', label: 'Requested' },
     { id: 'downloading', label: 'Download' },
