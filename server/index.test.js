@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import { buildApp, scanMediaRoot } from './index.ts'
+import { AcquisitionRepository } from './domain/acquisition-repository.ts'
+import { DirectAcquisitionService } from './domain/direct-acquisition.ts'
 import { AdapterError } from './integrations/errors.ts'
 
 test('scanMediaRoot counts audio files and infers artist/album directories', async (t) => {
@@ -757,6 +759,37 @@ test('acquisition API persists wanted state and starts one exact Lidarr album se
   assert.deepEqual(calls[1][1], { release: calls[0][1], ...defaults })
   assert.deepEqual(calls[2].slice(1), [installedRef, true])
   assert.deepEqual(calls[3][1], { kind: 'release', release: installedRef })
+})
+
+test('direct acquisition API needs no Lidarr defaults and exposes durable candidates', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'needle-direct-api-'))
+  const repository = new AcquisitionRepository(join(directory, 'needle.sqlite'))
+  const files = ['Broadcast\\Tender Buttons\\01 Song 1.flac', 'Broadcast\\Tender Buttons\\02 Song 2.flac']
+  const slskd = {
+    search: async () => ({ searchId: 'search', responses: [{ username: 'peer', files: files.map(filename => ({ filename, size: 1000 })) }] }),
+    submitDownloadBatch: async () => 'batch',
+    rollbackBatches: async () => {},
+    summarizeBatches: async () => ({ state: 'queued', visible: 2, completed: 0, bytesTotal: 2000, bytesTransferred: 0 }),
+  }
+  const directAcquisition = new DirectAcquisitionService(repository, { listReleaseEditions: async () => [{
+    id: 'edition', media: [{ position: 1, tracks: [] }], tracks: [
+      { mediumPosition: 1, position: 1, title: 'Song 1' }, { mediumPosition: 1, position: 2, title: 'Song 2' },
+    ],
+  }] }, slskd)
+  const app = buildApp({ acquisitionRepository: repository, directAcquisition, slskd: null, lidarr: null, catalog: null, logger: false })
+  t.after(async () => { await app.close(); await rm(directory, { recursive: true, force: true }) })
+
+  const created = await app.inject({ method: 'POST', url: '/api/acquisitions', payload: { release: {
+    ref: { adapterId: 'musicbrainz', nativeId: 'release-group:mbid:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' },
+    artistRef: { adapterId: 'musicbrainz', nativeId: 'artist:mbid:bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee' },
+    artistName: 'Broadcast', title: 'Tender Buttons', musicBrainzReleaseGroupId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+  } } })
+  assert.equal(created.statusCode, 201)
+  assert.equal(created.json().state, 'queued')
+  const candidates = await app.inject({ method: 'GET', url: `/api/acquisitions/${created.json().id}/candidates` })
+  assert.equal(candidates.statusCode, 200)
+  assert.equal(candidates.json().workflow.submissionState, 'submitted')
+  assert.equal(candidates.json().candidates[0].audioFiles.length, 2)
 })
 
 test('acquisition list enriches ambiguous legacy journeys by exact MusicBrainz identity', async (t) => {
