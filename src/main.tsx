@@ -1365,7 +1365,6 @@ function LibraryView({ library, acquisitions, playTrack }: { library: LibraryMod
       </div>}
       {library.error && <div className="error-strip">{library.error}</div>}
       {acquisitions.error && <div className="error-strip">{acquisitions.error}</div>}
-      <AcquisitionSetup acquisitions={acquisitions} />
       {library.loading && !currentPage && !library.activeTerm
         ? <div className="idle-state"><Disc3 size={34} className="spinning" /><span>Reading your collection</span></div>
         : album ? <section className="panel library-panel">
