@@ -1443,19 +1443,42 @@ function LibraryView({ library, acquisitions, playTrack }: { library: LibraryMod
   const album = library.selectedAlbum
   const searchResult = library.searchResult
   const resultCount = (searchResult?.items.length ?? 0) + (searchResult?.artists.length ?? 0) + (searchResult?.tracks.length ?? 0)
+  const browsingCollection = !album && !library.activeTerm
+  const sectionDetails = library.section === 'albums'
+    ? { title: 'Albums', description: 'The records, EPs, and releases on your shelves.', icon: <Grid2X2 size={18} /> }
+    : library.section === 'artists'
+      ? { title: 'Artists', description: 'The people and projects behind your collection.', icon: <UserRound size={18} /> }
+      : { title: 'Songs', description: 'Every track in your library, ready to play.', icon: <ListMusic size={18} /> }
 
   return (
     <section>
-      <div className="page-heading">
-        <div>
-          <p>{album ? `${album.albumArtist} / ${library.tracks.length} TRACKS` : library.activeTerm ? 'YOUR LIBRARY + MUSIC CATALOG' : `${currentPage?.total ?? 0} ${library.section.toUpperCase()} / YOUR MUSIC`}</p>
-          <h1>{album?.title ?? (library.activeTerm ? `Results for “${library.activeTerm}”` : 'Your library')}</h1>
-        </div>
-        {album
-          ? <button className="button" onClick={library.closeAlbum}><ArrowLeft size={13} /> Collection</button>
-          : <button className="button" onClick={library.refresh} disabled={library.loading}>
-            <RefreshCw size={13} className={library.loading ? 'spinning' : ''} /> Refresh
-          </button>}
+      <div className={`page-heading ${browsingCollection ? 'library-heading' : ''}`}>
+        {browsingCollection ? <>
+          <div className="library-heading-lead">
+            <span className="library-heading-icon">{sectionDetails.icon}</span>
+            <div className="library-heading-copy">
+              <p>YOUR LIBRARY</p>
+              <h1>{sectionDetails.title}</h1>
+              <span>{sectionDetails.description}</span>
+            </div>
+          </div>
+          <div className="library-heading-actions">
+            <div className="library-heading-count"><strong>{currentPage?.total ?? 0}</strong><span>{library.section}</span></div>
+            <button className="button" onClick={library.refresh} disabled={library.loading}>
+              <RefreshCw size={13} className={library.loading ? 'spinning' : ''} /> Refresh
+            </button>
+          </div>
+        </> : <>
+          <div>
+            <p>{album ? `${album.albumArtist} / ${library.tracks.length} TRACKS` : 'YOUR LIBRARY + MUSIC CATALOG'}</p>
+            <h1>{album?.title ?? `Results for “${library.activeTerm}”`}</h1>
+          </div>
+          {album
+            ? <button className="button" onClick={library.closeAlbum}><ArrowLeft size={13} /> Collection</button>
+            : <button className="button" onClick={library.refresh} disabled={library.loading}>
+              <RefreshCw size={13} className={library.loading ? 'spinning' : ''} /> Refresh
+            </button>}
+        </>}
       </div>
       {library.error && <div className="error-strip">{library.error}</div>}
       {acquisitions.error && <div className="error-strip">{acquisitions.error}</div>}
