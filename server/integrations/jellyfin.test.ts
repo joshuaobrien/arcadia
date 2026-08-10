@@ -121,6 +121,43 @@ test('Jellyfin adapter filters cached albums by title or album artist before pag
   assert.equal(requests, 1)
 })
 
+test('Jellyfin adapter groups artists case-insensitively, filters, and pages deterministically', async () => {
+  const adapter = new JellyfinAdapter({ baseUrl: 'http://jellyfin.test:8096', apiKey: 'key', fetch: async () => json({ Items: [
+    { Id: 'c'.repeat(32), Name: 'Third', AlbumArtist: 'broadcast' },
+    { Id: 'a'.repeat(32), Name: 'First', AlbumArtist: 'Broadcast' },
+    { Id: 'b'.repeat(32), Name: 'Second', AlbumArtist: 'Stereolab' },
+  ] }) })
+
+  const first = await adapter.listArtists({ limit: 1 }, context)
+  const second = await adapter.listArtists({ limit: 1, cursor: first.nextCursor }, context)
+  const filtered = await adapter.listArtists({ limit: 10, term: 'CAST' }, context)
+
+  assert.deepEqual(first, { items: [{ name: 'Broadcast', albumCount: 2, representativeAlbumId: 'a'.repeat(32) }], total: 2, nextCursor: '1' })
+  assert.deepEqual(second.items, [{ name: 'Stereolab', albumCount: 1, representativeAlbumId: 'b'.repeat(32) }])
+  assert.deepEqual(filtered.items, first.items)
+})
+
+test('Jellyfin adapter pages and searches songs server-side and maps their parent albums', async () => {
+  let requested: URL | undefined
+  const adapter = new JellyfinAdapter({ baseUrl: 'http://jellyfin.test:8096', apiKey: 'key', fetch: async input => {
+    requested = new URL(input instanceof Request ? input.url : input)
+    return json({ Items: [{ Id: 'd'.repeat(32), Name: 'Song', Artists: ['Artist'], AlbumId: albumId,
+      Album: 'Album', AlbumArtists: [{ Name: 'Album Artist' }], MediaSources: [{ Container: 'flac' }] }], TotalRecordCount: 7 })
+  } })
+
+  const result = await adapter.listTracks({ limit: 2, cursor: '4', term: 'Song' }, context)
+
+  assert.equal(requested?.searchParams.get('IncludeItemTypes'), 'Audio')
+  assert.equal(requested?.searchParams.get('SearchTerm'), 'Song')
+  assert.equal(requested?.searchParams.get('StartIndex'), '4')
+  assert.equal(requested?.searchParams.get('Limit'), '2')
+  assert.equal(requested?.searchParams.get('Fields'), 'MediaSources')
+  assert.equal(result.nextCursor, '5')
+  assert.deepEqual(result.items[0], { id: 'd'.repeat(32), title: 'Song', artists: ['Artist'], albumId,
+    album: 'Album', albumArtist: 'Album Artist', trackNumber: undefined, discNumber: undefined,
+    durationSeconds: undefined, format: 'FLAC', bytes: undefined })
+})
+
 test('Jellyfin adapter freshness queries bypass cached albums and tracks', async () => {
   let generation = 1
   let albumRequests = 0

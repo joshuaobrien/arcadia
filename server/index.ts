@@ -17,7 +17,7 @@ import type { OperationContext } from './integrations/common.js'
 import type { AcquisitionDefaults, AcquisitionJob } from './domain/acquisition.js'
 import { readCanonicalLibrary } from './library.js'
 import type { LibraryInventory } from './library.js'
-import type { LibraryAlbum, LibraryCatalogPort } from './integrations/library-catalog.js'
+import type { LibraryAlbum, LibraryCatalogPort, LibraryCatalogQuery } from './integrations/library-catalog.js'
 import type { BeetsImportChoice, BeetsImportPort, BeetsInboxFolder } from './integrations/beets-import.js'
 import { mergeMusicReleases } from './music-releases.js'
 
@@ -352,12 +352,18 @@ export function buildApp(options: BuildAppOptions = {}) {
     },
   }, async (request) => {
     const operationId = crypto.randomUUID()
-    const [libraryResult, catalogResult] = await Promise.all([
+    const [libraryResult, artistResult, trackResult, catalogResult] = await Promise.all([
       readProjection(jellyfin !== null, [], () => listAllMatchingAlbums(
         jellyfin!,
         request.query.term,
         { operationId: `${operationId}:library` },
       )),
+      readProjection(typeof jellyfin?.listArtists === 'function', [], async () => (await jellyfin!.listArtists(
+        { limit: 8, term: request.query.term }, { operationId: `${operationId}:artists` },
+      )).items),
+      readProjection(typeof jellyfin?.listTracks === 'function', [], async () => (await jellyfin!.listTracks(
+        { limit: 12, term: request.query.term }, { operationId: `${operationId}:tracks` },
+      )).items),
       readProjection(lidarr !== null, [], () => lidarr!.lookupReleases(
         request.query.term,
         { operationId: `${operationId}:catalog` },
@@ -367,10 +373,14 @@ export function buildApp(options: BuildAppOptions = {}) {
     return {
       sources: {
         library: libraryResult.state,
+        artists: artistResult.state,
+        tracks: trackResult.state,
         catalog: catalogResult.state,
         wanted: acquisitionRepository ? 'available' : 'unconfigured',
       },
       items: mergeMusicReleases(libraryResult.value, catalogResult.value, acquisitions, request.query.term),
+      artists: artistResult.value,
+      tracks: trackResult.value,
     }
   })
   app.get('/api/device', async () => ({
@@ -412,6 +422,24 @@ export function buildApp(options: BuildAppOptions = {}) {
       cursor: request.query?.cursor,
       limit: request.query?.limit ?? 50,
       term: request.query?.term,
+    }, context))
+    return reply.sent ? undefined : { configured: true, mounted: true, scannedAt: null, ...page }
+  })
+  app.get<{ Querystring: LibraryCatalogQuery }>('/api/library/artists', {
+    schema: { querystring: libraryAlbumQuerySchema() },
+  }, async (request, reply) => {
+    if (!jellyfin) return { configured: false, mounted: false, scannedAt: null, total: 0, items: [] }
+    const page = await libraryCatalogRoute(reply, (adapter, context) => adapter.listArtists({
+      cursor: request.query?.cursor, limit: request.query?.limit ?? 50, term: request.query?.term,
+    }, context))
+    return reply.sent ? undefined : { configured: true, mounted: true, scannedAt: null, ...page }
+  })
+  app.get<{ Querystring: LibraryCatalogQuery }>('/api/library/songs', {
+    schema: { querystring: libraryAlbumQuerySchema() },
+  }, async (request, reply) => {
+    if (!jellyfin) return { configured: false, mounted: false, scannedAt: null, total: 0, items: [] }
+    const page = await libraryCatalogRoute(reply, (adapter, context) => adapter.listTracks({
+      cursor: request.query?.cursor, limit: request.query?.limit ?? 50, term: request.query?.term,
     }, context))
     return reply.sent ? undefined : { configured: true, mounted: true, scannedAt: null, ...page }
   })
