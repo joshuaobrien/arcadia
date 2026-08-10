@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { createRoot } from 'react-dom/client'
-import { Activity, ArrowLeft, Bookmark, Check, Disc3, Grid2X2, LibraryBig, ListMusic, PackageOpen, Play, Radio, RefreshCw, Search, ShieldCheck, UserRound, X } from 'lucide-react'
+import { Activity, ArrowLeft, Bookmark, Check, Disc3, Grid2X2, LibraryBig, ListMusic, PackageOpen, Pause, Play, Radio, RefreshCw, Search, ShieldCheck, UserRound, Volume2, VolumeX, X } from 'lucide-react'
 import './styles.css'
 
 interface ProviderRef {
@@ -1625,17 +1625,62 @@ function LibraryView({ library, acquisitions, playTrack }: { library: LibraryMod
 
 function PlayerBar({ selection, close }: { selection: PlaybackSelection; close: () => void }) {
   const { track } = selection
+  const audioRef = useRef<HTMLAudioElement>(null)
   const [failed, setFailed] = useState(false)
   const [artwork, setArtwork] = useState(Boolean(track.albumId))
-  useEffect(() => { setFailed(false); setArtwork(Boolean(track.albumId)) }, [selection.requestId, track.id, track.albumId])
+  const [playing, setPlaying] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [currentTime, setCurrentTime] = useState(0)
+  const [duration, setDuration] = useState(0)
+  const [volume, setVolume] = useState(1)
+  const [muted, setMuted] = useState(false)
+  useEffect(() => {
+    setFailed(false); setArtwork(Boolean(track.albumId)); setPlaying(false); setLoading(true); setCurrentTime(0); setDuration(0)
+  }, [selection.requestId, track.id, track.albumId])
+
+  const formatPlaybackTime = (seconds: number) => {
+    if (!Number.isFinite(seconds)) return '0:00'
+    const wholeSeconds = Math.max(0, Math.floor(seconds))
+    return `${Math.floor(wholeSeconds / 60)}:${String(wholeSeconds % 60).padStart(2, '0')}`
+  }
+  const togglePlayback = () => {
+    const audio = audioRef.current
+    if (!audio) return
+    if (audio.paused) void audio.play().catch(() => setFailed(true))
+    else audio.pause()
+  }
+  const seek = (value: number) => {
+    if (!audioRef.current) return
+    audioRef.current.currentTime = value
+    setCurrentTime(value)
+  }
+  const changeVolume = (value: number) => {
+    if (!audioRef.current) return
+    audioRef.current.volume = value
+    audioRef.current.muted = false
+    setVolume(value); setMuted(false)
+  }
+  const toggleMute = () => {
+    if (!audioRef.current) return
+    audioRef.current.muted = !audioRef.current.muted
+    setMuted(audioRef.current.muted)
+  }
   return <section className={`player-bar ${artwork ? 'has-artwork' : ''}`} aria-label="Now playing">
     {artwork && track.albumId && <img className="player-backdrop" src={`/api/library/albums/${track.albumId}/artwork`} alt="" aria-hidden="true" onError={() => setArtwork(false)} />}
     <div className="player-art">
       {artwork && track.albumId ? <img src={`/api/library/albums/${track.albumId}/artwork`} alt="" onError={() => setArtwork(false)} /> : <Disc3 size={19} />}
     </div>
-    <div className="player-copy"><small>{failed ? 'PLAYBACK UNAVAILABLE' : 'NOW PLAYING'}</small><strong>{track.title}</strong><span>{[track.artists?.join(', '), track.album].filter(Boolean).join(' · ')}</span></div>
-    <audio key={selection.requestId} controls autoPlay preload="metadata" src={`/api/library/songs/${track.id}/stream`} onError={() => setFailed(true)} />
-    <button className="player-close" title="Close player" onClick={close}><X size={14} /></button>
+    <div className="player-copy"><small aria-live="polite">{failed ? 'PLAYBACK UNAVAILABLE' : loading ? 'LOADING AUDIO' : playing ? 'NOW PLAYING' : 'PLAYBACK PAUSED'}</small><strong>{track.title}</strong><span>{[track.artists?.join(', '), track.album].filter(Boolean).join(' · ')}</span></div>
+    <div className="player-controls">
+      <button className="player-control player-play" type="button" aria-label={playing ? 'Pause' : 'Play'} disabled={failed} onClick={togglePlayback}>{playing ? <Pause size={14} /> : <Play size={14} />}</button>
+      <time>{formatPlaybackTime(currentTime)}</time>
+      <input className="player-progress" type="range" min="0" max={duration || 0} step="0.1" value={Math.min(currentTime, duration || 0)} disabled={!duration || failed} aria-label="Seek through track" onChange={event => seek(Number(event.currentTarget.value))} />
+      <time>{formatPlaybackTime(duration)}</time>
+      <button className="player-control" type="button" aria-label={muted ? 'Unmute' : 'Mute'} onClick={toggleMute}>{muted || volume === 0 ? <VolumeX size={14} /> : <Volume2 size={14} />}</button>
+      <input className="player-volume" type="range" min="0" max="1" step="0.05" value={muted ? 0 : volume} aria-label="Volume" onChange={event => changeVolume(Number(event.currentTarget.value))} />
+    </div>
+    <audio ref={audioRef} key={selection.requestId} autoPlay preload="metadata" src={`/api/library/songs/${track.id}/stream`} onLoadStart={() => setLoading(true)} onWaiting={() => setLoading(true)} onCanPlay={() => setLoading(false)} onPlaying={() => { setPlaying(true); setLoading(false) }} onPause={() => setPlaying(false)} onTimeUpdate={event => setCurrentTime(event.currentTarget.currentTime)} onDurationChange={event => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)} onVolumeChange={event => { setVolume(event.currentTarget.volume); setMuted(event.currentTarget.muted) }} onError={() => { setFailed(true); setLoading(false); setPlaying(false) }} />
+    <button className="player-close" type="button" aria-label="Close player" title="Close player" onClick={close}><X size={14} /></button>
   </section>
 }
 
