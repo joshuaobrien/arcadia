@@ -327,10 +327,12 @@ export function buildApp(options: BuildAppOptions = {}) {
     reply.code(status).send({ error: error.toJSON() })
   }
 
-  function sameOrigin(request: { headers: { origin?: string, host?: string }, protocol: string }, reply: FastifyReply): boolean {
-    if (!request.headers.origin) return true
+  function sameOrigin(request: { headers: { origin?: string, host?: string, 'sec-fetch-site'?: string }, protocol: string }, reply: FastifyReply): boolean {
+    const fetchSite = request.headers['sec-fetch-site']
+    if (fetchSite === 'same-origin') return true
+    if (!fetchSite && !request.headers.origin) return true
     const expected = `${request.protocol}://${request.headers.host}`
-    if (request.headers.origin === expected) return true
+    if (!fetchSite && request.headers.origin === expected) return true
     reply.code(403).send({ error: { code: 'forbidden', message: 'Cross-origin mutation requests are forbidden' } })
     return false
   }

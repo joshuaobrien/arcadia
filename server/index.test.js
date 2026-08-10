@@ -493,7 +493,15 @@ test('beets workflow gates mutations on the current album tree and validated cho
   const app = buildApp({ beets, lidarr: null, jellyfin, acquisitionRepository, logger: false })
   t.after(() => app.close())
 
-  const crossOrigin = await app.inject({ method: 'POST', url: '/api/imports/preview', headers: { origin: 'https://evil.example' }, payload: { providerPath: folder.providerPath, hash: folder.hash } })
+  const portalOrigin = await app.inject({ method: 'POST', url: '/api/imports/preview', headers: {
+    host: '8787-orb.e2b.app', origin: 'https://needle.onamp.dev', 'sec-fetch-site': 'same-origin',
+  }, payload: { providerPath: folder.providerPath, hash: 'stale-hash' } })
+  assert.equal(portalOrigin.statusCode, 409)
+  assert.equal(calls.length, 0)
+
+  const crossOrigin = await app.inject({ method: 'POST', url: '/api/imports/preview', headers: {
+    origin: 'https://evil.example', 'sec-fetch-site': 'cross-site',
+  }, payload: { providerPath: folder.providerPath, hash: folder.hash } })
   assert.equal(crossOrigin.statusCode, 403)
   assert.equal(calls.length, 0)
 
