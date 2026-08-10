@@ -1136,6 +1136,36 @@ function OwnedAlbumCard({ album, library, playTrack, title = album.title, inLibr
   </article>
 }
 
+function AlbumDetailHero({ album, tracks, close, playTrack }: {
+  album: LibraryAlbum
+  tracks: LibraryTrack[]
+  close: () => void
+  playTrack: (track: PlayerTrack) => void
+}) {
+  const [artwork, setArtwork] = useState(album.hasArtwork)
+  const firstPlayable = tracks.find((track): track is PlayerTrack => Boolean(track.id && track.title))
+  const artworkUrl = `/api/library/albums/${album.id}/artwork`
+
+  return <section className={`album-detail-hero ${artwork ? 'has-artwork' : ''}`}>
+    {artwork && <img className="album-detail-backdrop" src={artworkUrl} alt="" aria-hidden="true" onError={() => setArtwork(false)} />}
+    <div className="album-detail-cover" aria-hidden="true">
+      {artwork ? <img src={artworkUrl} alt="" onError={() => setArtwork(false)} /> : <Disc3 size={44} />}
+    </div>
+    <div className="album-detail-copy">
+      <p>IN YOUR LIBRARY</p>
+      <h1>{album.title}</h1>
+      <strong>{album.albumArtist}</strong>
+      <span>{[album.year, `${tracks.length} ${tracks.length === 1 ? 'track' : 'tracks'}`].filter(Boolean).join(' · ')}</span>
+      <div className="album-detail-actions">
+        {firstPlayable && <button className="button primary" onClick={() => playTrack({ ...firstPlayable, albumId: album.id, album: album.title, albumArtist: album.albumArtist })}>
+          <Play size={12} fill="currentColor" /> Play album
+        </button>}
+        <button className="button" onClick={close}><ArrowLeft size={13} /> Collection</button>
+      </div>
+    </div>
+  </section>
+}
+
 function needleStatus(library: LibraryModel) {
   if (library.loading) return { label: 'indexing', className: 'degraded' }
   if (library.error) return { label: 'attention', className: 'offline' }
@@ -1504,7 +1534,7 @@ function LibraryView({ library, acquisitions, playTrack }: { library: LibraryMod
 
   return (
     <section>
-      <div className={`page-heading ${browsingCollection ? 'library-heading' : ''}`}>
+      {album ? <AlbumDetailHero album={album} tracks={library.tracks} close={library.closeAlbum} playTrack={playTrack} /> : <div className={`page-heading ${browsingCollection ? 'library-heading' : ''}`}>
         {browsingCollection ? <>
           <div className="library-heading-lead">
             <span className="library-heading-icon">{sectionDetails.icon}</span>
@@ -1522,16 +1552,14 @@ function LibraryView({ library, acquisitions, playTrack }: { library: LibraryMod
           </div>
         </> : <>
           <div>
-            <p>{album ? `${album.albumArtist} / ${library.tracks.length} TRACKS` : 'YOUR LIBRARY + MUSIC CATALOG'}</p>
-            <h1>{album?.title ?? `Results for “${library.activeTerm}”`}</h1>
+            <p>YOUR LIBRARY + MUSIC CATALOG</p>
+            <h1>{`Results for “${library.activeTerm}”`}</h1>
           </div>
-          {album
-            ? <button className="button" onClick={library.closeAlbum}><ArrowLeft size={13} /> Collection</button>
-            : <button className="button" onClick={library.refresh} disabled={library.loading}>
-              <RefreshCw size={13} className={library.loading ? 'spinning' : ''} /> Refresh
-            </button>}
+          <button className="button" onClick={library.refresh} disabled={library.loading}>
+            <RefreshCw size={13} className={library.loading ? 'spinning' : ''} /> Refresh
+          </button>
         </>}
-      </div>
+      </div>}
       {library.error && <div className="error-strip">{library.error}</div>}
       {acquisitions.error && <div className="error-strip">{acquisitions.error}</div>}
       <AcquisitionSetup acquisitions={acquisitions} />
@@ -1600,7 +1628,8 @@ function PlayerBar({ selection, close }: { selection: PlaybackSelection; close: 
   const [failed, setFailed] = useState(false)
   const [artwork, setArtwork] = useState(Boolean(track.albumId))
   useEffect(() => { setFailed(false); setArtwork(Boolean(track.albumId)) }, [selection.requestId, track.id, track.albumId])
-  return <section className="player-bar" aria-label="Now playing">
+  return <section className={`player-bar ${artwork ? 'has-artwork' : ''}`} aria-label="Now playing">
+    {artwork && track.albumId && <img className="player-backdrop" src={`/api/library/albums/${track.albumId}/artwork`} alt="" aria-hidden="true" onError={() => setArtwork(false)} />}
     <div className="player-art">
       {artwork && track.albumId ? <img src={`/api/library/albums/${track.albumId}/artwork`} alt="" onError={() => setArtwork(false)} /> : <Disc3 size={19} />}
     </div>
