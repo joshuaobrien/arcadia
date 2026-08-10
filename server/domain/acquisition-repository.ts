@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import type { CatalogRelease } from '../integrations/catalog.js'
-import type { AcquisitionDefaults, AcquisitionJob, AcquisitionState } from './acquisition.js'
+import type { AcquisitionJob, AcquisitionState } from './acquisition.js'
 
 const SCHEMA_VERSION = 7
 
@@ -65,15 +65,6 @@ interface AcquisitionRow {
   updated_at: string
 }
 
-interface DefaultsRow {
-  root_adapter_id: string
-  root_native_id: string
-  quality_adapter_id: string
-  quality_native_id: string
-  metadata_adapter_id: string | null
-  metadata_native_id: string | null
-}
-
 export interface WantReleaseResult {
   job: AcquisitionJob
   created: boolean
@@ -101,6 +92,7 @@ export class AcquisitionRepository {
       this.#migrate()
       this.#recoverInterruptedBeetsSubmissions()
       this.#recoverInterruptedDirectSubmissions()
+      this.#recoverInterruptedDirectSearches()
     } catch (error) {
       this.#database.close()
       throw error
@@ -123,57 +115,6 @@ export class AcquisitionRepository {
   get(id: string): AcquisitionJob | null {
     const row = this.#database.prepare('SELECT * FROM acquisitions WHERE id = ?').get(id) as unknown as AcquisitionRow | undefined
     return row ? toJob(row) : null
-  }
-
-  getDefaults(): AcquisitionDefaults | null {
-    const row = this.#database.prepare(`
-      SELECT
-        root_adapter_id,
-        root_native_id,
-        quality_adapter_id,
-        quality_native_id,
-        metadata_adapter_id,
-        metadata_native_id
-      FROM acquisition_defaults
-      WHERE id = 1
-    `).get() as unknown as DefaultsRow | undefined
-    if (!row) return null
-    return {
-      root: { adapterId: row.root_adapter_id, nativeId: row.root_native_id },
-      qualityProfile: { adapterId: row.quality_adapter_id, nativeId: row.quality_native_id },
-      ...(row.metadata_adapter_id && row.metadata_native_id
-        ? { metadataProfile: { adapterId: row.metadata_adapter_id, nativeId: row.metadata_native_id } }
-        : {}),
-    }
-  }
-
-  setDefaults(defaults: AcquisitionDefaults): AcquisitionDefaults {
-    this.#database.prepare(`
-      INSERT INTO acquisition_defaults (
-        id,
-        root_adapter_id,
-        root_native_id,
-        quality_adapter_id,
-        quality_native_id,
-        metadata_adapter_id,
-        metadata_native_id
-      ) VALUES (1, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT (id) DO UPDATE SET
-        root_adapter_id = excluded.root_adapter_id,
-        root_native_id = excluded.root_native_id,
-        quality_adapter_id = excluded.quality_adapter_id,
-        quality_native_id = excluded.quality_native_id,
-        metadata_adapter_id = excluded.metadata_adapter_id,
-        metadata_native_id = excluded.metadata_native_id
-    `).run(
-      defaults.root.adapterId,
-      defaults.root.nativeId,
-      defaults.qualityProfile.adapterId,
-      defaults.qualityProfile.nativeId,
-      defaults.metadataProfile?.adapterId ?? null,
-      defaults.metadataProfile?.nativeId ?? null,
-    )
-    return this.getDefaults()!
   }
 
   wantRelease(release: CatalogRelease): WantReleaseResult {
@@ -244,6 +185,7 @@ export class AcquisitionRepository {
   confirmDirectBatches(id:string,batchIds:readonly string[]):DirectAcquisitionWorkflow { return this.#directSubmissionTransition(id,'submitting','submitted',batchIds) }
   markDirectSubmissionUnknown(id:string,error:string):DirectAcquisitionWorkflow { const now=new Date().toISOString(); this.#database.exec('BEGIN IMMEDIATE'); try { const r=this.#database.prepare("UPDATE direct_acquisitions SET submission_state='submission-unknown',error=?,updated_at=? WHERE acquisition_id=? AND submission_state='submitting'").run(error,now,id); if(r.changes!==1) throw new Error('Direct submission transition guard failed'); this.#database.prepare("UPDATE acquisitions SET state='selection-required',updated_at=? WHERE id=?").run(now,id); this.#database.exec('COMMIT') }catch(e){this.#database.exec('ROLLBACK');throw e} return this.getDirectWorkflow(id)! }
   reconcileDirect(id:string,state:'queued'|'transferring'|'completed'|'failed',error?:string):DirectAcquisitionWorkflow {const now=new Date().toISOString();this.#database.exec('BEGIN IMMEDIATE');try{const r=this.#database.prepare("UPDATE direct_acquisitions SET error=?,updated_at=? WHERE acquisition_id=? AND submission_state='submitted'").run(error??null,now,id);if(r.changes!==1)throw new Error('Direct reconcile transition guard failed');this.#database.prepare("UPDATE acquisitions SET state=?,updated_at=? WHERE id=? AND state IN ('queued','transferring','completed','failed')").run(state,now,id);this.#database.exec('COMMIT')}catch(error){this.#database.exec('ROLLBACK');throw error}return this.getDirectWorkflow(id)!}
+  resetFailedDirectTransfer(id:string):DirectAcquisitionWorkflow {const now=new Date().toISOString();this.#database.exec('BEGIN IMMEDIATE');try{const r=this.#database.prepare("UPDATE direct_acquisitions SET candidates_json='[]',editions_json='[]',search_ids_json='[]',selected_candidate_id=NULL,selected_edition_id=NULL,selection_explanation=NULL,submission_state='none',batch_ids_json='[]',expected_file_count=0,output_provider_path=NULL,output_needle_path=NULL,error=NULL,updated_at=? WHERE acquisition_id=? AND submission_state='submitted' AND EXISTS(SELECT 1 FROM acquisitions WHERE id=? AND state='failed')").run(now,id,id);if(r.changes!==1)throw new Error('Failed transfer reset guard failed');this.#database.exec('COMMIT')}catch(error){this.#database.exec('ROLLBACK');throw error}return this.getDirectWorkflow(id)!}
   #directSubmissionTransition(id:string,from:DirectSubmissionState,to:DirectSubmissionState,batches:readonly string[]){const now=new Date().toISOString();this.#database.exec('BEGIN IMMEDIATE');try{const r=this.#database.prepare('UPDATE direct_acquisitions SET submission_state=?,batch_ids_json=?,updated_at=? WHERE acquisition_id=? AND submission_state=?').run(to,JSON.stringify(batches),now,id,from);if(r.changes!==1)throw new Error('Direct submission transition guard failed');this.#database.prepare("UPDATE acquisitions SET state='queued',updated_at=? WHERE id=? AND state='selection-required'").run(now,id);this.#database.exec('COMMIT')}catch(error){this.#database.exec('ROLLBACK');throw error}return this.getDirectWorkflow(id)!}
 
   createBeetsImportOperation(input: Pick<BeetsImportOperation, 'sessionId' | 'providerPath' | 'hash' | 'selections' | 'acquisitionId'>): { operation: BeetsImportOperation, created: boolean } {
@@ -326,6 +268,7 @@ export class AcquisitionRepository {
       UPDATE beets_import_operations SET state = 'submission-unknown', updated_at = '${now}' WHERE state = 'submitting';`)
   }
   #recoverInterruptedDirectSubmissions():void { const now=new Date().toISOString(); this.#transaction(`UPDATE acquisitions SET state='selection-required',updated_at='${now}' WHERE id IN(SELECT acquisition_id FROM direct_acquisitions WHERE submission_state='submitting'); UPDATE direct_acquisitions SET submission_state='submission-unknown',error='Submission outcome unknown after restart',updated_at='${now}' WHERE submission_state='submitting';`) }
+  #recoverInterruptedDirectSearches():void { const now=new Date().toISOString(); this.#transaction(`UPDATE direct_acquisitions SET error='Search interrupted by restart',updated_at='${now}' WHERE submission_state='none' AND acquisition_id IN(SELECT id FROM acquisitions WHERE state='searching'); UPDATE acquisitions SET state='failed',updated_at='${now}' WHERE state='searching' AND id IN(SELECT acquisition_id FROM direct_acquisitions WHERE submission_state='none');`) }
 
   #migrate(): void {
     const row = this.#database.prepare('PRAGMA user_version').get() as { user_version: number }
@@ -349,6 +292,8 @@ export class AcquisitionRepository {
       `)
     }
     if (row.user_version < 2) {
+      // Retained only so databases created by historical releases keep the
+      // same migration chain. No runtime code reads or writes this table.
       this.#transaction(`
         CREATE TABLE acquisition_defaults (
           id INTEGER PRIMARY KEY CHECK (id = 1),

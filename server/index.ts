@@ -5,7 +5,6 @@ import { readdir, statfs } from 'node:fs/promises'
 import { dirname, extname, relative, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
-import { createLidarrAdapterFromEnv } from './integrations/lidarr.js'
 import { MusicBrainzAdapter } from './integrations/musicbrainz.js'
 import { createSlskdAdapterFromEnv, type SlskdAdapter } from './integrations/slskd.js'
 import { DirectAcquisitionService } from './domain/direct-acquisition.js'
@@ -14,11 +13,9 @@ import { createBeetsFlaskAdapterFromEnv } from './integrations/beets-flask.js'
 import { isAdapterError } from './integrations/errors.js'
 import { AcquisitionLinkConflictError, AcquisitionRepository } from './domain/acquisition-repository.js'
 import type { BeetsImportOperation, BeetsImportSelection } from './domain/acquisition-repository.js'
-import type { AcquisitionAutomationPort } from './integrations/acquisition.js'
-import type { AcquisitionHistoryItem, AcquisitionQueueItem } from './integrations/acquisition.js'
 import type { CatalogLookupPort, CatalogRelease } from './integrations/catalog.js'
 import type { OperationContext } from './integrations/common.js'
-import type { AcquisitionDefaults, AcquisitionJob } from './domain/acquisition.js'
+import type { AcquisitionJob } from './domain/acquisition.js'
 import { readCanonicalLibrary } from './library.js'
 import type { LibraryInventory } from './library.js'
 import type { LibraryAlbum, LibraryCatalogPort, LibraryCatalogQuery, LibraryCatalogRefreshPort } from './integrations/library-catalog.js'
@@ -56,17 +53,10 @@ interface MediaScan {
   scannedAt: string | null
 }
 
-type AcquisitionAdapter = Pick<AcquisitionAutomationPort,
-  'listProfiles' | 'listRoots' | 'listQueue' | 'listHistory' | 'ensureRelease' | 'setReleaseWanted' | 'startSearch'
->
-type LidarrReadAdapter = CatalogLookupPort & AcquisitionAdapter
-
 interface AcquisitionRepositoryPort {
   list: AcquisitionRepository['list']
   get?: AcquisitionRepository['get']
   wantRelease: AcquisitionRepository['wantRelease']
-  getDefaults: AcquisitionRepository['getDefaults']
-  setDefaults: AcquisitionRepository['setDefaults']
   close?: AcquisitionRepository['close']
   createBeetsImportOperation?: AcquisitionRepository['createBeetsImportOperation']
   getBeetsImportOperation?: AcquisitionRepository['getBeetsImportOperation']
@@ -80,9 +70,7 @@ interface BuildAppOptions {
   logger?: FastifyServerOptions['logger']
   walkmanPath?: string
   libraryPath?: string
-  lidarr?: LidarrReadAdapter | null
   catalog?: CatalogLookupPort | null
-  acquisitionAutomation?: AcquisitionAdapter | null
   jellyfin?: (LibraryCatalogPort & Partial<LibraryCatalogRefreshPort>) | null
   beets?: BeetsImportPort | null
   acquisitionRepository?: AcquisitionRepositoryPort | null
@@ -98,10 +86,6 @@ interface PageQuery {
 
 interface LibraryAlbumQuery extends PageQuery {
   term?: string
-}
-
-interface HistoryQuery extends PageQuery {
-  since?: string
 }
 
 const cache = new Map<string, { createdAt: number; value: MediaScan }>()
@@ -231,11 +215,7 @@ export function buildApp(options: BuildAppOptions = {}) {
   const app = Fastify({ logger: options.logger ?? true })
   const walkmanPath = options.walkmanPath ?? process.env.WALKMAN_PATH
   const libraryPath = options.libraryPath ?? process.env.MUSIC_LIBRARY_PATH
-  const configuredLidarr = options.lidarr === undefined ? createLidarrAdapterFromEnv() : options.lidarr
-  const catalog = options.catalog === undefined
-    ? options.lidarr === undefined ? new MusicBrainzAdapter() : options.lidarr
-    : options.catalog
-  const lidarr = options.acquisitionAutomation === undefined ? configuredLidarr : options.acquisitionAutomation
+  const catalog = options.catalog === undefined ? new MusicBrainzAdapter() : options.catalog
   const jellyfin = options.jellyfin === undefined ? createJellyfinAdapterFromEnv() : options.jellyfin
   const beets = options.beets === undefined ? createBeetsFlaskAdapterFromEnv() : options.beets
   const acquisitionRepository = options.acquisitionRepository === undefined
@@ -268,37 +248,6 @@ export function buildApp(options: BuildAppOptions = {}) {
 
   if (acquisitionRepository?.close) {
     app.addHook('onClose', async () => acquisitionRepository.close?.())
-  }
-
-  async function lidarrRoute<T>(
-    reply: FastifyReply,
-    operation: (adapter: AcquisitionAdapter, context: OperationContext) => Promise<T>,
-  ): Promise<T | undefined> {
-    if (!lidarr) {
-      reply.code(503).send({
-        error: {
-          code: 'unavailable',
-          adapterId: 'lidarr',
-          message: 'Lidarr is not configured',
-          retryable: false,
-        },
-      })
-      return undefined
-    }
-    try {
-      return await operation(lidarr, {
-        operationId: crypto.randomUUID(),
-      })
-    } catch (error) {
-      if (!isAdapterError(error)) throw error
-      const status = error.code === 'authentication' ? 502
-        : error.code === 'invalid-request' ? 400
-          : error.code === 'not-found' ? 404
-            : error.code === 'unsupported' ? 501
-              : 502
-      reply.code(status).send({ error: error.toJSON() })
-      return undefined
-    }
   }
 
   async function catalogRoute<T>(reply: FastifyReply, operation: (adapter: CatalogLookupPort, context: OperationContext) => Promise<T>): Promise<T | undefined> {
@@ -609,11 +558,13 @@ export function buildApp(options: BuildAppOptions = {}) {
     const currentJob=acquisitionRepository.get(request.params.id)??job
     const directProgress=directStatus?.summary?{percent:directStatus.summary.bytesTotal?Math.round(directStatus.summary.bytesTransferred/directStatus.summary.bytesTotal*100):0,completedFiles:directStatus.summary.completed,expectedFiles:directStatus.workflow?.expectedFileCount??0}:undefined
     const directOutput=currentJob.state==='completed'?directStatus?.workflow?.outputNeedlePath:undefined
-    const download = directStatus?.workflow?{state:'available' as SourceState,queue:[] as AcquisitionQueueItem[],history:[] as AcquisitionHistoryItem[],events:[{kind:`direct-${currentJob.state}`,label:`Direct acquisition ${currentJob.state}`,occurredAt:directStatus.workflow.updatedAt}],outputs:directOutput?[directOutput]:[],downloadRefs:[] as string[],...(directProgress?{progress:directProgress}:{})}:await journeyDownloadProjection(lidarr, currentJob, { operationId: `${operationId}:download` })
+    const download = directStatus?.workflow
+      ? { state: 'available' as SourceState, events: [{ kind: `direct-${currentJob.state}`, label: `Direct acquisition ${currentJob.state}`, occurredAt: directStatus.workflow.updatedAt }], outputs: directOutput ? [directOutput] : [], downloadRefs: [] as string[], ...(directProgress ? { progress: directProgress } : {}) }
+      : { state: 'unavailable' as SourceState, events: [{ kind: 'legacy-acquisition-unavailable', label: 'Legacy acquisition progress is unavailable', occurredAt: currentJob.updatedAt }], outputs: [] as string[], downloadRefs: [] as string[] }
     const review = await journeyReviewProjection(beets, download.outputs, download.downloadRefs, { operationId: `${operationId}:review` })
     const linked = acquisitionRepository.listBeetsImportOperations?.().filter(item => item.acquisitionId === currentJob.id) ?? []
     const importOperation = linked.length === 1 ? linked[0] : undefined
-    const projectedStage = journeyStage(currentJob.state, download.queue, download.history, importOperation)
+    const projectedStage = journeyStage(currentJob.state, Boolean(directStatus?.workflow), importOperation)
     const stage = !importOperation && review.folder && projectedStage !== 'attention'
       ? 'review'
       : projectedStage
@@ -680,163 +631,30 @@ export function buildApp(options: BuildAppOptions = {}) {
         message: 'Needle acquisition state is not configured',
       },
     })
-    if (!directAcquisition && !lidarr) return reply.code(503).send({
-      error: { code: 'unavailable', adapterId: 'lidarr', message: 'Lidarr is not configured', retryable: false },
-    })
-    const defaults = acquisitionRepository.getDefaults()
-    if (!directAcquisition && !defaults) return reply.code(400).send({
-      error: { code: 'invalid-request', message: 'Configure the Lidarr root and quality profile before starting a journey' },
+    if (!directAcquisition) return reply.code(503).send({
+      error: { code: 'unavailable', adapterId: 'slskd', message: 'Direct acquisition is not configured', retryable: false },
     })
     const musicBrainzReleaseGroupId = request.body.release.musicBrainzReleaseGroupId?.trim().toLowerCase()
     if (!musicBrainzReleaseGroupId) return reply.code(400).send({
       error: { code: 'invalid-request', message: 'Release requires a MusicBrainz release-group ID' },
     })
     const sourceAdapter = request.body.release.ref.adapterId
-    if (!['musicbrainz', 'lidarr'].includes(sourceAdapter) || request.body.release.artistRef.adapterId !== sourceAdapter) {
+    if (sourceAdapter !== 'musicbrainz' || request.body.release.artistRef.adapterId !== sourceAdapter) {
       return reply.code(400).send({ error: { code: 'invalid-request', message: 'Release does not belong to the configured acquisition source' } })
     }
     const release = {
       ...request.body.release,
       musicBrainzReleaseGroupId,
-      ref: sourceAdapter === 'musicbrainz'
-        ? { adapterId: 'musicbrainz', nativeId: `release-group:mbid:${musicBrainzReleaseGroupId}` }
-        : { adapterId: 'lidarr', nativeId: `album:mbid:${musicBrainzReleaseGroupId}` },
+      ref: { adapterId: 'musicbrainz', nativeId: `release-group:mbid:${musicBrainzReleaseGroupId}` },
     }
     const result = acquisitionRepository.wantRelease(release)
     if (!result.created && result.job.state !== 'wanted') return reply.code(200).send(result.job)
-    if(directAcquisition){try{const workflow=await directAcquisition.search(result.job.id,{operationId:crypto.randomUUID()});return reply.code(result.created?201:200).send({...acquisitionRepository.get?.(result.job.id),direct:workflow})}catch(error){return reply.code(502).send({error:{code:'unavailable',adapterId:'slskd',message:error instanceof Error?error.message:'Direct search failed',retryable:true}})}}
-    const submitted = await lidarrRoute(reply, async (adapter, context) => {
-      const installed = await adapter.ensureRelease({ release, ...defaults! }, context)
-      await adapter.setReleaseWanted(installed.ref, true, context)
-      return adapter.startSearch({ kind: 'release', release: installed.ref }, context)
-    })
-    if (!submitted) return
-    return reply.code(result.created ? 201 : 200).send(result.job)
+    try { const workflow = await directAcquisition.search(result.job.id, { operationId: crypto.randomUUID() }); return reply.code(result.created ? 201 : 200).send({ ...acquisitionRepository.get?.(result.job.id), direct: workflow }) }
+    catch (error) { return reply.code(502).send({ error: { code: 'unavailable', adapterId: 'slskd', message: error instanceof Error ? error.message : 'Direct search failed', retryable: true } }) }
   })
   app.get<{Params:{id:string}}>('/api/acquisitions/:id/candidates',async(request,reply)=>{const workflow=acquisitionRepository?.getDirectWorkflow?.(request.params.id);if(!workflow)return reply.code(404).send({error:{code:'not-found',message:'Direct acquisition was not found'}});return{workflow,candidates:workflow.candidates}})
   app.post<{Params:{id:string,candidateId:string}}>('/api/acquisitions/:id/candidates/:candidateId/select',async(request,reply)=>{if(!directAcquisition)return reply.code(503).send({error:{code:'unavailable',message:'Direct acquisition is not configured'}});try{return await directAcquisition.select(request.params.id,request.params.candidateId,{operationId:crypto.randomUUID()})}catch(error){return reply.code(409).send({error:{code:'conflict',message:error instanceof Error?error.message:'Selection failed'}})}})
   app.post<{Params:{id:string}}>('/api/acquisitions/:id/retry',async(request,reply)=>{if(!directAcquisition)return reply.code(503).send({error:{code:'unavailable',message:'Direct acquisition is not configured'}});try{return await directAcquisition.retry(request.params.id,{operationId:crypto.randomUUID()})}catch(error){return reply.code(409).send({error:{code:'conflict',message:error instanceof Error?error.message:'Retry failed'}})}})
-  app.get('/api/acquisition-defaults', async (_request, reply) => {
-    if (!acquisitionRepository) return reply.code(503).send({
-      error: {
-        code: 'unavailable',
-        message: 'Needle acquisition state is not configured',
-      },
-    })
-    return { value: acquisitionRepository.getDefaults() }
-  })
-  app.put<{ Body: AcquisitionDefaults }>('/api/acquisition-defaults', {
-    schema: {
-      body: {
-        type: 'object',
-        required: ['root', 'qualityProfile'],
-        additionalProperties: false,
-        properties: {
-          root: providerRefSchema(),
-          qualityProfile: providerRefSchema(),
-          metadataProfile: providerRefSchema(),
-        },
-      },
-    },
-  }, async (request, reply) => {
-    if (!acquisitionRepository) return reply.code(503).send({
-      error: {
-        code: 'unavailable',
-        message: 'Needle acquisition state is not configured',
-      },
-    })
-    const available = await lidarrRoute(reply, async (adapter, context) => {
-      const [roots, profiles] = await Promise.all([
-        adapter.listRoots(context),
-        adapter.listProfiles(context),
-      ])
-      return { roots, profiles }
-    })
-    if (!available) return
-    const rootExists = available.roots.some(({ ref }) => sameRef(ref, request.body.root))
-    const qualityExists = available.profiles.some(({ ref, kind }) => (
-      kind === 'quality' && sameRef(ref, request.body.qualityProfile)
-    ))
-    const metadataExists = !request.body.metadataProfile || available.profiles.some(({ ref, kind }) => (
-      kind === 'metadata' && sameRef(ref, request.body.metadataProfile!)
-    ))
-    if (!rootExists || !qualityExists || !metadataExists) {
-      return reply.code(400).send({
-        error: {
-          code: 'invalid-request',
-          message: 'Acquisition defaults must reference available Lidarr roots and profiles',
-        },
-      })
-    }
-    return { value: acquisitionRepository.setDefaults(request.body) }
-  })
-  app.get('/api/services/lidarr', async (_request, reply) => {
-    if (!lidarr) return { configured: false }
-    const health = await lidarrRoute(reply, (adapter, context) => 'probe' in adapter
-      ? (adapter as AcquisitionAutomationPort).probe(context)
-      : Promise.resolve({ adapterId: 'lidarr', kind: 'lidarr' as const, state: 'available' as const, checkedAt: new Date().toISOString(), latencyMs: 0 }))
-    return reply.sent ? undefined : { configured: true, health }
-  })
-  app.get<{ Querystring: { term: string } }>('/api/services/lidarr/artists', {
-    schema: {
-      querystring: {
-        type: 'object',
-        required: ['term'],
-        additionalProperties: false,
-        properties: { term: { type: 'string', minLength: 1, maxLength: 200 } },
-      },
-    },
-  }, async (request, reply) => catalogRoute(
-    reply,
-    (adapter, context) => adapter.lookupArtists(request.query.term, context),
-  ))
-  app.get<{ Querystring: { term: string } }>('/api/services/lidarr/releases', {
-    schema: {
-      querystring: {
-        type: 'object',
-        required: ['term'],
-        additionalProperties: false,
-        properties: { term: { type: 'string', minLength: 1, maxLength: 200 } },
-      },
-    },
-  }, async (request, reply) => catalogRoute(
-    reply,
-    (adapter, context) => adapter.lookupReleases(request.query.term, context),
-  ))
-  app.get('/api/services/lidarr/profiles', async (_request, reply) => lidarrRoute(
-    reply,
-    (adapter, context) => adapter.listProfiles(context),
-  ))
-  app.get('/api/services/lidarr/roots', async (_request, reply) => lidarrRoute(
-    reply,
-    (adapter, context) => adapter.listRoots(context),
-  ))
-  app.get<{ Querystring: PageQuery }>('/api/services/lidarr/queue', {
-    schema: { querystring: pageQuerySchema() },
-  }, async (request, reply) => lidarrRoute(
-    reply,
-    (adapter, context) => adapter.listQueue({
-      cursor: request.query?.cursor,
-      limit: Math.min(100, Math.max(1, Number(request.query?.limit) || 25)),
-    }, context),
-  ))
-  app.get<{ Querystring: HistoryQuery }>('/api/services/lidarr/history', {
-    schema: {
-      querystring: {
-        ...pageQuerySchema(),
-        properties: {
-          ...pageQuerySchema().properties,
-          since: { type: 'string', minLength: 1, maxLength: 40 },
-        },
-      },
-    },
-  }, async (request, reply) => lidarrRoute(
-    reply,
-    (adapter, context) => adapter.listHistory(request.query?.since, {
-      cursor: request.query?.cursor,
-      limit: Math.min(100, Math.max(1, Number(request.query?.limit) || 25)),
-    }, context),
-  ))
 
   app.get('/api/services/beets', async (_request, reply) => {
     if (!beets) return { configured: false }
@@ -1082,79 +900,6 @@ function sameRef(left: { adapterId: string; nativeId: string }, right: { adapter
 }
 
 type SourceState = 'available' | 'unconfigured' | 'unavailable'
-const JOURNEY_EVENTS: Record<string, { label: string, stage: 'attention' | 'review' | 'queued' }> = {
-  downloadFailed: { label: 'Download failed', stage: 'attention' },
-  albumImportIncomplete: { label: 'Album import incomplete', stage: 'attention' },
-  downloadIgnored: { label: 'Download ignored', stage: 'attention' },
-  downloadFolderImported: { label: 'Download ready for review', stage: 'review' },
-  trackFileImported: { label: 'Track imported by Lidarr', stage: 'review' },
-  grabbed: { label: 'Download queued', stage: 'queued' },
-}
-
-async function allPages<T>(read: (cursor?: string) => Promise<{ items: readonly T[], nextCursor?: string }>): Promise<T[]> {
-  const items: T[] = []
-  const seen = new Set<string>()
-  let cursor: string | undefined
-  do {
-    const page = await read(cursor)
-    items.push(...page.items)
-    if (!page.nextCursor || seen.has(page.nextCursor)) break
-    seen.add(page.nextCursor)
-    cursor = page.nextCursor
-  } while (cursor)
-  return items
-}
-
-function journeyMatches(job: AcquisitionJob, release: CatalogRelease | undefined): boolean {
-  if (!release) return false
-  const jobMbid = job.musicBrainzReleaseGroupId?.trim().toLowerCase()
-  const releaseMbid = release.musicBrainzReleaseGroupId?.trim().toLowerCase()
-  if (jobMbid && releaseMbid) return jobMbid === releaseMbid
-  return job.searchRefs.some(ref => sameRef(ref, release.ref))
-}
-
-async function journeyDownloadProjection(lidarr: AcquisitionAdapter | null, job: NonNullable<ReturnType<AcquisitionRepository['get']>>, context: OperationContext) {
-  const empty: {
-    state: SourceState; queue: AcquisitionQueueItem[]; history: AcquisitionHistoryItem[]
-    events: Array<{ kind: string, label: string, occurredAt: string }>; outputs: string[]; downloadRefs: string[]
-    progress?: { percent?: number, bytesTotal?: number, bytesRemaining?: number, etaSeconds?: number }
-  } = { state: 'unconfigured', queue: [], history: [], events: [], outputs: [], downloadRefs: [] }
-  if (!lidarr) return empty
-  try {
-    const [allQueue, allHistory] = await Promise.all([
-      allPages(cursor => lidarr.listQueue({ cursor, limit: 100 }, context)),
-      allPages(cursor => lidarr.listHistory(job.createdAt, { cursor, limit: 100 }, context)),
-    ])
-    const queue = allQueue.filter(item => journeyMatches(job, item.release))
-    const history = allHistory.filter(item => journeyMatches(job, item.release) && JOURNEY_EVENTS[item.eventType])
-    history.sort((a, b) => b.occurredAt.localeCompare(a.occurredAt) || a.ref.nativeId.localeCompare(b.ref.nativeId))
-    const active = queue.find(item => item.state === 'downloading') ?? queue[0]
-    const progress = active ? {
-      ...(active.bytesTotal !== undefined && active.bytesRemaining !== undefined && active.bytesTotal > 0
-        ? { percent: Math.max(0, Math.min(100, Math.round((active.bytesTotal - active.bytesRemaining) / active.bytesTotal * 100))) } : {}),
-      ...(active.bytesTotal !== undefined ? { bytesTotal: active.bytesTotal } : {}),
-      ...(active.bytesRemaining !== undefined ? { bytesRemaining: active.bytesRemaining } : {}),
-      ...(active.etaSeconds !== undefined ? { etaSeconds: active.etaSeconds } : {}),
-    } : undefined
-    const outputs = history.flatMap(item => JOURNEY_EVENTS[item.eventType]?.stage === 'review' && item.output?.needlePath
-      ? [item.output.needlePath] : [])
-    const hasUnlinkedActiveQueueItem = queue.some(item => item.state !== 'completed' && !item.underlyingDownloadRef)
-    const downloadRefs = hasUnlinkedActiveQueueItem ? [] : [...new Set(history.flatMap(item => {
-      const downloadRef = item.underlyingDownloadRef
-      if (!downloadRef) return []
-      const matchingQueue = queue.filter(queued => queued.underlyingDownloadRef === downloadRef)
-      const latestHistory = history.find(entry => entry.underlyingDownloadRef === downloadRef)
-      const hasActiveTransfer = matchingQueue.some(queued => queued.state !== 'completed')
-      const latestIsAttention = latestHistory && JOURNEY_EVENTS[latestHistory.eventType]?.stage === 'attention'
-      return !hasActiveTransfer && !latestIsAttention ? [downloadRef] : []
-    }))]
-    return { state: 'available' as SourceState, queue, history, progress,
-      events: history.map(item => ({ kind: item.eventType, label: JOURNEY_EVENTS[item.eventType].label, occurredAt: item.occurredAt })), outputs, downloadRefs }
-  } catch {
-    return { ...empty, state: 'unavailable' as SourceState }
-  }
-}
-
 async function journeyReviewProjection(beets: BeetsImportPort | null, outputs: readonly string[], downloadRefs: readonly string[], context: OperationContext) {
   if (!beets) return { state: 'unconfigured' as SourceState }
   try {
@@ -1172,17 +917,9 @@ async function journeyReviewProjection(beets: BeetsImportPort | null, outputs: r
 
 function stripTrailingSlash(path: string): string { return path.length > 1 ? path.replace(/\/+$/, '') : path }
 
-function journeyStage(jobState: string, queue: readonly AcquisitionQueueItem[], history: readonly AcquisitionHistoryItem[], operation?: BeetsImportOperation) {
+function journeyStage(jobState: string, hasDirectWorkflow: boolean, operation?: BeetsImportOperation) {
   if (operation) return ({ 'submission-unknown': 'attention', submitting: 'importing', submitted: 'importing', 'provider-completed': 'verifying', 'library-confirmed': 'collected' } as const)[operation.state]
-  const latestHistoryStage = history[0] ? JOURNEY_EVENTS[history[0].eventType]?.stage : undefined
-  // A terminal history event is authoritative when Lidarr has not yet removed
-  // the corresponding item from its transient queue projection.
-  if (latestHistoryStage === 'attention' || latestHistoryStage === 'review') return latestHistoryStage
-  if (queue.some(item => item.state === 'failed')) return 'attention'
-  if (queue.some(item => ['post-processing', 'completed'].includes(item.state))) return 'review'
-  if (queue.some(item => item.state === 'downloading')) return 'downloading'
-  if (queue.length) return 'queued'
-  if (latestHistoryStage) return latestHistoryStage
+  if (!hasDirectWorkflow) return 'attention'
   return ({ searching: 'queued', queued: 'queued', transferring: 'downloading', 'selection-required': 'attention', importing: 'importing', completed: 'collected', failed: 'attention', cancelled: 'attention' } as Record<string, string>)[jobState] ?? 'requested'
 }
 

@@ -29,9 +29,3 @@ export interface AcquisitionJob {
   updatedAt: IsoDateTime
   error?: AdapterErrorDetails
 }
-
-export interface AcquisitionDefaults {
-  root: ProviderRef
-  qualityProfile: ProviderRef
-  metadataProfile?: ProviderRef
-}

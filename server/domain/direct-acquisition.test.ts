@@ -78,6 +78,23 @@ test('direct acquisition rolls back earlier disc batches and blocks retry after 
   await assert.rejects(() => service.retry(jobId, context), /Cannot search after transfer submission/)
 })
 
+test('direct acquisition removes known failed transfers before retrying', async (t) => {
+  const { repository, jobId } = await fixture(t)
+  const files = ['Broadcast\\Tender Buttons\\01 Song 1.flac', 'Broadcast\\Tender Buttons\\02 Song 2.flac']
+  const slskd = new FakeSlskd(searchResult('peer', files))
+  const service = new DirectAcquisitionService(repository, { listReleaseEditions: async () => [edition] }, slskd)
+  await service.search(jobId, context)
+  slskd.summary = { state: 'failed', visible: 2, completed: 1, bytesTotal: 2000, bytesTransferred: 1000, error: 'Transfer failed' }
+  await service.reconcile(jobId, context)
+  assert.equal(repository.get(jobId)?.state, 'failed')
+
+  const retried = await service.retry(jobId, context)
+  assert.deepEqual(slskd.rolledBack, ['batch-1'])
+  assert.equal(retried.submissionState, 'submitted')
+  assert.deepEqual(retried.batchIds, ['batch-2'])
+  assert.equal(repository.get(jobId)?.state, 'queued')
+})
+
 async function fixture(t: TestContext) {
   const directory = await mkdtemp(join(tmpdir(), 'needle-direct-'))
   t.after(() => rm(directory, { recursive: true, force: true }))

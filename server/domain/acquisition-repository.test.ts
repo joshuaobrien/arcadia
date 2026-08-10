@@ -50,35 +50,6 @@ test('acquisition repository persists wanted releases and deduplicates provider 
   reopened.close()
 })
 
-test('acquisition repository persists explicit Lidarr defaults', async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), 'needle-defaults-'))
-  const path = join(directory, 'needle.sqlite')
-  t.after(() => rm(directory, { recursive: true, force: true }))
-  const defaults = {
-    root: { adapterId: 'lidarr', nativeId: 'root:id:1' },
-    qualityProfile: { adapterId: 'lidarr', nativeId: 'profile:quality:id:2' },
-    metadataProfile: { adapterId: 'lidarr', nativeId: 'profile:metadata:id:3' },
-  }
-
-  const repository = new AcquisitionRepository(path)
-  assert.equal(repository.getDefaults(), null)
-  assert.deepEqual(repository.setDefaults(defaults), defaults)
-  repository.close()
-
-  const reopened = new AcquisitionRepository(path)
-  assert.deepEqual(reopened.getDefaults(), defaults)
-  const replacement = {
-    root: { adapterId: 'lidarr', nativeId: 'root:id:4' },
-    qualityProfile: { adapterId: 'lidarr', nativeId: 'profile:quality:id:5' },
-  }
-  assert.deepEqual(reopened.setDefaults(replacement), replacement)
-  reopened.close()
-
-  const replaced = new AcquisitionRepository(path)
-  assert.deepEqual(replaced.getDefaults(), replacement)
-  replaced.close()
-})
-
 test('acquisition repository migrates version 1 without changing wanted releases', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'needle-acquisitions-v1-'))
   const path = join(directory, 'needle.sqlite')
@@ -120,7 +91,6 @@ test('acquisition repository migrates version 1 without changing wanted releases
     createdAt: '2026-08-08T00:00:00.000Z',
     updatedAt: '2026-08-08T00:00:00.000Z',
   }])
-  assert.equal(repository.getDefaults(), null)
   repository.close()
 
   const migrated = new DatabaseSync(path)
@@ -286,5 +256,25 @@ test('direct workflow persists exact selection and recovers interrupted submissi
   assert.equal(reopened.get(job.id)?.state, 'selection-required')
   assert.throws(() => reopened.beginDirectTransfer(job.id, candidate.id, 'edition', 'duplicate', 1, '/downloads/x', '/inbox/x'), /guard failed/)
   assert.throws(() => reopened.beginDirectSearch(job.id, 'needle/retry'), /Cannot search after transfer submission/)
+  reopened.close()
+})
+
+test('direct workflow recovers an interrupted search as safely retryable', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'needle-direct-search-recovery-'))
+  const path = join(directory, 'needle.sqlite')
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const repository = new AcquisitionRepository(path)
+  const job = repository.wantRelease({
+    ...release,
+    ref: { adapterId: 'musicbrainz', nativeId: `release-group:mbid:${release.musicBrainzReleaseGroupId}` },
+  }).job
+  repository.beginDirectSearch(job.id, `needle/${job.id}/Broadcast - Tender Buttons`)
+  repository.close()
+
+  const reopened = new AcquisitionRepository(path)
+  assert.equal(reopened.get(job.id)?.state, 'failed')
+  assert.equal(reopened.getDirectWorkflow(job.id)?.submissionState, 'none')
+  assert.equal(reopened.getDirectWorkflow(job.id)?.error, 'Search interrupted by restart')
+  assert.doesNotThrow(() => reopened.beginDirectSearch(job.id, `needle/${job.id}/Broadcast - Tender Buttons`))
   reopened.close()
 })

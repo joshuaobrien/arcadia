@@ -27,7 +27,9 @@ export class DirectAcquisitionService {
       return workflow
     }catch(error){const current=this.repository.getDirectWorkflow(job.id);if(current&&this.repository.get(job.id)?.state==='searching')this.repository.storeDirectCandidates(job.id,[],[],[]);throw error}
   }
-  retry(id:string,context:OperationContext){return this.search(id,context)}
+  async retry(id:string,context:OperationContext){const workflow=this.repository.getDirectWorkflow(id),job=this.repository.get(id)
+    if(workflow?.submissionState==='submitted'&&job?.state==='failed'){await this.slskd.rollbackBatches(workflow.batchIds,context);this.repository.resetFailedDirectTransfer(id)}
+    return this.search(id,context)}
   async select(id:string,candidateId:string,context:OperationContext,explanation='Manually selected'):Promise<DirectAcquisitionWorkflow>{
     const workflow=this.repository.getDirectWorkflow(id);if(!workflow)throw new Error('Direct workflow not found');if(workflow.submissionState!=='none')throw new Error('Transfer submission has already begun')
     const candidate=workflow.candidates.find(c=>c.id===candidateId);if(!candidate)throw new Error('Candidate not found');const match=candidate.matches[0];if(!match||match.rejected)throw new Error('Rejected candidate cannot be selected')

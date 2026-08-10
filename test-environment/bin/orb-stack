@@ -17,9 +17,9 @@ set -a
 source images.env
 set +a
 
-sudo --preserve-env=LIDARR_IMAGE,SLSKD_IMAGE,BEETS_FLASK_IMAGE,JELLYFIN_IMAGE,NEEDLE_TEST_SLSK_USERNAME,NEEDLE_TEST_SLSK_PASSWORD \
-  docker compose up -d lidarr slskd beets-flask jellyfin
+sudo --preserve-env=SLSKD_IMAGE,BEETS_FLASK_IMAGE,JELLYFIN_IMAGE,NEEDLE_TEST_SLSK_USERNAME,NEEDLE_TEST_SLSK_PASSWORD \
+  docker compose up -d --remove-orphans slskd beets-flask jellyfin
 node ./bin/bootstrap.mjs
 
-exec sudo --preserve-env=PORT,LIDARR_IMAGE,SLSKD_IMAGE,BEETS_FLASK_IMAGE,JELLYFIN_IMAGE \
-  docker compose up --build needle
+exec sudo --preserve-env=PORT,SLSKD_IMAGE,BEETS_FLASK_IMAGE,JELLYFIN_IMAGE \
+  docker compose up --build --remove-orphans needle

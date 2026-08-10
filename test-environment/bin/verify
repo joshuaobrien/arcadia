@@ -12,30 +12,12 @@ song_id="$(curl -fsS "$base_url/api/library/songs?limit=1&fresh=true" \
 range_result="$(curl -fsS -o /dev/null -w '%{http_code} %{size_download}' \
   -H 'Range: bytes=0-63' "$base_url/api/library/songs/$song_id/stream")"
 [ "$range_result" = '206 64' ]
-curl -fsS "$base_url/api/services/lidarr" \
-  | jq -e '.configured == true and .health.state == "available"' >/dev/null
 curl -fsS "$base_url/api/services/slskd" \
   | jq -e '.configured == true and .health.state == "available"' >/dev/null
-curl -fsS -H 'X-Api-Key: needle-test-lidarr-api-key' 'http://127.0.0.1:8686/api/v1/downloadclient' \
-  | jq -e '[.[] | select(.implementation == "Slskd")] as $clients
-    | $clients | length == 1
-      and .[0].enable == true
-      and .[0].removeCompletedDownloads == false
-      and .[0].removeFailedDownloads == true
-      and any(.[0].fields[]; .name == "host" and .value == "slskd")
-      and any(.[0].fields[]; .name == "port" and .value == 5030)' >/dev/null
-curl -fsS -H 'X-Api-Key: needle-test-lidarr-api-key' 'http://127.0.0.1:8686/api/v1/config/downloadclient' \
-  | jq -e '.enableCompletedDownloadHandling == false' >/dev/null
-curl -fsS -H 'X-Api-Key: needle-test-lidarr-api-key' 'http://127.0.0.1:8686/api/v1/indexer' \
-  | jq -e '[.[] | select(.implementation == "Slskd")] as $indexers
-    | $indexers | length == 1
-      and .[0].enableAutomaticSearch == true
-      and .[0].enableInteractiveSearch == true
-      and any(.[0].fields[]; .name == "baseUrl" and .value == "http://slskd:5030/")' >/dev/null
 curl -fsS "$base_url/api/services/beets" \
   | jq -e '.configured == true and .health.state == "available"' >/dev/null
 curl -fsS "$base_url/api/imports/folders" \
   | jq -e 'any(.items[]?.children[]?; .album == true and .name == "Needle Test Ensemble - Incoming Signals")' >/dev/null
 slskd_status="$(curl -sS -o /dev/null -w '%{http_code}' 'http://127.0.0.1:5030/health')"
 [ "$slskd_status" = 200 ] || [ "$slskd_status" = 502 ]
-echo "Needle can reach Lidarr, slskd, and beets-flask, browse the seeded inbox, read Jellyfin's library, and stream audio"
+echo "Needle can reach MusicBrainz, slskd, beets-flask, and Jellyfin, browse the seeded inbox, and stream audio"

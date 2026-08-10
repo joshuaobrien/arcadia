@@ -4,7 +4,6 @@ import { dirname, resolve } from 'node:path'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const jellyfin = 'http://127.0.0.1:8096'
-const lidarr = 'http://127.0.0.1:8686'
 const clientAuthorization = 'MediaBrowser Client="NeedleTests", Device="Orb", DeviceId="needle-test", Version="1.0"'
 
 async function waitFor(url, label, timeoutMs = 180_000) {
@@ -81,87 +80,5 @@ async function bootstrapJellyfin() {
   await rename(temporaryPath, runtimePath)
 }
 
-async function bootstrapLidarr() {
-  const apiKey = 'needle-test-lidarr-api-key'
-  const headers = { 'Content-Type': 'application/json', 'X-Api-Key': apiKey }
-  await waitFor(`${lidarr}/ping`, 'Lidarr')
-  const [downloadClientSchemas, indexerSchemas] = await Promise.all([
-    json(`${lidarr}/api/v1/downloadclient/schema`, { headers }),
-    json(`${lidarr}/api/v1/indexer/schema`, { headers }),
-  ])
-  const downloadClientSchema = downloadClientSchemas.find(item => item.implementation === 'Slskd')
-  const indexerSchema = indexerSchemas.find(item => item.implementation === 'Slskd')
-  if (!downloadClientSchema || !indexerSchema) throw new Error('The pinned Lidarr slskd plugin did not load')
-
-  const withFieldValues = (fields, values) => fields.map(field => (
-    Object.hasOwn(values, field.name) ? { ...field, value: values[field.name] } : field
-  ))
-  const downloadClients = await json(`${lidarr}/api/v1/downloadclient`, { headers })
-  const managedDownloadClients = downloadClients.filter(item => item.implementation === 'Slskd')
-  if (managedDownloadClients.length > 1) throw new Error('Expected at most one Lidarr slskd download client')
-  const downloadClient = {
-    ...downloadClientSchema,
-    ...(managedDownloadClients[0]?.id ? { id: managedDownloadClients[0].id } : {}),
-    name: 'slskd', enable: true, priority: 1,
-    removeCompletedDownloads: false, removeFailedDownloads: true,
-    fields: withFieldValues(downloadClientSchema.fields, {
-      host: 'slskd', port: 5030, apiKey: 'needle-test-slskd-api-key', repairConfiguration: false,
-    }),
-  }
-  await json(`${lidarr}/api/v1/downloadclient${downloadClient.id ? `/${downloadClient.id}` : ''}`, {
-    method: downloadClient.id ? 'PUT' : 'POST', headers, body: JSON.stringify(downloadClient),
-  })
-
-  const downloadClientConfig = await json(`${lidarr}/api/v1/config/downloadclient`, { headers })
-  if (downloadClientConfig.enableCompletedDownloadHandling) {
-    await json(`${lidarr}/api/v1/config/downloadclient/${downloadClientConfig.id}`, {
-      method: 'PUT', headers, body: JSON.stringify({
-        ...downloadClientConfig, enableCompletedDownloadHandling: false,
-      }),
-    })
-  }
-
-  const indexers = await json(`${lidarr}/api/v1/indexer`, { headers })
-  const managedIndexers = indexers.filter(item => item.implementation === 'Slskd')
-  if (managedIndexers.length > 1) throw new Error('Expected at most one Lidarr slskd indexer')
-  const indexer = {
-    ...indexerSchema,
-    ...(managedIndexers[0]?.id ? { id: managedIndexers[0].id } : {}),
-    name: 'slskd', enableRss: false, enableAutomaticSearch: true, enableInteractiveSearch: true, priority: 1,
-    fields: withFieldValues(indexerSchema.fields, {
-      baseUrl: 'http://slskd:5030/', apiKey: 'needle-test-slskd-api-key',
-    }),
-  }
-  await json(`${lidarr}/api/v1/indexer${indexer.id ? `/${indexer.id}` : ''}`, {
-    method: indexer.id ? 'PUT' : 'POST', headers, body: JSON.stringify(indexer),
-  })
-
-  const delayProfiles = await json(`${lidarr}/api/v1/delayprofile`, { headers })
-  for (const profile of delayProfiles) {
-    const slskdItem = profile.items.find(item => item.protocol === 'SlskdDownloadProtocol')
-    if (slskdItem && !slskdItem.allowed) {
-      await json(`${lidarr}/api/v1/delayprofile/${profile.id}`, { method: 'PUT', headers, body: JSON.stringify({
-        ...profile, items: profile.items.map(item => (
-          item.protocol === 'SlskdDownloadProtocol' ? { ...item, allowed: true } : item
-        )),
-      }) })
-    }
-  }
-
-  const roots = await json(`${lidarr}/api/v1/rootfolder`, { headers })
-  if (!roots.some(root => root.path === '/data/staging')) {
-    const [qualityProfiles, metadataProfiles] = await Promise.all([
-      json(`${lidarr}/api/v1/qualityprofile`, { headers }),
-      json(`${lidarr}/api/v1/metadataprofile`, { headers }),
-    ])
-    if (!qualityProfiles[0]?.id || !metadataProfiles[0]?.id) throw new Error('Lidarr did not create its default profiles')
-    await json(`${lidarr}/api/v1/rootfolder`, { method: 'POST', headers, body: JSON.stringify({
-      path: '/data/staging', name: 'Orb staging',
-      defaultQualityProfileId: qualityProfiles[0].id,
-      defaultMetadataProfileId: metadataProfiles[0].id,
-    }) })
-  }
-}
-
-await Promise.all([bootstrapJellyfin(), bootstrapLidarr()])
-console.log('Jellyfin and Lidarr are configured')
+await bootstrapJellyfin()
+console.log('Jellyfin is configured')
