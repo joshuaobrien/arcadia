@@ -14,6 +14,8 @@ range_result="$(curl -fsS -o /dev/null -w '%{http_code} %{size_download}' \
 [ "$range_result" = '206 64' ]
 curl -fsS "$base_url/api/services/lidarr" \
   | jq -e '.configured == true and .health.state == "available"' >/dev/null
+curl -fsS "$base_url/api/services/slskd" \
+  | jq -e '.configured == true and .health.state == "available"' >/dev/null
 curl -fsS -H 'X-Api-Key: needle-test-lidarr-api-key' 'http://127.0.0.1:8686/api/v1/downloadclient' \
   | jq -e '[.[] | select(.implementation == "Slskd")] as $clients
     | $clients | length == 1

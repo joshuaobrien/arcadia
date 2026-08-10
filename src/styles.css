@@ -197,6 +197,25 @@ main.library-main { width: min(1380px, calc(100% - 32px)); }
 .journey-events strong { font-size: 8px; }
 .journey-events small { margin-top: 4px; overflow: hidden; color: #62665f; font-size: 7px; text-overflow: ellipsis; white-space: nowrap; }
 .journey-events time { color: #60645e; font-size: 7px; text-align: right; }
+.direct-review { margin-bottom: 13px; }
+.direct-review-empty { padding: 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 8px; }
+.direct-candidates { padding: 9px; display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
+.direct-candidates article { min-width: 0; padding: 10px; background: #bdbeb5; border: 1px solid #85877f; }
+.direct-candidates article.rejected { opacity: .72; }
+.direct-candidates article > header { display: flex; justify-content: space-between; gap: 8px; }
+.direct-candidates article > header div { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.direct-candidates article header b { font-size: 8px; }
+.direct-candidates article header code { overflow: hidden; color: #5d615b; font-size: 6px; text-overflow: ellipsis; white-space: nowrap; }
+.direct-candidates article header strong { color: var(--green); font-size: 14px; }
+.direct-candidates article > p { margin: 8px 0; font-size: 7px; }
+.direct-candidates dl { margin: 0 0 8px; padding: 7px; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; background: rgba(255,255,255,.3); }
+.direct-candidates dl div { display: flex; justify-content: space-between; gap: 5px; }
+.direct-candidates dt { color: var(--muted); font-size: 6px; text-transform: uppercase; }
+.direct-candidates dd { margin: 0; font-size: 7px; }
+.direct-candidates details { margin: 8px 0; font-size: 7px; }
+.direct-candidates summary { cursor: pointer; }
+.direct-file { padding: 3px 0; display: flex; justify-content: space-between; gap: 8px; border-bottom: 1px solid #999b92; }
+.direct-file span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .inbox-grid { margin-bottom: 13px; display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; }
 .inbox-card { min-width: 0; padding: 11px; background: var(--surface); border: 1px solid #73756d; box-shadow: inset 1px 1px #f1f0e8, inset -1px -1px #92948b; }
 .inbox-card header { display: flex; justify-content: space-between; gap: 8px; }

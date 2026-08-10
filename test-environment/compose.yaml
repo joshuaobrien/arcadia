@@ -77,6 +77,10 @@ services:
       LIDARR_URL: http://lidarr:8686
       LIDARR_API_KEY: needle-test-lidarr-api-key
       LIDARR_PATH_MAPPINGS: '[{"id":"slsk-downloads","providerPrefix":"/downloads","needlePrefix":"/music_path/inbox"}]'
+      SLSKD_URL: http://slskd:5030
+      SLSKD_API_KEY: needle-test-slskd-api-key
+      SLSKD_DOWNLOADS_ROOT: /downloads
+      SLSKD_PATH_MAPPINGS: '[{"id":"slskd-downloads","providerPrefix":"/downloads","needlePrefix":"/music_path/inbox"}]'
       BEETS_URL: http://beets-flask:5001
       JELLYFIN_URL: http://jellyfin:8096
       TZ: Etc/UTC
@@ -87,6 +91,7 @@ services:
       - "127.0.0.1:${PORT:-8787}:8787"
     depends_on:
       - lidarr
+      - slskd
       - beets-flask
       - jellyfin
     restart: unless-stopped

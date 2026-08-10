@@ -41,6 +41,26 @@ interface BeetsStatus {
   }
 }
 
+type SlskdStatus = LidarrStatus
+
+interface DirectEdition {
+  id: string
+  title?: string
+  date?: string
+  country?: string
+  status?: string
+  label?: string
+  catalogNumber?: string
+  media: { position: number; title?: string; format?: string }[]
+  tracks: { title: string }[]
+}
+
+interface DirectCandidateFile { path: string; name: string; extension: string; size: number; bitRate?: number; length?: number }
+interface DirectCandidateMatch { editionId: string; score: number; reasons: string[]; mappedTracks: number; missingTracks: number; extraTracks: number; rejected: boolean }
+interface DirectCandidate { id: string; peer: string; path: string; audioFiles: DirectCandidateFile[]; metadataFiles: DirectCandidateFile[]; matches: DirectCandidateMatch[]; score: number; autoSelectEligible: boolean }
+interface DirectWorkflow { acquisitionId: string; editions: DirectEdition[]; candidates: DirectCandidate[]; submissionState: 'none' | 'submitting' | 'submitted' | 'submission-unknown'; selectedCandidateId?: string; expectedFileCount: number; error?: string }
+interface DirectCandidatesResponse { workflow: DirectWorkflow; candidates: DirectCandidate[] }
+
 interface BeetsInbox {
   name: string
   providerPath: string
@@ -210,7 +230,7 @@ type JourneyStage = 'requested' | 'queued' | 'downloading' | 'review' | 'importi
 interface JourneyDetailResponse {
   job: AcquisitionJob
   stage: JourneyStage
-  progress?: { percent?: number; bytesTotal?: number; bytesRemaining?: number; etaSeconds?: number }
+  progress?: { percent?: number; bytesTotal?: number; bytesRemaining?: number; etaSeconds?: number; completedFiles?: number; expectedFiles?: number }
   events: { kind: string; label: string; occurredAt: string; detail?: string }[]
   nextAction?: { kind: 'review'; folder: BeetsInboxEntry }
   importOperation?: BeetsImportOperation
@@ -457,7 +477,7 @@ function journeyActivity(item: AcquisitionJob, lidarr: LidarrReadModel): Journey
       queued: { label: 'Queued', className: 'queued', detail: 'Waiting to download' },
       transferring: { label: 'Downloading', className: 'downloading', detail: 'Transfer in progress' },
       importing: { label: 'Importing', className: 'importing', detail: 'Moving into your collection' },
-      completed: { label: 'Collected', className: 'completed', detail: 'Verified in your collection' },
+      completed: item.importRef ? { label: 'Collected', className: 'completed', detail: 'Verified in your collection' } : { label: 'Ready for review', className: 'completed', detail: 'Downloaded · ready for review' },
       failed: { label: 'Failed', className: 'failed', detail: 'Acquisition needs attention' },
       cancelled: { label: 'Cancelled', className: 'cancelled', detail: 'Acquisition was cancelled' },
     }
@@ -777,6 +797,7 @@ type BeetsReadModel = ReturnType<typeof useBeetsReadModel>
 
 function useAcquisitions() {
   const [configured, setConfigured] = useState(false)
+  const [direct, setDirect] = useState(false)
   const [items, setItems] = useState<AcquisitionJob[]>([])
   const [defaults, setDefaults] = useState<AcquisitionDefaults | null | undefined>(undefined)
   const [roots, setRoots] = useState<AcquisitionRoot[]>([])
@@ -793,13 +814,17 @@ function useAcquisitions() {
       setLoading(true)
       setError(null)
       try {
-        const [result, defaultsResult] = await Promise.all([
+        const [result, slskd] = await Promise.all([
           getJson<AcquisitionResponse>('/api/acquisitions', signal),
-          getJson<{ value: AcquisitionDefaults | null }>('/api/acquisition-defaults', signal),
+          getJson<SlskdStatus>('/api/services/slskd', signal).catch(() => null),
         ])
         if (request !== activeRequest.current || signal?.aborted) return
+        const directReady = !!slskd?.configured && slskd.health?.state === 'available'
+        setDirect(directReady)
         setConfigured(result.configured)
         setItems(result.items)
+        if (directReady) { setDefaults(null); setRoots([]); setProfiles([]); return }
+        const defaultsResult = await getJson<{ value: AcquisitionDefaults | null }>('/api/acquisition-defaults', signal)
         setDefaults(defaultsResult.value)
         try {
           const [nextRoots, nextProfiles] = await Promise.all([
@@ -869,6 +894,7 @@ function useAcquisitions() {
 
   return {
     configured,
+    direct,
     items,
     defaults,
     roots,
@@ -1391,6 +1417,10 @@ function AcquisitionSetup({ acquisitions, showConfigured = false }: { acquisitio
   const root = acquisitions.roots.find(item => providerRefKey(item.ref) === rootKey)
   const qualityProfile = qualityProfiles.find(item => providerRefKey(item.ref) === qualityKey)
   const metadataProfile = metadataProfiles.find(item => providerRefKey(item.ref) === metadataKey)
+  if (acquisitions.direct) return showConfigured ? <section className="panel acquisition-setup configured direct">
+    <header><h2>Acquisition path</h2><span>Configured</span></header>
+    <p>MusicBrainz catalog · Soulseek acquisition · beets review</p>
+  </section> : null
   if (acquisitions.defaults === undefined) return null
   if (acquisitions.defaults && !showConfigured) return null
   if (acquisitions.defaults) return <section className="panel acquisition-setup configured">
@@ -2072,6 +2102,32 @@ function useJourneyDetail(id: string) {
   return { detail, error, loading, refresh: () => refresh() }
 }
 
+function DirectCandidateReview({ response, error, busy, onSelect, onRetry }: { response: DirectCandidatesResponse | null; error: string | null; busy: boolean; onSelect: (id: string) => void; onRetry: () => void }) {
+  if (!response) return <section className="panel direct-review"><header><h2>Candidate review</h2><span>Searching</span></header><p className="empty-row">{error ?? 'Loading ranked Soulseek candidates…'}</p></section>
+  const workflow = response.workflow
+  return <section className="panel direct-review">
+    <header><h2>Ranked Soulseek candidates</h2><span>{response.candidates.length}</span></header>
+    {error && <div className="error-strip">{error}</div>}
+    {workflow.submissionState === 'submission-unknown' && <div className="journey-attention"><Radio size={14} /><strong>Transfer submission outcome unknown — do not retry or select again.</strong></div>}
+    {!response.candidates.length && workflow.submissionState === 'none' && <div className="direct-review-empty"><span>{workflow.error ?? 'No candidates found.'}</span><button className="button" disabled={busy} onClick={onRetry}><RefreshCw size={12} /> Retry Search</button></div>}
+    {!!response.candidates.length && workflow.error && workflow.submissionState === 'none' && <div className="direct-review-empty"><span>{workflow.error}</span><button className="button" disabled={busy} onClick={onRetry}><RefreshCw size={12} /> Retry Search</button></div>}
+    <div className="direct-candidates">{response.candidates.slice(0, 8).map((candidate, rank) => {
+      const match = candidate.matches[0]
+      const edition = workflow.editions.find(item => item.id === match?.editionId)
+      const formats = [...new Set(candidate.audioFiles.map(file => file.extension.toUpperCase()))].join(', ')
+      const size = candidate.audioFiles.reduce((sum, file) => sum + file.size, 0)
+      return <article className={match?.rejected ? 'rejected' : ''} key={candidate.id}>
+        <header><div><b>#{rank + 1} · {candidate.peer}</b><code>{candidate.path}</code></div><strong>{match?.score ?? candidate.score}%</strong></header>
+        <p>{[edition?.title, edition?.date, edition?.country, edition?.label, edition?.catalogNumber].filter(Boolean).join(' · ') || 'Unmatched edition'}</p>
+        <dl><div><dt>Audio / expected</dt><dd>{candidate.audioFiles.length} / {edition?.tracks.length ?? '?'}</dd></div><div><dt>Mapped</dt><dd>{match?.mappedTracks ?? 0}</dd></div><div><dt>Missing / extra</dt><dd>{match?.missingTracks ?? 0} / {match?.extraTracks ?? 0}</dd></div><div><dt>Format / size</dt><dd>{formats || '—'} · {formatBytes(size)}</dd></div></dl>
+        <div className="candidate-penalties">{match?.reasons.slice(0, 8).map(reason => <em key={reason}>{reason}</em>)}</div>
+        <details><summary>{candidate.audioFiles.length} audio files{candidate.metadataFiles.length ? ` · ${candidate.metadataFiles.length} other` : ''}</summary>{candidate.audioFiles.slice(0, 20).map(file => <div className="direct-file" key={`${file.path}:${file.size}`}><span>{file.name}</span><code>{formatBytes(file.size)}</code></div>)}{candidate.audioFiles.length > 20 && <small>+ {candidate.audioFiles.length - 20} more files</small>}</details>
+        <button className="button primary" disabled={busy || !!match?.rejected || workflow.submissionState !== 'none'} onClick={() => onSelect(candidate.id)}>{workflow.selectedCandidateId === candidate.id ? 'Selected' : match?.rejected ? 'Rejected' : 'Select candidate'}</button>
+      </article>
+    })}</div>
+  </section>
+}
+
 function JourneyDetailView({ id, beets, library, setView, close }: {
   id: string
   beets: BeetsReadModel
@@ -2081,6 +2137,21 @@ function JourneyDetailView({ id, beets, library, setView, close }: {
 }) {
   const model = useJourneyDetail(id)
   const detail = model.detail
+  const [candidates, setCandidates] = useState<DirectCandidatesResponse | null>(null)
+  const [candidateError, setCandidateError] = useState<string | null>(null)
+  const [candidateBusy, setCandidateBusy] = useState(false)
+  const needsCandidates = !!detail && (detail.job.state === 'selection-required' || detail.job.state === 'failed' || (detail.stage === 'attention' && !detail.importOperation))
+  const loadCandidates = useCallback(async () => {
+    try { setCandidates(await getJson<DirectCandidatesResponse>(`/api/acquisitions/${encodeURIComponent(id)}/candidates`)); setCandidateError(null) }
+    catch (error) { setCandidateError(errorMessage(error)) }
+  }, [id])
+  useEffect(() => { if (needsCandidates) void loadCandidates() }, [needsCandidates, loadCandidates])
+  async function candidateAction(path: string) {
+    setCandidateBusy(true); setCandidateError(null)
+    try { await postJson(path, {}); await Promise.all([loadCandidates(), model.refresh()]) }
+    catch (error) { setCandidateError(errorMessage(error)) }
+    finally { setCandidateBusy(false) }
+  }
   const stages = [
     { id: 'requested', label: 'Requested' },
     { id: 'downloading', label: 'Download' },
@@ -2092,6 +2163,9 @@ function JourneyDetailView({ id, beets, library, setView, close }: {
   const stageIndex = detail?.stage === 'queued' || detail?.stage === 'downloading' ? 1
     : detail?.stage === 'attention' ? Math.max(0, detail.nextAction ? 2 : detail.importOperation ? 3 : 0)
     : Math.max(0, stages.findIndex(stage => stage.id === detail?.stage))
+  const transferPercent = detail?.progress?.bytesTotal ? detail.progress.percent : detail?.progress?.expectedFiles
+    ? Math.round((detail.progress.completedFiles ?? 0) / detail.progress.expectedFiles * 100)
+    : detail?.progress?.percent
 
   return <section>
     <div className="page-heading">
@@ -2108,9 +2182,9 @@ function JourneyDetailView({ id, beets, library, setView, close }: {
           </div>)}
         </div>
         {detail.stage === 'attention' && <div className="journey-attention"><Radio size={16} /><strong>This journey needs attention</strong></div>}
-        {detail.progress?.percent !== undefined && <div className="journey-transfer">
-          <div><strong>{detail.progress.percent}% downloaded</strong><span>{formatBytes(detail.progress.bytesRemaining)} remaining of {formatBytes(detail.progress.bytesTotal)}</span></div>
-          <div className="meter"><i style={{ width: `${detail.progress.percent}%` }} /></div>
+        {detail.progress && (detail.progress.percent !== undefined || detail.progress.expectedFiles !== undefined) && <div className="journey-transfer">
+          <div><strong>{detail.progress.bytesTotal ? `${detail.progress.percent ?? 0}% downloaded` : `${detail.progress.completedFiles ?? 0} of ${detail.progress.expectedFiles ?? '?'} files`}</strong><span>{detail.progress.bytesTotal ? `${formatBytes(detail.progress.bytesRemaining)} remaining of ${formatBytes(detail.progress.bytesTotal)}` : 'File transfer progress'}</span></div>
+          <div className="meter"><i style={{ width: `${transferPercent ?? 0}%` }} /></div>
         </div>}
         <div className="journey-actions">
           {detail.nextAction?.kind === 'review' && <button className="button primary" disabled={beets.workflowState === 'previewing' || beets.workflowState === 'importing'} onClick={() => {
@@ -2125,6 +2199,8 @@ function JourneyDetailView({ id, beets, library, setView, close }: {
           {!detail.nextAction && detail.stage === 'review' && <span>Downloaded music is waiting to be matched with one staged folder.</span>}
         </div>
       </section>
+
+      {needsCandidates && <DirectCandidateReview response={candidates} error={candidateError} busy={candidateBusy} onSelect={candidateId => candidateAction(`/api/acquisitions/${encodeURIComponent(id)}/candidates/${encodeURIComponent(candidateId)}/select`)} onRetry={() => candidateAction(`/api/acquisitions/${encodeURIComponent(id)}/retry`)} />}
 
       {(detail.sources.download !== 'available' || detail.sources.review !== 'available') && <div className="source-strip">
         {detail.sources.download !== 'available' ? `Download activity ${detail.sources.download}` : ''}
