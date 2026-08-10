@@ -2031,14 +2031,6 @@ function JourneyDetailView({ id, beets, library, setView, close }: {
 }) {
   const model = useJourneyDetail(id)
   const detail = model.detail
-  const automaticImportAttempt = useRef<string | null>(null)
-  useEffect(() => {
-    if (!detail?.nextAction || detail.nextAction.kind !== 'review' || beets.workflowState !== 'idle') return
-    const key = `${detail.job.id}:${detail.nextAction.folder.providerPath}:${detail.nextAction.folder.hash}`
-    if (automaticImportAttempt.current === key) return
-    automaticImportAttempt.current = key
-    if (beets.openFolder(detail.nextAction.folder, detail.job.id, true)) setView('imports')
-  }, [beets, detail, setView])
   const stages = [
     { id: 'requested', label: 'Requested' },
     { id: 'downloading', label: 'Download' },
@@ -2145,6 +2137,39 @@ function WantedView({ acquisitions, lidarr, selectedJourneyId, openJourney, clos
   )
 }
 
+function useAutomaticImports(acquisitions: readonly AcquisitionJob[], beets: BeetsReadModel, setView: (view: View) => void) {
+  const attempted = useRef(new Set<string>())
+  useEffect(() => {
+    if (beets.workflowState !== 'idle') return
+    const controller = new AbortController()
+    let timer: number | undefined
+    const inspect = async () => {
+      for (const acquisition of acquisitions.filter(item => item.state === 'wanted')) {
+        if (controller.signal.aborted) return
+        try {
+          const detail = await getJson<JourneyDetailResponse>(`/api/journeys/${encodeURIComponent(acquisition.id)}`, controller.signal)
+          if (!detail.nextAction || detail.nextAction.kind !== 'review') continue
+          const key = `${acquisition.id}:${detail.nextAction.folder.providerPath}:${detail.nextAction.folder.hash}`
+          if (attempted.current.has(key)) continue
+          attempted.current.add(key)
+          if (beets.openFolder(detail.nextAction.folder, acquisition.id, true)) {
+            setView('imports')
+            return
+          }
+        } catch (error) {
+          if (isAbortError(error)) return
+        }
+      }
+      if (!controller.signal.aborted) timer = window.setTimeout(() => { void inspect() }, 15_000)
+    }
+    void inspect()
+    return () => {
+      controller.abort()
+      if (timer !== undefined) window.clearTimeout(timer)
+    }
+  }, [acquisitions, beets, setView])
+}
+
 function App() {
   const [view, setView] = useState<View>('library')
   const [selectedJourneyId, setSelectedJourneyId] = useState<string | null>(null)
@@ -2158,6 +2183,7 @@ function App() {
   const importOperations = useBeetsImportOperations(acquisitions.refresh)
   const beets = useBeetsReadModel(acquisitions.items, acquisitions.refresh)
   const library = useLibrary()
+  useAutomaticImports(acquisitions.items, beets, setView)
   const navigate = (next: View) => {
     if (next !== 'library') library.cancelPending()
     setSelectedJourneyId(null)
