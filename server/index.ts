@@ -3,6 +3,7 @@ import fastifyStatic from '@fastify/static'
 import type { FastifyReply, FastifyServerOptions } from 'fastify'
 import { readdir, statfs } from 'node:fs/promises'
 import { dirname, extname, relative, resolve, sep } from 'node:path'
+import { Readable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { createLidarrAdapterFromEnv } from './integrations/lidarr.js'
 import { createJellyfinAdapterFromEnv } from './integrations/jellyfin.js'
@@ -282,6 +283,7 @@ export function buildApp(options: BuildAppOptions = {}) {
   async function libraryCatalogRoute<T>(
     reply: FastifyReply,
     operation: (adapter: LibraryCatalogPort, context: OperationContext) => Promise<T>,
+    signal?: AbortSignal,
   ): Promise<T | undefined> {
     if (!jellyfin) {
       reply.code(503).send({
@@ -290,8 +292,9 @@ export function buildApp(options: BuildAppOptions = {}) {
       return undefined
     }
     try {
-      return await operation(jellyfin, { operationId: crypto.randomUUID() })
+      return await operation(jellyfin, { operationId: crypto.randomUUID(), signal })
     } catch (error) {
+      if (signal?.aborted) return undefined
       if (!isAdapterError(error)) throw error
       reply.code(error.code === 'not-found' ? 404 : error.code === 'invalid-request' ? 400 : 502)
         .send({ error: error.toJSON() })
@@ -388,6 +391,36 @@ export function buildApp(options: BuildAppOptions = {}) {
     ...(await cachedScan(walkmanPath)),
   }))
   app.get('/api/library', async () => cachedScan(libraryPath))
+  app.get<{ Params: { songId: string } }>('/api/library/songs/:songId/stream', {
+    exposeHeadRoute: false,
+    schema: {
+      params: {
+        type: 'object',
+        required: ['songId'],
+        additionalProperties: false,
+        properties: { songId: { type: 'string', pattern: '^[a-fA-F0-9-]{32,36}$' } },
+      },
+    },
+  }, async (request, reply) => {
+    reply.header('Cache-Control', 'no-store').header('X-Content-Type-Options', 'nosniff')
+    const range = request.headers.range
+    if (range !== undefined && !isSingleByteRange(range)) return reply.code(416).send()
+    const controller = new AbortController()
+    const abort = () => controller.abort()
+    reply.raw.once('close', abort)
+    const audio = await libraryCatalogRoute(reply, (adapter, context) => (
+      adapter.getTrackAudio(request.params.songId, range, context)
+    ), controller.signal)
+    reply.raw.off('close', abort)
+    if (controller.signal.aborted || reply.sent) return
+    if (!audio) return reply.code(404).send()
+    if (audio.contentRange !== undefined) reply.header('Content-Range', audio.contentRange)
+    if (audio.acceptRanges !== undefined) reply.header('Accept-Ranges', audio.acceptRanges)
+    if (audio.status === 416) return reply.code(416).send()
+    reply.code(audio.status).type(audio.contentType)
+    if (audio.contentLength !== undefined) reply.header('Content-Length', audio.contentLength)
+    return reply.send(Readable.fromWeb(audio.body as unknown as Parameters<typeof Readable.fromWeb>[0]))
+  })
   app.get<{ Params: { albumId: string } }>('/api/library/albums/:albumId/artwork', {
     exposeHeadRoute: false,
     schema: {
@@ -1070,6 +1103,12 @@ async function listAllAlbumTracks(adapter: LibraryCatalogPort, albumId: string, 
 
 function hasErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && 'code' in error && error.code === code
+}
+
+function isSingleByteRange(value: string): boolean {
+  const match = /^bytes=(\d*)-(\d*)$/.exec(value)
+  if (!match || (!match[1] && !match[2])) return false
+  return !(match[1] && match[2] && BigInt(match[1]) > BigInt(match[2]))
 }
 
 const isEntryPoint = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
