@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { createRoot } from 'react-dom/client'
-import { Activity, ArrowLeft, Bookmark, Check, Disc3, Grid2X2, LibraryBig, ListMusic, PackageOpen, Pause, Play, Radio, RefreshCw, Search, ShieldCheck, UserRound, Volume2, VolumeX, X } from 'lucide-react'
+import { Activity, ArrowLeft, Bookmark, Check, Cloud, Disc3, Grid2X2, LibraryBig, ListMusic, PackageOpen, Pause, Play, Radio, RefreshCw, Search, ShieldCheck, UserRound, Volume2, VolumeX, X } from 'lucide-react'
 import './styles.css'
 
 interface ProviderRef {
@@ -1192,7 +1192,7 @@ function Sidebar({ view, setView, library, acquisitions }: {
   return (
     <aside className="sidebar">
       <div className="brand">
-        <span className="brand-mark"><Disc3 size={18} /></span>
+        <span className="brand-mark"><Cloud size={22} fill="currentColor" /></span>
         <span>needle<small>your music library</small></span>
       </div>
       <nav aria-label="Primary">
