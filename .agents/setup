@@ -5,10 +5,11 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
 if ! command -v curl >/dev/null 2>&1 || ! command -v ffmpeg >/dev/null 2>&1 \
-  || ! command -v gpg >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+  || ! command -v gpg >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1 \
+  || ! command -v python3 >/dev/null 2>&1 || ! command -v unzip >/dev/null 2>&1; then
   echo "Installing fixture and verification tools"
   sudo apt-get update
-  sudo apt-get install -y ca-certificates curl ffmpeg jq gnupg
+  sudo apt-get install -y ca-certificates curl ffmpeg jq gnupg python3 unzip
 fi
 
 if [ ! -x /usr/bin/node ] || [ "$(/usr/bin/node --version | cut -d. -f1)" != "v24" ]; then

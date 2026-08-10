@@ -141,6 +141,17 @@ test('Jellyfin adapter preserves unsatisfiable audio ranges', async () => {
   })
 })
 
+test('Jellyfin adapter starts a library refresh with API-key authentication', async () => {
+  const adapter = new JellyfinAdapter({ baseUrl: 'http://jellyfin.test:8096', apiKey: 'secret', fetch: async (input, init) => {
+    assert.equal(String(input), 'http://jellyfin.test:8096/Library/Refresh')
+    assert.equal(init?.method, 'POST')
+    assert.equal(new Headers(init?.headers).get('authorization'), 'MediaBrowser Token="secret"')
+    return new Response(null, { status: 204 })
+  } })
+
+  await adapter.refreshLibrary(context)
+})
+
 test('Jellyfin adapter filters cached albums by title or album artist before paging', async () => {
   let requests = 0
   const adapter = new JellyfinAdapter({

@@ -161,6 +161,9 @@ interface AcquisitionJob {
   state: 'wanted' | 'searching' | 'selection-required' | 'queued' | 'transferring' | 'importing' | 'completed' | 'failed' | 'cancelled'
   artist?: string
   release?: string
+  releaseDate?: string
+  releaseType?: string
+  trackCount?: number
   musicBrainzReleaseGroupId?: string
   searchRefs: ProviderRef[]
   importRef?: ProviderRef
@@ -1834,6 +1837,17 @@ function ImportsView({ beets }: { beets: BeetsReadModel }) {
   )
 }
 
+function acquisitionOptionLabel(item: AcquisitionJob): string {
+  const title = `${item.artist ? `${item.artist} — ` : ''}${item.release ?? item.id}`
+  const details = [
+    item.releaseType,
+    item.trackCount ? `${item.trackCount} ${item.trackCount === 1 ? 'track' : 'tracks'}` : undefined,
+    item.releaseDate ? formatReleaseDate(item.releaseDate) : undefined,
+    item.musicBrainzReleaseGroupId ? `RG ${item.musicBrainzReleaseGroupId.slice(0, 8)}` : undefined,
+  ].filter(Boolean)
+  return details.length ? `${title} · ${details.join(' · ')}` : title
+}
+
 function ImportReview({ beets, folder }: { beets: BeetsReadModel; folder: BeetsInboxEntry }) {
   const session = beets.preview
   const allSelected = Boolean(session?.tasks.length) && session!.tasks.every(task => beets.selectedCandidates[task.id])
@@ -1905,7 +1919,7 @@ function ImportReview({ beets, folder }: { beets: BeetsReadModel; folder: BeetsI
             >
               <option value="" disabled>Choose a lifecycle decision</option>
               <option value="__none__">No — this is not tied to a wanted release</option>
-              {beets.wantedAcquisitions.map(item => <option value={item.id} key={item.id}>{item.artist ? `${item.artist} — ` : ''}{item.release ?? item.id}</option>)}
+              {beets.wantedAcquisitions.map(item => <option value={item.id} key={item.id}>{acquisitionOptionLabel(item)}</option>)}
             </select>
           </label>
           <p className="lifecycle-note">Needle cannot safely infer this association from metadata alone. A selected journey moves to importing now and completes only after collection verification.</p>

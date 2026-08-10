@@ -18,8 +18,8 @@ import type { OperationContext } from './integrations/common.js'
 import type { AcquisitionDefaults, AcquisitionJob } from './domain/acquisition.js'
 import { readCanonicalLibrary } from './library.js'
 import type { LibraryInventory } from './library.js'
-import type { LibraryAlbum, LibraryCatalogPort, LibraryCatalogQuery } from './integrations/library-catalog.js'
-import type { BeetsImportChoice, BeetsImportPort, BeetsInboxFolder } from './integrations/beets-import.js'
+import type { LibraryAlbum, LibraryCatalogPort, LibraryCatalogQuery, LibraryCatalogRefreshPort } from './integrations/library-catalog.js'
+import type { BeetsImportChoice, BeetsImportPort, BeetsInboxFolder, BeetsPreviewSession } from './integrations/beets-import.js'
 import { mergeMusicReleases } from './music-releases.js'
 
 const AUDIO_EXTENSIONS = new Set([
@@ -77,7 +77,7 @@ interface BuildAppOptions {
   walkmanPath?: string
   libraryPath?: string
   lidarr?: LidarrReadAdapter | null
-  jellyfin?: LibraryCatalogPort | null
+  jellyfin?: (LibraryCatalogPort & Partial<LibraryCatalogRefreshPort>) | null
   beets?: BeetsImportPort | null
   acquisitionRepository?: AcquisitionRepositoryPort | null
   staticRoot?: string | null
@@ -234,6 +234,9 @@ export function buildApp(options: BuildAppOptions = {}) {
     : options.staticRoot
   const submittedBeetsPreviews = new Set<string>()
   const submittedBeetsImports = new Set<string>()
+  const beetsPreviewSessions = new Map<string, { session: BeetsPreviewSession, cachedAt: number }>()
+  const previewSessionTtlMs = 30 * 60_000
+  const maxPreviewSessions = 100
 
   if (staticRoot) {
     app.register(fastifyStatic, { root: resolve(staticRoot) })
@@ -324,10 +327,12 @@ export function buildApp(options: BuildAppOptions = {}) {
     reply.code(status).send({ error: error.toJSON() })
   }
 
-  function sameOrigin(request: { headers: { origin?: string, host?: string }, protocol: string }, reply: FastifyReply): boolean {
-    if (!request.headers.origin) return true
+  function sameOrigin(request: { headers: { origin?: string, host?: string, 'sec-fetch-site'?: string }, protocol: string }, reply: FastifyReply): boolean {
+    const fetchSite = request.headers['sec-fetch-site']
+    if (fetchSite === 'same-origin') return true
+    if (!fetchSite && !request.headers.origin) return true
     const expected = `${request.protocol}://${request.headers.host}`
-    if (request.headers.origin === expected) return true
+    if (!fetchSite && request.headers.origin === expected) return true
     reply.code(403).send({ error: { code: 'forbidden', message: 'Cross-origin mutation requests are forbidden' } })
     return false
   }
@@ -518,10 +523,31 @@ export function buildApp(options: BuildAppOptions = {}) {
       library,
     }
   })
-  app.get('/api/acquisitions', async () => ({
-    configured: acquisitionRepository !== null,
-    items: acquisitionRepository ? acquisitionRepository.list() : [],
-  }))
+  app.get('/api/acquisitions', async () => {
+    const items = acquisitionRepository ? [...acquisitionRepository.list()] : []
+    if (lidarr) {
+      const ambiguous = items.filter(item => items.some(other => other.id !== item.id
+        && other.artist?.toLowerCase() === item.artist?.toLowerCase()
+        && other.release?.toLowerCase() === item.release?.toLowerCase()))
+      const unresolved = ambiguous.filter(item => !item.releaseType || !item.releaseDate || !item.trackCount)
+      const terms = [...new Set(unresolved.flatMap(item => item.release ? [item.release] : []))]
+      const releases = (await Promise.all(terms.map(async term => {
+        try { return await lidarr.lookupReleases(term, { operationId: crypto.randomUUID() }) }
+        catch { return [] }
+      }))).flat()
+      const byMbid = new Map(releases.flatMap(release => release.musicBrainzReleaseGroupId
+        ? [[release.musicBrainzReleaseGroupId.toLowerCase(), release] as const] : []))
+      for (const item of unresolved) {
+        const release = item.musicBrainzReleaseGroupId && byMbid.get(item.musicBrainzReleaseGroupId.toLowerCase())
+        if (release) Object.assign(item, {
+          ...(release.releaseDate ? { releaseDate: release.releaseDate } : {}),
+          ...(release.releaseType ? { releaseType: release.releaseType } : {}),
+          ...(release.trackCount ? { trackCount: release.trackCount } : {}),
+        })
+      }
+    }
+    return { configured: acquisitionRepository !== null, items }
+  })
   app.get<{ Params: { id: string } }>('/api/journeys/:id', { schema: { params: {
     type: 'object', required: ['id'], additionalProperties: false,
     properties: { id: { type: 'string', minLength: 1, maxLength: 128 } },
@@ -534,10 +560,13 @@ export function buildApp(options: BuildAppOptions = {}) {
 
     const operationId = crypto.randomUUID()
     const download = await journeyDownloadProjection(lidarr, job, { operationId: `${operationId}:download` })
-    const review = await journeyReviewProjection(beets, download.outputs, { operationId: `${operationId}:review` })
+    const review = await journeyReviewProjection(beets, download.outputs, download.downloadRefs, { operationId: `${operationId}:review` })
     const linked = acquisitionRepository.listBeetsImportOperations?.().filter(item => item.acquisitionId === job.id) ?? []
     const importOperation = linked.length === 1 ? linked[0] : undefined
-    const stage = journeyStage(job.state, download.queue, download.history, importOperation)
+    const projectedStage = journeyStage(job.state, download.queue, download.history, importOperation)
+    const stage = !importOperation && review.folder && projectedStage !== 'attention'
+      ? 'review'
+      : projectedStage
     const events = [
       ...download.events,
       { kind: 'journey-created', label: 'Journey started', occurredAt: job.createdAt },
@@ -785,7 +814,19 @@ export function buildApp(options: BuildAppOptions = {}) {
     if (!reply.sent) return reply.code(202).send(acknowledgement)
   })
   app.get<{ Querystring: { providerPath: string, hash: string } }>('/api/imports/preview', { schema: { querystring: folderSchema } }, async (request, reply) => {
-    return beetsRoute(reply, (adapter, context) => adapter.getPreview(request.query, context))
+    const session = await beetsRoute(reply, (adapter, context) => adapter.getPreview(request.query, context))
+    if (!reply.sent && session) {
+      const now = Date.now()
+      for (const [key, cached] of beetsPreviewSessions) {
+        if (cached.cachedAt + previewSessionTtlMs <= now) beetsPreviewSessions.delete(key)
+      }
+      if (beetsPreviewSessions.size >= maxPreviewSessions) {
+        const oldest = beetsPreviewSessions.keys().next().value
+        if (oldest) beetsPreviewSessions.delete(oldest)
+      }
+      beetsPreviewSessions.set(JSON.stringify([request.query.providerPath, request.query.hash]), { session, cachedAt: now })
+    }
+    return session
   })
   app.post<{ Body: { providerPath: string, hash: string, sessionId: string, choices: BeetsImportChoice[], acquisitionId: string | null } }>('/api/imports/import', { schema: { body: {
     type: 'object', required: ['providerPath', 'hash', 'sessionId', 'choices', 'acquisitionId'], additionalProperties: false,
@@ -799,8 +840,15 @@ export function buildApp(options: BuildAppOptions = {}) {
       if (!acquisition || acquisition.state !== 'wanted') return reply.code(409).send({ error: { code: 'conflict', message: 'Selected acquisition does not exist or is not wanted' } })
     }
     if (!await validatedFolder(body.providerPath, body.hash, reply)) return
-    const session = await beetsRoute(reply, (adapter, context) => adapter.getPreview(body, context))
-    if (reply.sent || !session) return
+    const previewKey = JSON.stringify([body.providerPath, body.hash])
+    const cached = beetsPreviewSessions.get(previewKey)
+    if (!cached || cached.cachedAt + previewSessionTtlMs <= Date.now()) {
+      beetsPreviewSessions.delete(previewKey)
+      return reply.code(409).send({ error: {
+      code: 'conflict', message: 'Preview choices are no longer available; refresh the review before importing',
+      } })
+    }
+    const session = cached.session
     const taskIds = new Set(session.tasks.map(task => task.id))
     const selected = new Set<string>()
     const valid = session.progress === 20 && session.id === body.sessionId && session.providerPath === body.providerPath && session.hash === body.hash && body.choices.length === session.tasks.length && body.choices.every(choice => {
@@ -841,6 +889,7 @@ export function buildApp(options: BuildAppOptions = {}) {
       } })
     }
     let acknowledgement
+    beetsPreviewSessions.delete(previewKey)
     try {
       if (!beets) throw new Error('beets-flask is not configured')
       acknowledgement = await beets.enqueueImport(body, { operationId: crypto.randomUUID() })
@@ -886,6 +935,10 @@ export function buildApp(options: BuildAppOptions = {}) {
         && selectionIds.size === operation.selections.length && [...taskIds].every(id => selectionIds.has(id))
         && operation.selections.every(selection => session.tasks.find(task => task.id === selection.taskId)?.chosenCandidateId === selection.candidateId)
       if (!completed) return operation
+      if (jellyfin?.refreshLibrary) {
+        await libraryCatalogRoute(reply, (adapter, context) => (adapter as LibraryCatalogPort & LibraryCatalogRefreshPort).refreshLibrary(context))
+        if (reply.sent) return
+      }
       operation = repository.transitionBeetsImportOperation(operation.id, 'submitted', 'provider-completed')!
       if (operation.state !== 'provider-completed') return operation
     }
@@ -1003,9 +1056,9 @@ function journeyMatches(job: AcquisitionJob, release: CatalogRelease | undefined
 async function journeyDownloadProjection(lidarr: LidarrReadAdapter | null, job: NonNullable<ReturnType<AcquisitionRepository['get']>>, context: OperationContext) {
   const empty: {
     state: SourceState; queue: AcquisitionQueueItem[]; history: AcquisitionHistoryItem[]
-    events: Array<{ kind: string, label: string, occurredAt: string }>; outputs: string[]
+    events: Array<{ kind: string, label: string, occurredAt: string }>; outputs: string[]; downloadRefs: string[]
     progress?: { percent?: number, bytesTotal?: number, bytesRemaining?: number, etaSeconds?: number }
-  } = { state: 'unconfigured', queue: [], history: [], events: [], outputs: [] }
+  } = { state: 'unconfigured', queue: [], history: [], events: [], outputs: [], downloadRefs: [] }
   if (!lidarr) return empty
   try {
     const [allQueue, allHistory] = await Promise.all([
@@ -1025,14 +1078,24 @@ async function journeyDownloadProjection(lidarr: LidarrReadAdapter | null, job: 
     } : undefined
     const outputs = history.flatMap(item => JOURNEY_EVENTS[item.eventType]?.stage === 'review' && item.output?.needlePath
       ? [item.output.needlePath] : [])
+    const hasUnlinkedActiveQueueItem = queue.some(item => item.state !== 'completed' && !item.underlyingDownloadRef)
+    const downloadRefs = hasUnlinkedActiveQueueItem ? [] : [...new Set(history.flatMap(item => {
+      const downloadRef = item.underlyingDownloadRef
+      if (!downloadRef) return []
+      const matchingQueue = queue.filter(queued => queued.underlyingDownloadRef === downloadRef)
+      const latestHistory = history.find(entry => entry.underlyingDownloadRef === downloadRef)
+      const hasActiveTransfer = matchingQueue.some(queued => queued.state !== 'completed')
+      const latestIsAttention = latestHistory && JOURNEY_EVENTS[latestHistory.eventType]?.stage === 'attention'
+      return !hasActiveTransfer && !latestIsAttention ? [downloadRef] : []
+    }))]
     return { state: 'available' as SourceState, queue, history, progress,
-      events: history.map(item => ({ kind: item.eventType, label: JOURNEY_EVENTS[item.eventType].label, occurredAt: item.occurredAt })), outputs }
+      events: history.map(item => ({ kind: item.eventType, label: JOURNEY_EVENTS[item.eventType].label, occurredAt: item.occurredAt })), outputs, downloadRefs }
   } catch {
     return { ...empty, state: 'unavailable' as SourceState }
   }
 }
 
-async function journeyReviewProjection(beets: BeetsImportPort | null, outputs: readonly string[], context: OperationContext) {
+async function journeyReviewProjection(beets: BeetsImportPort | null, outputs: readonly string[], downloadRefs: readonly string[], context: OperationContext) {
   if (!beets) return { state: 'unconfigured' as SourceState }
   try {
     const roots = await beets.listFolders(context)
@@ -1040,7 +1103,9 @@ async function journeyReviewProjection(beets: BeetsImportPort | null, outputs: r
     const visit = (nodes: readonly BeetsInboxFolder[]) => nodes.forEach(node => { if (node.album) albums.push(node); visit(node.children) })
     visit(roots)
     const normalized = new Set(outputs.map(stripTrailingSlash))
-    const matches = albums.filter(folder => normalized.has(stripTrailingSlash(folder.providerPath)))
+    const references = new Set(downloadRefs)
+    const matches = albums.filter(folder => normalized.has(stripTrailingSlash(folder.providerPath))
+      || folder.providerPath.split('/').some(segment => references.has(segment)))
     return { state: 'available' as SourceState, ...(matches.length === 1 ? { folder: matches[0] } : {}) }
   } catch { return { state: 'unavailable' as SourceState } }
 }

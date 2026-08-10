@@ -18,6 +18,43 @@ mkdir -p \
 if [ ! -f "$state/lidarr/config.xml" ]; then
   cp "$root/config/lidarr/config.xml" "$state/lidarr/config.xml"
 fi
+plugin_dir="$state/lidarr/plugins/allquiet-hub/Lidarr.Plugin.Slskd"
+plugin_checksum='da679cbef97e85276f5d6c0bc905dcd1e147bc15ffe5ffdca2c395ec6f7aa66e'
+if [ ! -f "$plugin_dir/Lidarr.Plugin.Slskd.dll" ] \
+  || [ "$(cat "$plugin_dir/.needle-plugin-sha256" 2>/dev/null || true)" != "$plugin_checksum" ]; then
+  plugin_archive="$(mktemp)"
+  mkdir -p "$(dirname "$plugin_dir")"
+  plugin_temp="$(mktemp -d "$state/lidarr/plugins/.slskd.XXXXXX")"
+  trap 'rm -f "$plugin_archive"; rm -rf "$plugin_temp"' EXIT
+  curl -fsSL \
+    'https://github.com/allquiet-hub/Lidarr.Plugin.Slskd/releases/download/v1.1.1.0/Lidarr.Plugin.Slskd.net8.0.zip' \
+    -o "$plugin_archive"
+  printf '%s  %s\n' "$plugin_checksum" "$plugin_archive" \
+    | sha256sum --check --status
+  unzip -q "$plugin_archive" -d "$plugin_temp"
+  printf '%s\n' "$plugin_checksum" > "$plugin_temp/.needle-plugin-sha256"
+  [ -f "$plugin_temp/Lidarr.Plugin.Slskd.dll" ]
+  if [ -e "$plugin_dir" ]; then
+    python3 - "$plugin_temp" "$plugin_dir" <<'PY'
+import ctypes
+import os
+import sys
+
+libc = ctypes.CDLL(None, use_errno=True)
+renameat2 = libc.renameat2
+renameat2.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+renameat2.restype = ctypes.c_int
+if renameat2(-100, os.fsencode(sys.argv[1]), -100, os.fsencode(sys.argv[2]), 2) != 0:
+    error = ctypes.get_errno()
+    raise OSError(error, os.strerror(error))
+PY
+    rm -rf "$plugin_temp"
+  else
+    mv "$plugin_temp" "$plugin_dir"
+  fi
+  rm -f "$plugin_archive"
+  trap - EXIT
+fi
 cp "$root/config/slskd/slskd.yml" "$state/slskd/slskd.yml"
 cp "$root/config/beets/beets/config.yaml" "$state/beets/beets/config.yaml"
 cp "$root/config/beets/beets-flask/config.yaml" "$state/beets/beets-flask/config.yaml"

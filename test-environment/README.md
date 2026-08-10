@@ -1,6 +1,6 @@
 # Production-faithful test environment
 
-This stack runs the real Needle integration boundaries: the plugin-capable Lidarr image, slskd without a VPN, beets-flask with Needle's production import policy, and Jellyfin. It uses portable repository-local state and the same container paths as the home deployment.
+This stack runs the real Needle integration boundaries: plugin-capable Lidarr with the pinned slskd plugin, slskd without a VPN, beets-flask with Needle's production import policy, and Jellyfin. It uses portable repository-local state and the same container paths as the home deployment. Lidarr's completed-download handling is disabled: it discovers and acquires releases but leaves files in the shared inbox for beets-flask to tag and manage. Its view of the canonical music library is read-only.
 
 ## Orb usage
 
@@ -38,7 +38,7 @@ Needle is available on port 8787. Debugging interfaces remain bound to loopback:
 
 ## Reproducibility
 
-`images.env` pins every upstream container to an immutable multi-platform manifest digest, including the plugin-capable Lidarr image. Run `bin/capture-production-images` on the home Docker host and update these values when intentionally adopting different production image bits.
+`images.env` pins every upstream container to an immutable multi-platform manifest digest, including the plugin-capable Lidarr image. `bin/prepare` installs `Lidarr.Plugin.Slskd` 1.1.1.0 from its checksum-verified release archive. Run `bin/capture-production-images` on the home Docker host and update image values when intentionally adopting different production image bits.
 
 Runtime state, generated music, access tokens, and databases are ignored by Git. Test credentials are intentionally local and must never be reused in production.
 

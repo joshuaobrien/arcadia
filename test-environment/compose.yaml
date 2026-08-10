@@ -21,8 +21,8 @@ services:
     init: true
     user: "1000:1000"
     environment:
-      SLSKD_SOULSEEK_USERNAME: ${NEEDLE_TEST_SLSK_USERNAME:-needle-test-offline}
-      SLSKD_SOULSEEK_PASSWORD: ${NEEDLE_TEST_SLSK_PASSWORD:-needle-test-offline}
+      SLSKD_SLSK_USERNAME: ${NEEDLE_TEST_SLSK_USERNAME:-needle-test-offline}
+      SLSKD_SLSK_PASSWORD: ${NEEDLE_TEST_SLSK_PASSWORD:-needle-test-offline}
     volumes:
       - ./state/slskd:/app
       - ./state/downloads:/downloads

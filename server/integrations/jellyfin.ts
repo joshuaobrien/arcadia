@@ -1,6 +1,6 @@
 import type { OperationContext, PageRequest } from './common.js'
 import { AdapterError } from './errors.js'
-import type { LibraryAlbum, LibraryAlbumQuery, LibraryArtist, LibraryArtwork, LibraryAudioResponse, LibraryCatalogPort, LibraryCatalogQuery, LibraryCatalogTrack, LibraryTrackPageRequest } from './library-catalog.js'
+import type { LibraryAlbum, LibraryAlbumQuery, LibraryArtist, LibraryArtwork, LibraryAudioResponse, LibraryCatalogPort, LibraryCatalogQuery, LibraryCatalogRefreshPort, LibraryCatalogTrack, LibraryTrackPageRequest } from './library-catalog.js'
 
 type JsonObject = Record<string, unknown>
 type Fetch = typeof globalThis.fetch
@@ -19,7 +19,7 @@ interface JellyfinPage {
   StartIndex?: number
 }
 
-export class JellyfinAdapter implements LibraryCatalogPort {
+export class JellyfinAdapter implements LibraryCatalogPort, LibraryCatalogRefreshPort {
   readonly #baseUrl: URL
   readonly #apiKey: string
   readonly #fetch: Fetch
@@ -147,6 +147,13 @@ export class JellyfinAdapter implements LibraryCatalogPort {
     }
   }
 
+  async refreshLibrary(context: OperationContext): Promise<void> {
+    const response = await this.#request('Library/Refresh', {}, context, 'application/json', undefined, 'POST')
+    if (!response.ok) throw this.#responseError(response.status)
+    this.#albumsCache = undefined
+    this.#tracksCache.clear()
+  }
+
   async #allAlbums(context: OperationContext, fresh = false): Promise<LibraryAlbum[]> {
     if (fresh) this.#albumsCache = undefined
     if (this.#albumsCache && this.#albumsCache.expiresAt > Date.now()) return this.#albumsCache.value
@@ -216,6 +223,7 @@ export class JellyfinAdapter implements LibraryCatalogPort {
     context: OperationContext,
     accept: string,
     extraHeaders?: Record<string, string>,
+    method = 'GET',
   ): Promise<Response> {
     const url = new URL(path, this.#baseUrl)
     for (const [key, value] of Object.entries(query)) url.searchParams.set(key, String(value))
@@ -225,6 +233,7 @@ export class JellyfinAdapter implements LibraryCatalogPort {
     const signal = context.signal ? AbortSignal.any([context.signal, timeout.signal]) : timeout.signal
     try {
       return await this.#fetch(url, {
+        method,
         signal,
         headers: {
           Accept: accept,

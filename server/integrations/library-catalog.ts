@@ -68,3 +68,7 @@ export interface LibraryCatalogPort {
   getAlbumArtwork(albumId: string, context: OperationContext): Promise<LibraryArtwork | null>
   getTrackAudio(trackId: string, range: string | undefined, context: OperationContext): Promise<LibraryAudioResponse | null>
 }
+
+export interface LibraryCatalogRefreshPort {
+  refreshLibrary(context: OperationContext): Promise<void>
+}

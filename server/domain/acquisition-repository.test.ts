@@ -12,6 +12,9 @@ const release: CatalogRelease = {
   artistRef: { adapterId: 'lidarr', nativeId: 'artist:id:7' },
   artistName: 'Broadcast',
   title: 'Tender Buttons',
+  releaseDate: '2005-09-19T00:00:00Z',
+  releaseType: 'Album',
+  trackCount: 12,
   musicBrainzReleaseGroupId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
 }
 
@@ -37,6 +40,9 @@ test('acquisition repository persists wanted releases and deduplicates provider 
   assert.equal(first.job.state, 'wanted')
   assert.equal(first.job.artist, 'Broadcast')
   assert.equal(first.job.release, 'Tender Buttons')
+  assert.equal(first.job.releaseDate, release.releaseDate)
+  assert.equal(first.job.releaseType, release.releaseType)
+  assert.equal(first.job.trackCount, release.trackCount)
   assert.equal(first.job.musicBrainzReleaseGroupId, release.musicBrainzReleaseGroupId)
 
   const reopened = new AcquisitionRepository(path)
@@ -119,7 +125,7 @@ test('acquisition repository migrates version 1 without changing wanted releases
 
   const migrated = new DatabaseSync(path)
   const version = migrated.prepare('PRAGMA user_version').get() as { user_version: number }
-  assert.equal(version.user_version, 5)
+  assert.equal(version.user_version, 6)
   migrated.close()
 })
 
@@ -129,12 +135,12 @@ test('acquisition repository rejects a database created by a newer schema', asyn
   t.after(() => rm(directory, { recursive: true, force: true }))
 
   const database = new DatabaseSync(path)
-  database.exec('PRAGMA user_version = 6')
+  database.exec('PRAGMA user_version = 7')
   database.close()
 
   assert.throws(
     () => new AcquisitionRepository(path),
-    /database schema 6 is newer than supported schema 5/,
+    /database schema 7 is newer than supported schema 6/,
   )
 })
 
@@ -259,6 +265,6 @@ test('schema version 4 migrates existing acquisitions and import operations to l
   assert.equal(repository.getBeetsImportOperation('operation-v4')?.acquisitionId, undefined)
   repository.close()
   const migrated = new DatabaseSync(path)
-  assert.equal((migrated.prepare('PRAGMA user_version').get() as { user_version: number }).user_version, 5)
+  assert.equal((migrated.prepare('PRAGMA user_version').get() as { user_version: number }).user_version, 6)
   migrated.close()
 })
