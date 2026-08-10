@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { createRoot } from 'react-dom/client'
-import { Activity, ArrowLeft, Bookmark, Check, Disc3, Grid2X2, LibraryBig, ListMusic, PackageOpen, Play, Radio, RefreshCw, Search, ShieldCheck, UserRound, X } from 'lucide-react'
+import { Activity, ArrowLeft, Bookmark, Check, Disc3, Grid2X2, LibraryBig, ListMusic, PackageOpen, Pause, Play, Radio, RefreshCw, Search, ShieldCheck, UserRound, Volume2, VolumeX, X } from 'lucide-react'
 import './styles.css'
 
 interface ProviderRef {
@@ -1079,6 +1079,93 @@ function AlbumArtwork({ album }: { album: LibraryAlbum }) {
   )
 }
 
+function OwnedAlbumCard({ album, library, playTrack, title = album.title, inLibrary = false }: {
+  album: LibraryAlbum
+  library: LibraryModel
+  playTrack: (track: PlayerTrack) => void
+  title?: string
+  inLibrary?: boolean
+}) {
+  const [loadingTrack, setLoadingTrack] = useState(false)
+  const [playError, setPlayError] = useState<string | null>(null)
+
+  async function playAlbum() {
+    setLoadingTrack(true)
+    setPlayError(null)
+    try {
+      const result = await getJson<LibraryPage<LibraryTrack>>(`/api/library/albums/${album.id}/tracks?limit=1`)
+      const track = result.items[0]
+      if (!track?.id) throw new Error('No playable tracks found')
+      playTrack({
+        ...track,
+        id: track.id,
+        title: track.title ?? 'Untitled track',
+        albumId: album.id,
+        album: album.title,
+        albumArtist: album.albumArtist,
+      })
+    } catch (requestError) {
+      setPlayError(errorMessage(requestError))
+    } finally {
+      setLoadingTrack(false)
+    }
+  }
+
+  return <article className={`album-card owned-album-card${inLibrary ? ' release-card' : ''}`}>
+    <button
+      className="album-open"
+      onClick={() => library.openAlbum(album)}
+      disabled={library.openingAlbum !== null}
+      aria-label={`Open ${title} by ${album.albumArtist}`}
+    >
+      <AlbumArtwork album={album} key={`${album.id}:${library.artworkRevision}`} />
+      <strong>{title}</strong>
+      <small>{album.albumArtist}</small>
+      <div className="album-meta"><span>{album.year ?? '—'}</span>{inLibrary ? <span className="release-state present">In library</span> : <span>{album.trackCount ? `${album.trackCount} tracks` : 'Album'}</span>}</div>
+    </button>
+    <button
+      className="album-play"
+      onClick={playAlbum}
+      disabled={loadingTrack}
+      aria-label={`Play ${title} by ${album.albumArtist}`}
+      title={playError ?? `Play ${title}`}
+    >
+      {loadingTrack ? <RefreshCw size={16} className="spinning" /> : <Play size={16} fill="currentColor" />}
+    </button>
+    {playError && <span className="album-play-error" role="status">Playback unavailable</span>}
+  </article>
+}
+
+function AlbumDetailHero({ album, tracks, close, playTrack }: {
+  album: LibraryAlbum
+  tracks: LibraryTrack[]
+  close: () => void
+  playTrack: (track: PlayerTrack) => void
+}) {
+  const [artwork, setArtwork] = useState(album.hasArtwork)
+  const firstPlayable = tracks.find(track => track.id)
+  const artworkUrl = `/api/library/albums/${album.id}/artwork`
+
+  return <section className={`album-detail-hero ${artwork ? 'has-artwork' : ''}`}>
+    {artwork && <img className="album-detail-backdrop" src={artworkUrl} alt="" aria-hidden="true" onError={() => setArtwork(false)} />}
+    <div className="album-detail-cover" aria-hidden="true">
+      {artwork ? <img src={artworkUrl} alt="" onError={() => setArtwork(false)} /> : <Disc3 size={44} />}
+    </div>
+    <div className="album-detail-copy">
+      <p>IN YOUR LIBRARY</p>
+      <h1>{album.title}</h1>
+      <strong>{album.albumArtist}</strong>
+      <span>{[album.year, `${tracks.length} ${tracks.length === 1 ? 'track' : 'tracks'}`].filter(Boolean).join(' · ')}</span>
+      <div className="album-detail-actions">
+        {firstPlayable?.id && <button className="button primary" onClick={() => playTrack({ ...firstPlayable, id: firstPlayable.id!, title: firstPlayable.title ?? 'Untitled track', albumId: album.id, album: album.title, albumArtist: album.albumArtist })}>
+          <Play size={12} fill="currentColor" /> Play album
+        </button>}
+        <button className="button" onClick={close}><ArrowLeft size={13} /> Collection</button>
+      </div>
+    </div>
+  </section>
+}
+
 function needleStatus(library: LibraryModel) {
   if (library.loading) return { label: 'indexing', className: 'degraded' }
   if (library.error) return { label: 'attention', className: 'offline' }
@@ -1351,11 +1438,12 @@ function formatDuration(value?: number): string {
   return `${minutes}:${seconds.toString().padStart(2, '0')}`
 }
 
-function UnifiedReleaseCard({ item, library, acquisitions, libraryAvailable }: {
+function UnifiedReleaseCard({ item, library, acquisitions, libraryAvailable, playTrack }: {
   item: MusicRelease
   library: LibraryModel
   acquisitions: AcquisitionsModel
   libraryAvailable: boolean
+  playTrack: (track: PlayerTrack) => void
 }) {
   const album = item.libraryAlbum
   const release = item.catalogRelease
@@ -1363,14 +1451,7 @@ function UnifiedReleaseCard({ item, library, acquisitions, libraryAvailable }: {
   const wanted = item.state === 'wanted' || acquisition?.state === 'wanted'
 
   if (album) {
-    return (
-      <button className="album-card release-card" onClick={() => library.openAlbum(album)} disabled={library.openingAlbum !== null}>
-        <AlbumArtwork album={album} key={`${album.id}:${library.artworkRevision}`} />
-        <strong>{item.title}</strong>
-        <small>{item.artist}</small>
-        <div className="album-meta"><span>{item.year ?? '—'}</span><span className="release-state present">In library</span></div>
-      </button>
-    )
+    return <OwnedAlbumCard album={album} library={library} playTrack={playTrack} title={item.title} inLibrary />
   }
 
   return (
@@ -1415,6 +1496,7 @@ function ArtistCard({ artist, library }: { artist: LibraryArtist; library: Libra
     </div>
     <strong>{artist.name}</strong>
     <small>{artist.albumCount} {artist.albumCount === 1 ? 'album' : 'albums'}</small>
+    <span className="artist-open"><Disc3 size={11} /> Open discography</span>
   </button>
 }
 
@@ -1452,7 +1534,7 @@ function LibraryView({ library, acquisitions, playTrack }: { library: LibraryMod
 
   return (
     <section>
-      <div className={`page-heading ${browsingCollection ? 'library-heading' : ''}`}>
+      {album ? <AlbumDetailHero album={album} tracks={library.tracks} close={library.closeAlbum} playTrack={playTrack} /> : <div className={`page-heading ${browsingCollection ? 'library-heading' : ''}`}>
         {browsingCollection ? <>
           <div className="library-heading-lead">
             <span className="library-heading-icon">{sectionDetails.icon}</span>
@@ -1470,16 +1552,14 @@ function LibraryView({ library, acquisitions, playTrack }: { library: LibraryMod
           </div>
         </> : <>
           <div>
-            <p>{album ? `${album.albumArtist} / ${library.tracks.length} TRACKS` : 'YOUR LIBRARY + MUSIC CATALOG'}</p>
-            <h1>{album?.title ?? `Results for “${library.activeTerm}”`}</h1>
+            <p>YOUR LIBRARY + MUSIC CATALOG</p>
+            <h1>{`Results for “${library.activeTerm}”`}</h1>
           </div>
-          {album
-            ? <button className="button" onClick={library.closeAlbum}><ArrowLeft size={13} /> Collection</button>
-            : <button className="button" onClick={library.refresh} disabled={library.loading}>
-              <RefreshCw size={13} className={library.loading ? 'spinning' : ''} /> Refresh
-            </button>}
+          <button className="button" onClick={library.refresh} disabled={library.loading}>
+            <RefreshCw size={13} className={library.loading ? 'spinning' : ''} /> Refresh
+          </button>
         </>}
-      </div>
+      </div>}
       {library.error && <div className="error-strip">{library.error}</div>}
       {acquisitions.error && <div className="error-strip">{acquisitions.error}</div>}
       <AcquisitionSetup acquisitions={acquisitions} />
@@ -1515,7 +1595,7 @@ function LibraryView({ library, acquisitions, playTrack }: { library: LibraryMod
                 : <div className="search-groups">
                   {!!searchResult?.artists.length && <section><header className="collection-heading"><h2>Artists</h2><span>{searchResult.artists.length}</span></header><div className="artist-grid compact">{searchResult.artists.map(artist => <ArtistCard artist={artist} library={library} key={artist.name.toLowerCase()} />)}</div></section>}
                   {!!searchResult?.tracks.length && <section><header className="collection-heading"><h2>Songs</h2><span>{searchResult.tracks.length}</span></header><div className="panel song-list">{searchResult.tracks.map(track => <SongRow track={track} library={library} playTrack={playTrack} key={track.id ?? `${track.title}:${track.album}`} />)}</div></section>}
-                  {!!searchResult?.items.length && <section><header className="collection-heading"><h2>Albums</h2><span>{searchResult.items.length}</span></header><div className="album-grid">{searchResult.items.map(item => <UnifiedReleaseCard item={item} library={library} acquisitions={acquisitions} libraryAvailable={searchResult.sources.library === 'available'} key={item.key} />)}</div></section>}
+                  {!!searchResult?.items.length && <section><header className="collection-heading"><h2>Albums</h2><span>{searchResult.items.length}</span></header><div className="album-grid">{searchResult.items.map(item => <UnifiedReleaseCard item={item} library={library} acquisitions={acquisitions} libraryAvailable={searchResult.sources.library === 'available'} playTrack={playTrack} key={item.key} />)}</div></section>}
                 </div>}
               {!library.loading && !resultCount && <div className="panel"><p className="empty-row">No artists, songs, or albums found</p></div>}
             </> : unavailable ? <div className="integration-state">
@@ -1526,12 +1606,7 @@ function LibraryView({ library, acquisitions, playTrack }: { library: LibraryMod
             </div> : library.loading ? <div className="idle-state compact"><Disc3 size={28} className="spinning" /><span>Reading {library.section}</span></div> : <>
               {library.section === 'albums' && <div className="album-grid">
                 {page?.items.map(item => (
-                  <button className="album-card" key={item.id} onClick={() => library.openAlbum(item)} disabled={library.openingAlbum !== null}>
-                    <AlbumArtwork album={item} key={`${item.id}:${library.artworkRevision}`} />
-                    <strong>{item.title}</strong>
-                    <small>{item.albumArtist}</small>
-                    <div className="album-meta"><span>{item.year ?? '—'}</span><span>{item.trackCount ? `${item.trackCount} tracks` : 'Album'}</span></div>
-                  </button>
+                  <OwnedAlbumCard album={item} library={library} playTrack={playTrack} key={item.id} />
                 ))}
               </div>}
               {library.section === 'artists' && <div className="artist-grid">{library.artistPage?.items.map(artist => <ArtistCard artist={artist} library={library} key={artist.name.toLowerCase()} />)}</div>}
@@ -1550,16 +1625,66 @@ function LibraryView({ library, acquisitions, playTrack }: { library: LibraryMod
 
 function PlayerBar({ selection, close }: { selection: PlaybackSelection; close: () => void }) {
   const { track } = selection
+  const audioRef = useRef<HTMLAudioElement>(null)
   const [failed, setFailed] = useState(false)
   const [artwork, setArtwork] = useState(Boolean(track.albumId))
-  useEffect(() => { setFailed(false); setArtwork(Boolean(track.albumId)) }, [selection.requestId, track.id, track.albumId])
-  return <section className="player-bar" aria-label="Now playing">
+  const [playing, setPlaying] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [currentTime, setCurrentTime] = useState(0)
+  const [duration, setDuration] = useState(0)
+  const [volume, setVolume] = useState(1)
+  const [muted, setMuted] = useState(false)
+  useEffect(() => {
+    setFailed(false); setArtwork(Boolean(track.albumId)); setPlaying(false); setLoading(true); setCurrentTime(0); setDuration(0)
+  }, [selection.requestId, track.id, track.albumId])
+
+  const formatPlaybackTime = (seconds: number) => {
+    if (!Number.isFinite(seconds)) return '0:00'
+    const wholeSeconds = Math.max(0, Math.floor(seconds))
+    return `${Math.floor(wholeSeconds / 60)}:${String(wholeSeconds % 60).padStart(2, '0')}`
+  }
+  const togglePlayback = () => {
+    const audio = audioRef.current
+    if (!audio) return
+    if (audio.paused) void audio.play().catch(() => {
+      if (audioRef.current !== audio) return
+      setPlaying(false)
+      setLoading(false)
+    })
+    else audio.pause()
+  }
+  const seek = (value: number) => {
+    if (!audioRef.current) return
+    audioRef.current.currentTime = value
+    setCurrentTime(value)
+  }
+  const changeVolume = (value: number) => {
+    if (!audioRef.current) return
+    audioRef.current.volume = value
+    audioRef.current.muted = false
+    setVolume(value); setMuted(false)
+  }
+  const toggleMute = () => {
+    if (!audioRef.current) return
+    audioRef.current.muted = !audioRef.current.muted
+    setMuted(audioRef.current.muted)
+  }
+  return <section className={`player-bar ${artwork ? 'has-artwork' : ''}`} aria-label="Now playing">
+    {artwork && track.albumId && <img className="player-backdrop" src={`/api/library/albums/${track.albumId}/artwork`} alt="" aria-hidden="true" onError={() => setArtwork(false)} />}
     <div className="player-art">
       {artwork && track.albumId ? <img src={`/api/library/albums/${track.albumId}/artwork`} alt="" onError={() => setArtwork(false)} /> : <Disc3 size={19} />}
     </div>
-    <div className="player-copy"><small>{failed ? 'PLAYBACK UNAVAILABLE' : 'NOW PLAYING'}</small><strong>{track.title}</strong><span>{[track.artists?.join(', '), track.album].filter(Boolean).join(' · ')}</span></div>
-    <audio key={selection.requestId} controls autoPlay preload="metadata" src={`/api/library/songs/${track.id}/stream`} onError={() => setFailed(true)} />
-    <button className="player-close" title="Close player" onClick={close}><X size={14} /></button>
+    <div className="player-copy"><small aria-live="polite">{failed ? 'PLAYBACK UNAVAILABLE' : loading ? 'LOADING AUDIO' : playing ? 'NOW PLAYING' : 'PLAYBACK PAUSED'}</small><strong>{track.title}</strong><span>{[track.artists?.join(', '), track.album].filter(Boolean).join(' · ')}</span></div>
+    <div className="player-controls">
+      <button className="player-control player-play" type="button" aria-label={playing ? 'Pause' : 'Play'} disabled={failed} onClick={togglePlayback}>{playing ? <Pause size={14} /> : <Play size={14} />}</button>
+      <time>{formatPlaybackTime(currentTime)}</time>
+      <input className="player-progress" type="range" min="0" max={duration || 0} step="0.1" value={Math.min(currentTime, duration || 0)} disabled={!duration || failed} aria-label="Seek through track" onChange={event => seek(Number(event.currentTarget.value))} />
+      <time>{formatPlaybackTime(duration)}</time>
+      <button className="player-control" type="button" aria-label={muted ? 'Unmute' : 'Mute'} onClick={toggleMute}>{muted || volume === 0 ? <VolumeX size={14} /> : <Volume2 size={14} />}</button>
+      <input className="player-volume" type="range" min="0" max="1" step="0.05" value={muted ? 0 : volume} aria-label="Volume" onChange={event => changeVolume(Number(event.currentTarget.value))} />
+    </div>
+    <audio ref={audioRef} key={selection.requestId} autoPlay preload="metadata" src={`/api/library/songs/${track.id}/stream`} onLoadStart={() => setLoading(true)} onLoadedMetadata={event => { event.currentTarget.volume = volume; event.currentTarget.muted = muted }} onWaiting={() => setLoading(true)} onCanPlay={() => setLoading(false)} onPlaying={() => { setPlaying(true); setLoading(false) }} onPause={() => setPlaying(false)} onTimeUpdate={event => setCurrentTime(event.currentTarget.currentTime)} onDurationChange={event => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)} onVolumeChange={event => { setVolume(event.currentTarget.volume); setMuted(event.currentTarget.muted) }} onError={() => { setFailed(true); setLoading(false); setPlaying(false) }} />
+    <button className="player-close" type="button" aria-label="Close player" title="Close player" onClick={close}><X size={14} /></button>
   </section>
 }
 
