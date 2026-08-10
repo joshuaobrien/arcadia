@@ -5,7 +5,7 @@ import { DatabaseSync } from 'node:sqlite'
 import type { CatalogRelease } from '../integrations/catalog.js'
 import type { AcquisitionJob, AcquisitionState } from './acquisition.js'
 
-const SCHEMA_VERSION = 7
+const SCHEMA_VERSION = 8
 
 export type DirectSubmissionState = 'none' | 'submitting' | 'submitted' | 'submission-unknown'
 export interface DirectAcquisitionWorkflow {
@@ -13,10 +13,11 @@ export interface DirectAcquisitionWorkflow {
   editions: readonly import('../integrations/musicbrainz.js').ConcreteRelease[]; searchIds: readonly string[]
   selectedCandidateId?: string; selectedEditionId?: string; selectionExplanation?: string
   submissionState: DirectSubmissionState; batchIds: readonly string[]; expectedFileCount: number
+  previewSubmissionState: DirectSubmissionState
   relativeDestination: string; outputProviderPath?: string; outputNeedlePath?: string
   error?: string; createdAt: string; updatedAt: string
 }
-interface DirectRow { acquisition_id: string; candidates_json: string; editions_json: string; search_ids_json: string; selected_candidate_id: string | null; selected_edition_id: string | null; selection_explanation: string | null; submission_state: DirectSubmissionState; batch_ids_json: string; expected_file_count: number; relative_destination: string; output_provider_path: string | null; output_needle_path: string | null; error: string | null; created_at: string; updated_at: string }
+interface DirectRow { acquisition_id: string; candidates_json: string; editions_json: string; search_ids_json: string; selected_candidate_id: string | null; selected_edition_id: string | null; selection_explanation: string | null; submission_state: DirectSubmissionState; preview_submission_state: DirectSubmissionState; batch_ids_json: string; expected_file_count: number; relative_destination: string; output_provider_path: string | null; output_needle_path: string | null; error: string | null; created_at: string; updated_at: string }
 
 export type BeetsImportOperationState = 'submitting' | 'submitted' | 'submission-unknown' | 'provider-completed' | 'library-confirmed'
 export interface BeetsImportSelection {
@@ -92,6 +93,7 @@ export class AcquisitionRepository {
       this.#migrate()
       this.#recoverInterruptedBeetsSubmissions()
       this.#recoverInterruptedDirectSubmissions()
+      this.#recoverInterruptedPreviewSubmissions()
       this.#recoverInterruptedDirectSearches()
     } catch (error) {
       this.#database.close()
@@ -169,7 +171,7 @@ export class AcquisitionRepository {
       const job = this.get(id); if (!job || !['wanted','failed','selection-required'].includes(job.state)) throw new Error('Direct search requires wanted, failed, or selection-required state')
       const current = this.getDirectWorkflow(id); if (current && current.submissionState !== 'none') throw new Error('Cannot search after transfer submission has begun')
       this.#database.prepare(`INSERT INTO direct_acquisitions (acquisition_id,candidates_json,editions_json,search_ids_json,submission_state,batch_ids_json,expected_file_count,relative_destination,created_at,updated_at)
-        VALUES (?,'[]','[]','[]','none','[]',0,?,?,?) ON CONFLICT(acquisition_id) DO UPDATE SET candidates_json='[]', editions_json='[]', search_ids_json='[]', selected_candidate_id=NULL, selected_edition_id=NULL, selection_explanation=NULL, error=NULL, updated_at=excluded.updated_at`).run(id, relativeDestination, now, now)
+        VALUES (?,'[]','[]','[]','none','[]',0,?,?,?) ON CONFLICT(acquisition_id) DO UPDATE SET candidates_json='[]', editions_json='[]', search_ids_json='[]', selected_candidate_id=NULL, selected_edition_id=NULL, selection_explanation=NULL, preview_submission_state='none', error=NULL, updated_at=excluded.updated_at`).run(id, relativeDestination, now, now)
       this.#database.prepare("UPDATE acquisitions SET state='searching', updated_at=? WHERE id=?").run(now,id); this.#database.exec('COMMIT')
     } catch(e){this.#database.exec('ROLLBACK');throw e} return this.getDirectWorkflow(id)!
   }
@@ -185,7 +187,12 @@ export class AcquisitionRepository {
   confirmDirectBatches(id:string,batchIds:readonly string[]):DirectAcquisitionWorkflow { return this.#directSubmissionTransition(id,'submitting','submitted',batchIds) }
   markDirectSubmissionUnknown(id:string,error:string):DirectAcquisitionWorkflow { const now=new Date().toISOString(); this.#database.exec('BEGIN IMMEDIATE'); try { const r=this.#database.prepare("UPDATE direct_acquisitions SET submission_state='submission-unknown',error=?,updated_at=? WHERE acquisition_id=? AND submission_state='submitting'").run(error,now,id); if(r.changes!==1) throw new Error('Direct submission transition guard failed'); this.#database.prepare("UPDATE acquisitions SET state='selection-required',updated_at=? WHERE id=?").run(now,id); this.#database.exec('COMMIT') }catch(e){this.#database.exec('ROLLBACK');throw e} return this.getDirectWorkflow(id)! }
   reconcileDirect(id:string,state:'queued'|'transferring'|'completed'|'failed',error?:string):DirectAcquisitionWorkflow {const now=new Date().toISOString();this.#database.exec('BEGIN IMMEDIATE');try{const r=this.#database.prepare("UPDATE direct_acquisitions SET error=?,updated_at=? WHERE acquisition_id=? AND submission_state='submitted'").run(error??null,now,id);if(r.changes!==1)throw new Error('Direct reconcile transition guard failed');this.#database.prepare("UPDATE acquisitions SET state=?,updated_at=? WHERE id=? AND state IN ('queued','transferring','completed','failed')").run(state,now,id);this.#database.exec('COMMIT')}catch(error){this.#database.exec('ROLLBACK');throw error}return this.getDirectWorkflow(id)!}
+  beginDirectPreview(id:string):DirectAcquisitionWorkflow {return this.#directPreviewTransition(id,'none','submitting',true)}
+  confirmDirectPreview(id:string):DirectAcquisitionWorkflow {return this.#directPreviewTransition(id,'submitting','submitted')}
+  markDirectPreviewUnknown(id:string):DirectAcquisitionWorkflow {return this.#directPreviewTransition(id,'submitting','submission-unknown')}
+  resetDirectPreview(id:string):DirectAcquisitionWorkflow {return this.#directPreviewTransition(id,'submitting','none')}
   resetFailedDirectTransfer(id:string):DirectAcquisitionWorkflow {const now=new Date().toISOString();this.#database.exec('BEGIN IMMEDIATE');try{const r=this.#database.prepare("UPDATE direct_acquisitions SET candidates_json='[]',editions_json='[]',search_ids_json='[]',selected_candidate_id=NULL,selected_edition_id=NULL,selection_explanation=NULL,submission_state='none',batch_ids_json='[]',expected_file_count=0,output_provider_path=NULL,output_needle_path=NULL,error=NULL,updated_at=? WHERE acquisition_id=? AND submission_state='submitted' AND EXISTS(SELECT 1 FROM acquisitions WHERE id=? AND state='failed')").run(now,id,id);if(r.changes!==1)throw new Error('Failed transfer reset guard failed');this.#database.exec('COMMIT')}catch(error){this.#database.exec('ROLLBACK');throw error}return this.getDirectWorkflow(id)!}
+  #directPreviewTransition(id:string,from:DirectSubmissionState,to:DirectSubmissionState,requireCompleted=false){const now=new Date().toISOString();const result=this.#database.prepare(`UPDATE direct_acquisitions SET preview_submission_state=?,updated_at=? WHERE acquisition_id=? AND preview_submission_state=? AND submission_state='submitted'${requireCompleted?" AND EXISTS(SELECT 1 FROM acquisitions WHERE id=? AND state='completed')":''}`).run(...(requireCompleted?[to,now,id,from,id]:[to,now,id,from]));if(result.changes!==1)throw new Error('Direct preview transition guard failed');return this.getDirectWorkflow(id)!}
   #directSubmissionTransition(id:string,from:DirectSubmissionState,to:DirectSubmissionState,batches:readonly string[]){const now=new Date().toISOString();this.#database.exec('BEGIN IMMEDIATE');try{const r=this.#database.prepare('UPDATE direct_acquisitions SET submission_state=?,batch_ids_json=?,updated_at=? WHERE acquisition_id=? AND submission_state=?').run(to,JSON.stringify(batches),now,id,from);if(r.changes!==1)throw new Error('Direct submission transition guard failed');this.#database.prepare("UPDATE acquisitions SET state='queued',updated_at=? WHERE id=? AND state='selection-required'").run(now,id);this.#database.exec('COMMIT')}catch(error){this.#database.exec('ROLLBACK');throw error}return this.getDirectWorkflow(id)!}
 
   createBeetsImportOperation(input: Pick<BeetsImportOperation, 'sessionId' | 'providerPath' | 'hash' | 'selections' | 'acquisitionId'>): { operation: BeetsImportOperation, created: boolean } {
@@ -268,6 +275,7 @@ export class AcquisitionRepository {
       UPDATE beets_import_operations SET state = 'submission-unknown', updated_at = '${now}' WHERE state = 'submitting';`)
   }
   #recoverInterruptedDirectSubmissions():void { const now=new Date().toISOString(); this.#transaction(`UPDATE acquisitions SET state='selection-required',updated_at='${now}' WHERE id IN(SELECT acquisition_id FROM direct_acquisitions WHERE submission_state='submitting'); UPDATE direct_acquisitions SET submission_state='submission-unknown',error='Submission outcome unknown after restart',updated_at='${now}' WHERE submission_state='submitting';`) }
+  #recoverInterruptedPreviewSubmissions():void { const now=new Date().toISOString(); this.#transaction(`UPDATE direct_acquisitions SET preview_submission_state='submission-unknown',updated_at='${now}' WHERE preview_submission_state='submitting';`) }
   #recoverInterruptedDirectSearches():void { const now=new Date().toISOString(); this.#transaction(`UPDATE direct_acquisitions SET error='Search interrupted by restart',updated_at='${now}' WHERE submission_state='none' AND acquisition_id IN(SELECT id FROM acquisitions WHERE state='searching'); UPDATE acquisitions SET state='failed',updated_at='${now}' WHERE state='searching' AND id IN(SELECT acquisition_id FROM direct_acquisitions WHERE submission_state='none');`) }
 
   #migrate(): void {
@@ -367,6 +375,9 @@ export class AcquisitionRepository {
     if (row.user_version < 7) {
       this.#transaction(`CREATE TABLE direct_acquisitions (acquisition_id TEXT PRIMARY KEY REFERENCES acquisitions(id) ON DELETE CASCADE,candidates_json TEXT NOT NULL,editions_json TEXT NOT NULL,search_ids_json TEXT NOT NULL,selected_candidate_id TEXT,selected_edition_id TEXT,selection_explanation TEXT,submission_state TEXT NOT NULL CHECK(submission_state IN('none','submitting','submitted','submission-unknown')),batch_ids_json TEXT NOT NULL,expected_file_count INTEGER NOT NULL,relative_destination TEXT NOT NULL,output_provider_path TEXT,output_needle_path TEXT,error TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL); PRAGMA user_version=7;`)
     }
+    if (row.user_version < 8) {
+      this.#transaction(`ALTER TABLE direct_acquisitions ADD COLUMN preview_submission_state TEXT NOT NULL DEFAULT 'none' CHECK(preview_submission_state IN('none','submitting','submitted','submission-unknown')); PRAGMA user_version=8;`)
+    }
   }
 
   #transaction(sql: string): void {
@@ -381,7 +392,7 @@ export class AcquisitionRepository {
   }
 }
 
-function toDirect(r:DirectRow):DirectAcquisitionWorkflow{return{acquisitionId:r.acquisition_id,candidates:JSON.parse(r.candidates_json),editions:JSON.parse(r.editions_json),searchIds:JSON.parse(r.search_ids_json),...(r.selected_candidate_id?{selectedCandidateId:r.selected_candidate_id}:{}),...(r.selected_edition_id?{selectedEditionId:r.selected_edition_id}:{}),...(r.selection_explanation?{selectionExplanation:r.selection_explanation}:{}),submissionState:r.submission_state,batchIds:JSON.parse(r.batch_ids_json),expectedFileCount:r.expected_file_count,relativeDestination:r.relative_destination,...(r.output_provider_path?{outputProviderPath:r.output_provider_path}:{}),...(r.output_needle_path?{outputNeedlePath:r.output_needle_path}:{}),...(r.error?{error:r.error}:{}),createdAt:r.created_at,updatedAt:r.updated_at}}
+function toDirect(r:DirectRow):DirectAcquisitionWorkflow{return{acquisitionId:r.acquisition_id,candidates:JSON.parse(r.candidates_json),editions:JSON.parse(r.editions_json),searchIds:JSON.parse(r.search_ids_json),...(r.selected_candidate_id?{selectedCandidateId:r.selected_candidate_id}:{}),...(r.selected_edition_id?{selectedEditionId:r.selected_edition_id}:{}),...(r.selection_explanation?{selectionExplanation:r.selection_explanation}:{}),submissionState:r.submission_state,previewSubmissionState:r.preview_submission_state,batchIds:JSON.parse(r.batch_ids_json),expectedFileCount:r.expected_file_count,relativeDestination:r.relative_destination,...(r.output_provider_path?{outputProviderPath:r.output_provider_path}:{}),...(r.output_needle_path?{outputNeedlePath:r.output_needle_path}:{}),...(r.error?{error:r.error}:{}),createdAt:r.created_at,updatedAt:r.updated_at}}
 
 function toBeetsImportOperation(row: BeetsImportOperationRow): BeetsImportOperation {
   return {

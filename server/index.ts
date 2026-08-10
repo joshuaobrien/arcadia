@@ -64,6 +64,10 @@ interface AcquisitionRepositoryPort {
   transitionBeetsImportOperation?: AcquisitionRepository['transitionBeetsImportOperation']
   abortBeetsImportOperation?: AcquisitionRepository['abortBeetsImportOperation']
   getDirectWorkflow?: AcquisitionRepository['getDirectWorkflow']
+  beginDirectPreview?: AcquisitionRepository['beginDirectPreview']
+  confirmDirectPreview?: AcquisitionRepository['confirmDirectPreview']
+  markDirectPreviewUnknown?: AcquisitionRepository['markDirectPreviewUnknown']
+  resetDirectPreview?: AcquisitionRepository['resetDirectPreview']
 }
 
 interface BuildAppOptions {
@@ -325,6 +329,52 @@ export function buildApp(options: BuildAppOptions = {}) {
     return undefined
   }
 
+  async function advanceAutomaticBeetsImport(job: AcquisitionJob, workflow: NonNullable<ReturnType<AcquisitionRepository['getDirectWorkflow']>>, folder: BeetsInboxFolder, context: OperationContext): Promise<void> {
+    if (!beets || !acquisitionRepository?.createBeetsImportOperation || !acquisitionRepository.transitionBeetsImportOperation || !acquisitionRepository.abortBeetsImportOperation
+      || !acquisitionRepository.beginDirectPreview || !acquisitionRepository.confirmDirectPreview || !acquisitionRepository.markDirectPreviewUnknown || !acquisitionRepository.resetDirectPreview) return
+    if (acquisitionRepository.listBeetsImportOperations?.().some(operation => operation.acquisitionId === job.id)) return
+    const selected = workflow.candidates.find(candidate => candidate.id === workflow.selectedCandidateId)
+    const match = selected?.matches.find(candidateMatch => candidateMatch.editionId === workflow.selectedEditionId)
+    if (!workflow.selectionExplanation?.startsWith('Automatic selection:') || !selected?.autoSelectEligible || !match || match.rejected || match.missingTracks > 0 || match.extraTracks > 0) return
+
+    const statuses = await beets.listFolderStatuses({ ...context, operationId: `${context.operationId}:status` })
+    const status = statuses.find(item => item.providerPath === folder.providerPath && item.hash === folder.hash)?.status
+    const previewKey = JSON.stringify([folder.providerPath, folder.hash])
+    if (!status || status === 'not-started') {
+      if (workflow.previewSubmissionState !== 'none' || submittedBeetsPreviews.has(previewKey)) return
+      try { acquisitionRepository.beginDirectPreview(job.id) } catch { return }
+      submittedBeetsPreviews.add(previewKey)
+      try { await beets.enqueuePreview(folder, { ...context, operationId: `${context.operationId}:preview` }); acquisitionRepository.confirmDirectPreview(job.id) }
+      catch (error) {
+        if (isAdapterError(error) && error.providerCode !== 'outcome-unknown') { submittedBeetsPreviews.delete(previewKey); acquisitionRepository.resetDirectPreview(job.id) }
+        else acquisitionRepository.markDirectPreviewUnknown(job.id)
+      }
+      return
+    }
+    if (status !== 'previewed') return
+
+    const session = await beets.getPreview(folder, { ...context, operationId: `${context.operationId}:metadata` })
+    const choices = automaticBeetsChoices(session, job, workflow.expectedFileCount)
+    if (!choices) return
+    const selections: BeetsImportSelection[] = choices.map(choice => {
+      const candidate = session.tasks.find(task => task.id === choice.taskId)!.candidates.find(item => item.id === choice.candidateId)!
+      return { ...choice, ...(candidate.artist ? { artist: candidate.artist } : {}), ...(candidate.album ? { album: candidate.album } : {}),
+        ...(candidate.year !== undefined ? { year: candidate.year } : {}), trackCount: candidate.trackCount }
+    })
+    let created
+    try { created = acquisitionRepository.createBeetsImportOperation({ sessionId: session.id, providerPath: folder.providerPath, hash: folder.hash, selections, acquisitionId: job.id }) }
+    catch (error) { if (error instanceof AcquisitionLinkConflictError) return; throw error }
+    if (!created.created) return
+    try {
+      const acknowledgement = await beets.enqueueImport({ providerPath: folder.providerPath, hash: folder.hash, sessionId: session.id, choices }, { ...context, operationId: `${context.operationId}:import` })
+      const persisted = acquisitionRepository.transitionBeetsImportOperation(created.operation.id, 'submitting', 'submitted', { providerJobId: acknowledgement.jobId })
+      if (!persisted || persisted.state !== 'submitted') acquisitionRepository.transitionBeetsImportOperation(created.operation.id, 'submitting', 'submission-unknown')
+    } catch (error) {
+      if (isAdapterError(error) && error.providerCode !== 'outcome-unknown') acquisitionRepository.abortBeetsImportOperation(created.operation.id)
+      else acquisitionRepository.transitionBeetsImportOperation(created.operation.id, 'submitting', 'submission-unknown')
+    }
+  }
+
   app.get('/api/health', async () => ({ status: 'ok' }))
   app.get('/api/services/slskd', async (_request,reply)=>{if(!slskd)return{configured:false};try{return{configured:true,health:await slskd.probe({operationId:crypto.randomUUID()})}}catch(error){if(!isAdapterError(error))throw error;return reply.code(502).send({error:error.toJSON()})}})
   app.get<{ Querystring: { term: string } }>('/api/music/releases', {
@@ -562,9 +612,14 @@ export function buildApp(options: BuildAppOptions = {}) {
       ? { state: 'available' as SourceState, events: [{ kind: `direct-${currentJob.state}`, label: `Direct acquisition ${currentJob.state}`, occurredAt: directStatus.workflow.updatedAt }], outputs: directOutput ? [directOutput] : [], downloadRefs: [] as string[], ...(directProgress ? { progress: directProgress } : {}) }
       : { state: 'unavailable' as SourceState, events: [{ kind: 'legacy-acquisition-unavailable', label: 'Legacy acquisition progress is unavailable', occurredAt: currentJob.updatedAt }], outputs: [] as string[], downloadRefs: [] as string[] }
     const review = await journeyReviewProjection(beets, download.outputs, download.downloadRefs, { operationId: `${operationId}:review` })
-    const linked = acquisitionRepository.listBeetsImportOperations?.().filter(item => item.acquisitionId === currentJob.id) ?? []
+    if (currentJob.state === 'completed' && directStatus?.workflow && review.folder) {
+      try { await advanceAutomaticBeetsImport(currentJob, directStatus.workflow, review.folder, { operationId: `${operationId}:automatic-import` }) }
+      catch { /* automatic matching is best-effort; manual review remains available */ }
+    }
+    const refreshedJob = acquisitionRepository.get(request.params.id) ?? currentJob
+    const linked = acquisitionRepository.listBeetsImportOperations?.().filter(item => item.acquisitionId === refreshedJob.id) ?? []
     const importOperation = linked.length === 1 ? linked[0] : undefined
-    const projectedStage = journeyStage(currentJob.state, Boolean(directStatus?.workflow), importOperation)
+    const projectedStage = journeyStage(refreshedJob.state, Boolean(directStatus?.workflow), importOperation)
     const stage = !importOperation && review.folder && projectedStage !== 'attention'
       ? 'review'
       : projectedStage
@@ -584,7 +639,7 @@ export function buildApp(options: BuildAppOptions = {}) {
       }] : []),
     ].sort((left, right) => right.occurredAt.localeCompare(left.occurredAt))
     return {
-      job:currentJob,
+      job:refreshedJob,
       stage,
       ...(download.progress ? { progress: download.progress } : {}),
       events,
@@ -922,6 +977,39 @@ function journeyStage(jobState: string, hasDirectWorkflow: boolean, operation?: 
   if (!hasDirectWorkflow) return 'attention'
   return ({ searching: 'queued', queued: 'queued', transferring: 'downloading', 'selection-required': 'attention', importing: 'importing', completed: 'collected', failed: 'attention', cancelled: 'attention' } as Record<string, string>)[jobState] ?? 'requested'
 }
+
+function automaticBeetsChoices(session: BeetsPreviewSession, job: AcquisitionJob, expectedFileCount: number): BeetsImportChoice[] | undefined {
+  if (session.progress !== 20 || !session.tasks.length || !job.artist || !job.release) return undefined
+  const allowedPenalties = new Set(['year', 'media', 'mediums', 'track_title', 'track_artist', 'track_index', 'track_length'])
+  const choices: BeetsImportChoice[] = []
+  let trackCount = 0
+  for (const task of session.tasks) {
+    const eligible = task.candidates.filter(candidate => {
+      if (candidate.kind !== 'candidate' || candidate.distance > 0.05 || candidate.trackCount !== task.items.length) return false
+      if (normalizeMatch(candidate.artist) !== normalizeMatch(job.artist) || normalizeMatch(candidate.album) !== normalizeMatch(job.release)) return false
+      if (candidate.penalties.some(penalty => !allowedPenalties.has(penalty))) return false
+      const mapped = task.items.map((_, index) => candidate.trackMapping[String(index)])
+      return mapped.every(index => Number.isSafeInteger(index) && index >= 0 && index < candidate.tracks.length)
+        && new Set(mapped).size === task.items.length
+    }).sort((left, right) => left.distance - right.distance || left.id.localeCompare(right.id))
+    const selected = eligible[0]
+    if (!selected || eligible.slice(1).some(candidate => !equivalentAutomaticCandidates(selected, candidate))) return undefined
+    choices.push({ taskId: task.id, candidateId: selected.id, duplicateAction: 'skip' })
+    trackCount += task.items.length
+  }
+  if (trackCount !== expectedFileCount || (job.trackCount !== undefined && trackCount !== job.trackCount)) return undefined
+  return choices
+}
+
+function equivalentAutomaticCandidates(left: BeetsPreviewSession['tasks'][number]['candidates'][number], right: BeetsPreviewSession['tasks'][number]['candidates'][number]): boolean {
+  return normalizeMatch(left.artist) === normalizeMatch(right.artist)
+    && normalizeMatch(left.album) === normalizeMatch(right.album)
+    && left.year === right.year
+    && left.trackCount === right.trackCount
+    && left.tracks.every((track, index) => normalizeMatch(track.title) === normalizeMatch(right.tracks[index]?.title))
+}
+
+function normalizeMatch(value?: string): string { return value?.normalize('NFKD').replace(/[^\p{L}\p{N}]+/gu, ' ').trim().toLocaleLowerCase() ?? '' }
 
 async function readProjection<T>(
   configured: boolean,

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import test from 'node:test'
 import { buildApp, scanMediaRoot } from './index.ts'
 import { AcquisitionRepository } from './domain/acquisition-repository.ts'
@@ -240,6 +241,114 @@ test('direct acquisition creates a durable journey and exposes candidates', asyn
   assert.equal(candidates.workflow.submissionState, 'submitted'); assert.equal(candidates.candidates[0].audioFiles.length, 2)
   const journey = (await app.inject({ url: `/api/journeys/${created.json().id}` })).json()
   assert.equal(journey.stage, 'queued'); assert.equal(journey.sources.download, 'available')
+})
+
+async function automaticImportFixture(t, candidateUpdate = candidate => [candidate]) {
+  const directory = await mkdtemp(join(tmpdir(), 'needle-automatic-import-'))
+  const databasePath = join(directory, 'needle.sqlite')
+  const repository = new AcquisitionRepository(databasePath)
+  const files = ['Broadcast\\Tender Buttons\\01 Song 1.flac', 'Broadcast\\Tender Buttons\\02 Song 2.flac']
+  const slskd = {
+    search: async () => ({ searchId: 'search', responses: [{ username: 'peer', files: files.map(filename => ({ filename, size: 1000 })) }] }),
+    submitDownloadBatch: async () => 'batch', rollbackBatches: async () => {},
+    summarizeBatches: async () => ({ state: 'completed', visible: 2, completed: 2, bytesTotal: 2000, bytesTransferred: 2000 }),
+  }
+  const direct = new DirectAcquisitionService(repository, { listReleaseEditions: async () => [{ id: 'edition', media: [{ position: 1, tracks: [] }], tracks: [{ mediumPosition: 1, position: 1, title: 'Song 1' }, { mediumPosition: 1, position: 2, title: 'Song 2' }] }] }, slskd)
+  let status = 'not-started'
+  let journeyId
+  const previewCalls = []
+  const importCalls = []
+  const baseCandidate = {
+    id: 'beets-candidate', kind: 'candidate', artist: '  BROADCAST ', album: 'Tender   Buttons', year: 2005,
+    distance: 0.05, penalties: ['year'], trackCount: 2, duplicateCount: 0,
+    tracks: [{ title: 'Song 1' }, { title: 'Song 2' }], trackMapping: { 0: 0, 1: 1 },
+  }
+  const session = {
+    id: 'automatic-session', providerPath: '', hash: 'automatic-hash', progress: 20,
+    tasks: [{ id: 'automatic-task', currentMetadata: { artist: 'Broadcast', album: 'Tender Buttons' }, items: [{ title: 'Song 1' }, { title: 'Song 2' }], candidates: candidateUpdate(structuredClone(baseCandidate)) }],
+  }
+  const folder = () => ({ name: 'Tender Buttons', providerPath: repository.getDirectWorkflow(journeyId)?.outputNeedlePath, hash: session.hash, album: true, type: 'directory', children: [] })
+  const beets = {
+    listFolders: async () => [folder()], listFolderStatuses: async () => [{ providerPath: folder().providerPath, hash: session.hash, status }],
+    enqueuePreview: async target => { previewCalls.push(target); return { jobId: 'preview-job' } },
+    getPreview: async () => ({ ...session, providerPath: folder().providerPath }),
+    enqueueImport: async request => { importCalls.push(request); return { jobId: 'import-job' } },
+  }
+  const app = buildApp({ acquisitionRepository: repository, directAcquisition: direct, beets, catalog: null, logger: false })
+  t.after(async () => { await app.close(); await rm(directory, { recursive: true, force: true }) })
+  const created = await app.inject({ method: 'POST', url: '/api/acquisitions', payload: { release: {
+    ref: { adapterId: 'musicbrainz', nativeId: 'release-group:mbid:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' },
+    artistRef: { adapterId: 'musicbrainz', nativeId: 'artist:mbid:bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee' },
+    artistName: 'Broadcast', title: 'Tender Buttons', trackCount: 2,
+    musicBrainzReleaseGroupId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+  } } })
+  assert.equal(created.statusCode, 201)
+  journeyId = created.json().id
+  return {
+    app, repository, journeyId, previewCalls, importCalls,
+    setStatus: value => { status = value },
+    markDirectSelectionManual: () => {
+      const database = new DatabaseSync(databasePath)
+      database.prepare("UPDATE direct_acquisitions SET selection_explanation = 'Manually selected; exact match' WHERE acquisition_id = ?").run(journeyId)
+      database.close()
+    },
+    journey: () => app.inject({ url: `/api/journeys/${journeyId}` }),
+  }
+}
+
+test('completed direct journey automatically previews and durably imports one conservative exact match once', async t => {
+  const fixture = await automaticImportFixture(t)
+  const preview = await fixture.journey()
+  assert.equal(preview.statusCode, 200); assert.equal(preview.json().stage, 'review'); assert.equal(fixture.previewCalls.length, 1)
+  await fixture.journey()
+  assert.equal(fixture.previewCalls.length, 1); assert.equal(fixture.importCalls.length, 0)
+
+  fixture.setStatus('previewed')
+  const imported = await fixture.journey()
+  assert.equal(imported.json().stage, 'importing'); assert.equal(fixture.importCalls.length, 1)
+  const operations = fixture.repository.listBeetsImportOperations()
+  assert.equal(operations.length, 1); assert.equal(operations[0].state, 'submitted'); assert.equal(operations[0].acquisitionId, fixture.journeyId)
+  assert.deepEqual(operations[0].selections, [{ taskId: 'automatic-task', candidateId: 'beets-candidate', duplicateAction: 'skip', artist: '  BROADCAST ', album: 'Tender   Buttons', year: 2005, trackCount: 2 }])
+  assert.equal(fixture.repository.get(fixture.journeyId).state, 'importing')
+  await fixture.journey(); await fixture.journey()
+  assert.equal(fixture.importCalls.length, 1); assert.equal(fixture.repository.listBeetsImportOperations().length, 1)
+})
+
+const automaticImportRejections = [
+  ['artist conflict', candidate => [{ ...candidate, artist: 'Another Artist' }]],
+  ['incomplete mapping', candidate => [{ ...candidate, trackMapping: { 0: 0 } }]],
+  ['extra mapping/track count', candidate => [{ ...candidate, trackCount: 3, tracks: [...candidate.tracks, { title: 'Extra' }], trackMapping: { 0: 0, 1: 1, 2: 2 } }]],
+  ['blocking penalty', candidate => [{ ...candidate, penalties: ['missing_tracks'] }]],
+  ['unknown penalty', candidate => [{ ...candidate, penalties: ['unexpected_penalty'] }]],
+  ['distance above five percent', candidate => [{ ...candidate, distance: 0.051 }]],
+  ['materially ambiguous tie', candidate => [candidate, { ...candidate, id: 'different-tied-candidate', tracks: [{ title: 'Different Song' }, candidate.tracks[1]] }]],
+  ['materially different third candidate after two equivalent candidates', candidate => [
+    candidate,
+    { ...candidate, id: 'equivalent-candidate' },
+    { ...candidate, id: 'different-third-candidate', tracks: [{ title: 'Different Song' }, candidate.tracks[1]] },
+  ]],
+]
+
+for (const [reason, update] of automaticImportRejections) {
+  test(`automatic beets import leaves ${reason} for manual review`, async t => {
+    const fixture = await automaticImportFixture(t, update)
+    fixture.setStatus('previewed')
+    const response = await fixture.journey()
+    assert.equal(response.statusCode, 200); assert.equal(response.json().stage, 'review')
+    assert.equal(fixture.importCalls.length, 0); assert.deepEqual(fixture.repository.listBeetsImportOperations(), [])
+    await fixture.journey()
+    assert.equal(fixture.importCalls.length, 0)
+  })
+}
+
+test('automatic beets import does not run for a manually selected eligible Soulseek candidate', async t => {
+  const fixture = await automaticImportFixture(t)
+  fixture.markDirectSelectionManual()
+  const response = await fixture.journey()
+  assert.equal(response.statusCode, 200); assert.equal(response.json().stage, 'review')
+  assert.match(fixture.repository.getDirectWorkflow(fixture.journeyId).selectionExplanation, /^Manually selected/)
+  assert.equal(fixture.previewCalls.length, 0); assert.equal(fixture.importCalls.length, 0)
+  assert.deepEqual(fixture.repository.listBeetsImportOperations(), [])
 })
 
 test('acquisition list enriches jobs by exact MusicBrainz identity', async t => {
