@@ -1084,6 +1084,10 @@ function Sidebar({ view, setView, library, acquisitions }: {
 }) {
   const status = needleStatus(library)
   const incoming = acquisitions.items.filter(item => !['completed', 'failed', 'cancelled'].includes(item.state)).length
+  const openLibrarySection = (section: LibrarySection) => {
+    setView('library')
+    void library.browse(section)
+  }
   return (
     <aside className="sidebar">
       <div className="brand">
@@ -1092,8 +1096,14 @@ function Sidebar({ view, setView, library, acquisitions }: {
       </div>
       <nav aria-label="Primary">
         <small>LIBRARY</small>
-        <button title="Collection" className={view === 'library' ? 'active' : ''} onClick={() => setView('library')}>
-          <LibraryBig size={15} /><span>Collection</span>
+        <button title="Albums" className={view === 'library' && library.section === 'albums' ? 'active' : ''} onClick={() => openLibrarySection('albums')}>
+          <Grid2X2 size={15} /><span>Albums</span>
+        </button>
+        <button title="Artists" className={view === 'library' && library.section === 'artists' ? 'active' : ''} onClick={() => openLibrarySection('artists')}>
+          <UserRound size={15} /><span>Artists</span>
+        </button>
+        <button title="Songs" className={view === 'library' && library.section === 'songs' ? 'active' : ''} onClick={() => openLibrarySection('songs')}>
+          <ListMusic size={15} /><span>Songs</span>
         </button>
         <small>LIBRARY FLOW</small>
         {acquisitions.configured && <button title="Incoming" className={view === 'wanted' ? 'active' : ''} onClick={() => setView('wanted')}>
@@ -1453,11 +1463,6 @@ function LibraryView({ library, acquisitions }: { library: LibraryModel; acquisi
               </article>
             ))}
           </section> : <>
-            {!library.activeTerm && <nav className="library-tabs" aria-label="Browse collection">
-              <button className={library.section === 'albums' ? 'active' : ''} onClick={() => void library.browse('albums')}><Grid2X2 size={13} /> Albums</button>
-              <button className={library.section === 'artists' ? 'active' : ''} onClick={() => void library.browse('artists')}><UserRound size={13} /> Artists</button>
-              <button className={library.section === 'songs' ? 'active' : ''} onClick={() => void library.browse('songs')}><ListMusic size={13} /> Songs</button>
-            </nav>}
             <form className="search-form library-search" onSubmit={library.search}>
               <Search size={17} />
               <input
