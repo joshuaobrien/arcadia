@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { createRoot } from 'react-dom/client'
-import { Activity, ArrowLeft, Bookmark, Check, Disc3, Grid2X2, LibraryBig, ListMusic, PackageOpen, Radio, RefreshCw, Search, ShieldCheck, UserRound } from 'lucide-react'
+import { Activity, ArrowLeft, Bookmark, Check, Disc3, Grid2X2, LibraryBig, ListMusic, PackageOpen, Play, Radio, RefreshCw, Search, ShieldCheck, UserRound, X } from 'lucide-react'
 import './styles.css'
 
 interface ProviderRef {
@@ -228,6 +228,16 @@ interface LibraryTrack {
   codec?: string
   sampleRate?: number
   lossless?: boolean
+}
+
+interface PlayerTrack extends LibraryTrack {
+  id: string
+  title: string
+}
+
+interface PlaybackSelection {
+  track: PlayerTrack
+  requestId: number
 }
 
 interface LibraryAlbum {
@@ -1408,7 +1418,7 @@ function ArtistCard({ artist, library }: { artist: LibraryArtist; library: Libra
   </button>
 }
 
-function SongRow({ track, library }: { track: LibraryTrack; library: LibraryModel }) {
+function SongRow({ track, library, playTrack }: { track: LibraryTrack; library: LibraryModel; playTrack: (track: PlayerTrack) => void }) {
   const openAlbum = () => {
     if (!track.albumId) return
     void library.openAlbum({
@@ -1418,15 +1428,15 @@ function SongRow({ track, library }: { track: LibraryTrack; library: LibraryMode
       hasArtwork: true,
     })
   }
-  return <button className="song-row" disabled={!track.albumId} onClick={openAlbum}>
-    <span className="song-disc"><Disc3 size={16} /></span>
-    <div><strong>{track.title ?? 'Untitled track'}</strong><small>{track.artists?.join(', ') || 'Unknown artist'}</small></div>
+  return <article className="song-row">
+    <button className="song-play" title={`Play ${track.title ?? 'track'}`} disabled={!track.id} onClick={() => track.id && playTrack({ ...track, id: track.id, title: track.title ?? 'Untitled track' })}><Play size={12} fill="currentColor" /></button>
+    <button className="song-copy" disabled={!track.albumId} onClick={openAlbum}><strong>{track.title ?? 'Untitled track'}</strong><small>{track.artists?.join(', ') || 'Unknown artist'}</small></button>
     <span>{track.album ?? 'Unknown album'}</span>
     <time>{formatDuration(track.durationSeconds)}</time>
-  </button>
+  </article>
 }
 
-function LibraryView({ library, acquisitions }: { library: LibraryModel; acquisitions: AcquisitionsModel }) {
+function LibraryView({ library, acquisitions, playTrack }: { library: LibraryModel; acquisitions: AcquisitionsModel; playTrack: (track: PlayerTrack) => void }) {
   const page = library.page
   const currentPage = library.section === 'albums' ? page : library.section === 'artists' ? library.artistPage : library.songPage
   const unavailable = (library.error && !currentPage) || (currentPage && (!currentPage.configured || !currentPage.mounted))
@@ -1456,6 +1466,7 @@ function LibraryView({ library, acquisitions }: { library: LibraryModel; acquisi
             <header><h2>{album.albumArtist}</h2><span>{library.tracks.length} tracks</span></header>
             {library.tracks.map(track => (
               <article className="library-track-row" key={track.id ?? track.relativePath}>
+                <button className="track-play" title={`Play ${track.title ?? 'track'}`} disabled={!track.id} onClick={() => track.id && playTrack({ ...track, id: track.id, title: track.title ?? 'Untitled track', albumId: album.id, album: album.title, albumArtist: album.albumArtist })}><Play size={11} fill="currentColor" /></button>
                 <b>{track.trackNumber ?? '—'}</b>
                 <div><strong>{track.title}</strong><small>{track.artists?.join(', ') ?? track.relativePath}</small></div>
                 <code>{[track.codec ?? track.format ?? 'AUDIO', formatDuration(track.durationSeconds)].join(' · ')}</code>
@@ -1480,7 +1491,7 @@ function LibraryView({ library, acquisitions }: { library: LibraryModel; acquisi
               {library.loading ? <div className="idle-state compact"><Disc3 size={28} className="spinning" /><span>Reading music index</span></div>
                 : <div className="search-groups">
                   {!!searchResult?.artists.length && <section><header className="collection-heading"><h2>Artists</h2><span>{searchResult.artists.length}</span></header><div className="artist-grid compact">{searchResult.artists.map(artist => <ArtistCard artist={artist} library={library} key={artist.name.toLowerCase()} />)}</div></section>}
-                  {!!searchResult?.tracks.length && <section><header className="collection-heading"><h2>Songs</h2><span>{searchResult.tracks.length}</span></header><div className="panel song-list">{searchResult.tracks.map(track => <SongRow track={track} library={library} key={track.id ?? `${track.title}:${track.album}`} />)}</div></section>}
+                  {!!searchResult?.tracks.length && <section><header className="collection-heading"><h2>Songs</h2><span>{searchResult.tracks.length}</span></header><div className="panel song-list">{searchResult.tracks.map(track => <SongRow track={track} library={library} playTrack={playTrack} key={track.id ?? `${track.title}:${track.album}`} />)}</div></section>}
                   {!!searchResult?.items.length && <section><header className="collection-heading"><h2>Albums</h2><span>{searchResult.items.length}</span></header><div className="album-grid">{searchResult.items.map(item => <UnifiedReleaseCard item={item} library={library} acquisitions={acquisitions} libraryAvailable={searchResult.sources.library === 'available'} key={item.key} />)}</div></section>}
                 </div>}
               {!library.loading && !resultCount && <div className="panel"><p className="empty-row">No artists, songs, or albums found</p></div>}
@@ -1501,7 +1512,7 @@ function LibraryView({ library, acquisitions }: { library: LibraryModel; acquisi
                 ))}
               </div>}
               {library.section === 'artists' && <div className="artist-grid">{library.artistPage?.items.map(artist => <ArtistCard artist={artist} library={library} key={artist.name.toLowerCase()} />)}</div>}
-              {library.section === 'songs' && <div className="panel song-list">{library.songPage?.items.map(track => <SongRow track={track} library={library} key={track.id ?? `${track.title}:${track.album}`} />)}</div>}
+              {library.section === 'songs' && <div className="panel song-list">{library.songPage?.items.map(track => <SongRow track={track} library={library} playTrack={playTrack} key={track.id ?? `${track.title}:${track.album}`} />)}</div>}
               {!currentPage?.items.length && <div className="panel"><p className="empty-row">No {library.section} found</p></div>}
               {currentPage?.nextCursor && <footer className="library-footer">
                 <button className="button" disabled={library.loadingMore} onClick={library.loadMore}>
@@ -1512,6 +1523,21 @@ function LibraryView({ library, acquisitions }: { library: LibraryModel; acquisi
           </>}
     </section>
   )
+}
+
+function PlayerBar({ selection, close }: { selection: PlaybackSelection; close: () => void }) {
+  const { track } = selection
+  const [failed, setFailed] = useState(false)
+  const [artwork, setArtwork] = useState(Boolean(track.albumId))
+  useEffect(() => { setFailed(false); setArtwork(Boolean(track.albumId)) }, [selection.requestId, track.id, track.albumId])
+  return <section className="player-bar" aria-label="Now playing">
+    <div className="player-art">
+      {artwork && track.albumId ? <img src={`/api/library/albums/${track.albumId}/artwork`} alt="" onError={() => setArtwork(false)} /> : <Disc3 size={19} />}
+    </div>
+    <div className="player-copy"><small>{failed ? 'PLAYBACK UNAVAILABLE' : 'NOW PLAYING'}</small><strong>{track.title}</strong><span>{[track.artists?.join(', '), track.album].filter(Boolean).join(' · ')}</span></div>
+    <audio key={selection.requestId} controls autoPlay preload="metadata" src={`/api/library/songs/${track.id}/stream`} onError={() => setFailed(true)} />
+    <button className="player-close" title="Close player" onClick={close}><X size={14} /></button>
+  </section>
 }
 
 function QueueRow({ item }: { item: QueueItem }) {
@@ -1897,6 +1923,8 @@ function WantedView({ acquisitions, lidarr, selectedJourneyId, openJourney, clos
 function App() {
   const [view, setView] = useState<View>('library')
   const [selectedJourneyId, setSelectedJourneyId] = useState<string | null>(null)
+  const [playback, setPlayback] = useState<PlaybackSelection | null>(null)
+  const playbackRequest = useRef(0)
   const acquisitions = useAcquisitions()
   const activeJourneyDates = acquisitions.items
     .filter(item => item.state !== 'completed' && item.state !== 'failed' && item.state !== 'cancelled')
@@ -1916,14 +1944,15 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${playback ? 'has-player' : ''}`}>
       <Sidebar view={view} setView={navigate} library={library} acquisitions={acquisitions} />
       <main>
-        {view === 'library' && <LibraryView library={library} acquisitions={acquisitions} />}
+        {view === 'library' && <LibraryView library={library} acquisitions={acquisitions} playTrack={track => setPlayback({ track, requestId: ++playbackRequest.current })} />}
         {view === 'imports' && <ImportsView beets={beets} />}
         {view === 'wanted' && <WantedView acquisitions={acquisitions} lidarr={lidarr} selectedJourneyId={selectedJourneyId} openJourney={openJourney} closeJourney={() => setSelectedJourneyId(null)} beets={beets} library={library} setView={navigate} />}
         {view === 'activity' && <ActivityView lidarr={lidarr} imports={importOperations} sectionNumber={acquisitions.configured ? '04' : '03'} />}
       </main>
+      {playback && <PlayerBar selection={playback} close={() => setPlayback(null)} />}
     </div>
   )
 }

@@ -118,6 +118,53 @@ test('library browser proxies read-only Jellyfin albums, tracks, and artwork', a
   assert.equal(songs.json().items[0].albumId, albumId)
 })
 
+test('song stream API proxies full and ranged streaming responses and rejects malformed ranges', async (t) => {
+  const songId = 'b'.repeat(32)
+  const ranges = []
+  const jellyfin = {
+    getTrackAudio: async (_id, range) => {
+      ranges.push(range)
+      if (range === 'bytes=100-200') return { status: 416, contentRange: 'bytes */10', acceptRanges: 'bytes' }
+      return {
+        status: range ? 206 : 200,
+        contentType: 'audio/flac',
+        contentLength: range ? '4' : '10',
+        ...(range ? { contentRange: 'bytes 2-5/10' } : {}),
+        acceptRanges: 'bytes',
+        body: new Response(range ? '2345' : '0123456789').body,
+      }
+    },
+  }
+  const app = buildApp({ jellyfin, lidarr: null, logger: false })
+  t.after(() => app.close())
+
+  const full = await app.inject({ method: 'GET', url: `/api/library/songs/${songId}/stream` })
+  const partial = await app.inject({ method: 'GET', url: `/api/library/songs/${songId}/stream`, headers: { range: 'bytes=2-5' } })
+  const unsatisfiable = await app.inject({ method: 'GET', url: `/api/library/songs/${songId}/stream`, headers: { range: 'bytes=100-200' } })
+  const malformed = await app.inject({ method: 'GET', url: `/api/library/songs/${songId}/stream`, headers: { range: 'bytes=0-1,4-5' } })
+
+  assert.equal(full.statusCode, 200)
+  assert.equal(full.body, '0123456789')
+  assert.equal(partial.statusCode, 206)
+  assert.equal(partial.body, '2345')
+  assert.equal(partial.headers['content-type'], 'audio/flac')
+  assert.equal(partial.headers['content-range'], 'bytes 2-5/10')
+  assert.equal(partial.headers['accept-ranges'], 'bytes')
+  assert.equal(partial.headers['cache-control'], 'no-store')
+  assert.equal(partial.headers['x-content-type-options'], 'nosniff')
+  assert.equal(unsatisfiable.statusCode, 416)
+  assert.equal(unsatisfiable.headers['content-range'], 'bytes */10')
+  assert.equal(malformed.statusCode, 416)
+  assert.deepEqual(ranges, [undefined, 'bytes=2-5', 'bytes=100-200'])
+})
+
+test('song stream API returns 404 when provider has no track', async (t) => {
+  const app = buildApp({ jellyfin: { getTrackAudio: async () => null }, lidarr: null, logger: false })
+  t.after(() => app.close())
+  const response = await app.inject({ method: 'GET', url: `/api/library/songs/${'b'.repeat(32)}/stream` })
+  assert.equal(response.statusCode, 404)
+})
+
 test('music search combines library, catalog, and wanted state by MusicBrainz identity', async (t) => {
   const musicBrainzReleaseGroupId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
   const wanted = {

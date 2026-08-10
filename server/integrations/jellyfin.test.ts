@@ -99,6 +99,48 @@ test('Jellyfin adapter fetches bounded resized artwork', async () => {
   assert.equal(new TextDecoder().decode(artwork?.data), 'jpeg bytes')
 })
 
+test('Jellyfin adapter streams exact audio and forwards authentication and byte range', async () => {
+  const trackId = 'b'.repeat(32)
+  const adapter = new JellyfinAdapter({
+    baseUrl: 'http://jellyfin.test:8096/root/',
+    apiKey: 'secret-key',
+    fetch: async (input, init) => {
+      const url = new URL(input instanceof Request ? input.url : input)
+      assert.equal(url.toString(), `http://jellyfin.test:8096/root/Audio/${trackId}/stream?static=true`)
+      const headers = init?.headers as Record<string, string>
+      assert.equal(headers.Authorization, 'MediaBrowser Token="secret-key"')
+      assert.equal(headers['X-Needle-Operation-Id'], context.operationId)
+      assert.equal(headers.Range, 'bytes=10-19')
+      assert.equal(url.searchParams.has('api_key'), false)
+      return new Response('audio bytes', { status: 206, headers: {
+        'content-type': 'audio/flac', 'content-length': '11', 'content-range': 'bytes 10-19/100', 'accept-ranges': 'bytes',
+      } })
+    },
+  })
+
+  const audio = await adapter.getTrackAudio(trackId, 'bytes=10-19', context)
+
+  assert.ok(audio && audio.status !== 416)
+  assert.deepEqual({ ...audio, body: undefined }, {
+    status: 206, contentType: 'audio/flac', contentLength: '11', contentRange: 'bytes 10-19/100', acceptRanges: 'bytes', body: undefined,
+  })
+  assert.equal(await new Response(audio.body).text(), 'audio bytes')
+})
+
+test('Jellyfin adapter maps missing audio to null', async () => {
+  const adapter = new JellyfinAdapter({ baseUrl: 'http://jellyfin.test', apiKey: 'key', fetch: async () => new Response(null, { status: 404 }) })
+  assert.equal(await adapter.getTrackAudio('b'.repeat(32), undefined, context), null)
+})
+
+test('Jellyfin adapter preserves unsatisfiable audio ranges', async () => {
+  const adapter = new JellyfinAdapter({ baseUrl: 'http://jellyfin.test', apiKey: 'key', fetch: async () => new Response(null, {
+    status: 416, headers: { 'content-range': 'bytes */10', 'accept-ranges': 'bytes' },
+  }) })
+  assert.deepEqual(await adapter.getTrackAudio('b'.repeat(32), 'bytes=100-200', context), {
+    status: 416, contentRange: 'bytes */10', acceptRanges: 'bytes',
+  })
+})
+
 test('Jellyfin adapter filters cached albums by title or album artist before paging', async () => {
   let requests = 0
   const adapter = new JellyfinAdapter({

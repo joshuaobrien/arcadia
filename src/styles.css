@@ -233,11 +233,11 @@ main { width: min(1160px, calc(100% - 48px)); min-width: 0; margin: 0 auto; padd
 .artist-image img { width: 100%; height: 100%; object-fit: cover; }
 .artist-card strong { width: 100%; overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .artist-card small { margin-top: 5px; color: #60645e; font-size: 7px; }
-.song-row { width: 100%; min-height: 58px; padding: 7px 11px; display: grid; grid-template-columns: 32px minmax(0,1fr) minmax(120px,230px) 75px; align-items: center; gap: 10px; color: inherit; background: transparent; border: 0; border-bottom: 1px solid #96988f; text-align: left; }
+.song-row { width: 100%; min-height: 58px; padding: 7px 11px; display: grid; grid-template-columns: 32px minmax(0,1fr) minmax(120px,230px) 75px; align-items: center; gap: 10px; color: inherit; border-bottom: 1px solid #96988f; }
 .song-row:last-child { border-bottom: 0; }
 .song-row:hover { background: #cecec5; }
-.song-disc { width: 27px; height: 27px; display: grid; place-items: center; color: #dfe4e3; background: conic-gradient(#586f80,#9e9077,#526f67,#816d71,#586f80); border: 1px solid #58605f; border-radius: 50%; }
-.song-row > div { min-width: 0; display: flex; flex-direction: column; }
+.song-play, .track-play { width: 27px; height: 27px; padding: 0; display: grid; place-items: center; color: #dfe4e3; background: var(--blue); border: 1px solid #2a4153; border-radius: 50%; box-shadow: inset 1px 1px #7b8f9f; }
+.song-copy { min-width: 0; padding: 0; display: flex; flex-direction: column; color: inherit; background: transparent; border: 0; text-align: left; }
 .song-row strong, .song-row > span:nth-child(3) { overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .song-row small { margin-top: 4px; overflow: hidden; color: #62665f; font-size: 7px; text-overflow: ellipsis; white-space: nowrap; }
 .song-row > span:nth-child(3), .song-row time { color: #555a54; font-size: 7px; }
@@ -262,7 +262,7 @@ main { width: min(1160px, calc(100% - 48px)); min-width: 0; margin: 0 auto; padd
 .release-state.requestable { color: #42566a; }
 .release-state.unknown { color: #684c50; }
 .release-card .want-button { min-height: 24px; padding-inline: 7px; }
-.library-track-row { min-height: 57px; padding: 7px 11px; display: grid; grid-template-columns: 28px minmax(0,1fr) 150px 72px; align-items: center; gap: 11px; border-bottom: 1px solid #96988f; }
+.library-track-row { min-height: 57px; padding: 7px 11px; display: grid; grid-template-columns: 28px 24px minmax(0,1fr) 150px 72px; align-items: center; gap: 9px; border-bottom: 1px solid #96988f; }
 .library-track-row:last-child { border: 0; }
 .library-track-row > b { color: #59615a; font-size: 8px; font-weight: 500; text-align: center; }
 .library-track-row > div { min-width: 0; display: flex; flex-direction: column; }
@@ -271,12 +271,24 @@ main { width: min(1160px, calc(100% - 48px)); min-width: 0; margin: 0 auto; padd
 .library-track-row code { padding: 3px 5px; color: #384139; background: #b5b6ad; border: 1px solid #85877f; font-size: 6px; text-align: center; }
 .library-track-row > span { color: #555a54; font-size: 7px; text-align: right; }
 .library-footer { padding: 9px; display: flex; justify-content: center; border-top: 1px solid #e8e7df; }
+.has-player main { padding-bottom: 135px; }
+.player-bar { min-height: 76px; padding: 9px 14px; position: fixed; left: 208px; right: 0; bottom: 0; z-index: 4; display: grid; grid-template-columns: 48px minmax(160px,1fr) minmax(280px,500px) 30px; align-items: center; gap: 12px; color: #eff1ed; background: #344b5d; border-top: 1px solid #1f3545; box-shadow: inset 0 1px #75899a, 0 -4px 12px rgba(45,48,44,.2); }
+.player-art { width: 44px; height: 44px; display: grid; place-items: center; overflow: hidden; color: #dce2df; background: conic-gradient(#586f80,#9e9077,#526f67,#816d71,#586f80); border: 1px solid #1f3545; }
+.player-art img { width: 100%; height: 100%; object-fit: cover; }
+.player-copy { min-width: 0; display: flex; flex-direction: column; }
+.player-copy small { color: #acbac3; font-size: 6px; letter-spacing: .1em; }
+.player-copy strong, .player-copy span { margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.player-copy strong { font-size: 9px; }
+.player-copy span { color: #c2cbd0; font-size: 7px; }
+.player-bar audio { width: 100%; height: 32px; }
+.player-close { width: 28px; height: 28px; padding: 0; display: grid; place-items: center; color: #e6e9e5; background: transparent; border: 1px solid #718594; }
 .spinning { animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 @media (max-width: 1040px) {
   .app-shell { grid-template-columns: 178px minmax(0,1fr); }
   .sidebar { padding-inline: 10px; }
+  .player-bar { left: 178px; }
 }
 
 @media (max-width: 820px) {
@@ -310,8 +322,16 @@ main { width: min(1160px, calc(100% - 48px)); min-width: 0; margin: 0 auto; padd
   .artist-grid.compact { grid-template-columns: repeat(3,minmax(0,1fr)); }
   .song-row { grid-template-columns: 32px minmax(0,1fr) 160px 60px; }
   .album-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
-  .library-track-row { grid-template-columns: 28px minmax(0,1fr) 110px; }
+  .library-track-row { grid-template-columns: 28px 24px minmax(0,1fr) 110px; }
   .library-track-row > span { display: none; }
+  .player-bar { left: 62px; }
+}
+
+@media (max-width: 650px) {
+  .has-player main { padding-bottom: 160px; }
+  .player-bar { min-height: 104px; padding: 8px 9px; grid-template-columns: 38px minmax(0,1fr) 28px; gap: 8px; }
+  .player-art { width: 36px; height: 36px; }
+  .player-bar audio { grid-column: 1 / -1; grid-row: 2; }
 }
 
 @media (max-width: 460px) {
@@ -357,6 +377,7 @@ main { width: min(1160px, calc(100% - 48px)); min-width: 0; margin: 0 auto; padd
   .release-card .album-meta { align-items: stretch; flex-direction: column; }
   .release-card .want-button { width: 100%; justify-content: center; }
   .library-track-row { grid-template-columns: 28px minmax(0,1fr); }
+  .library-track-row > b { display: none; }
   .library-track-row code { grid-column: 2; justify-self: start; }
   .library-track-row strong { font-size: 10px; }
   .library-track-row small { font-size: 8px; }

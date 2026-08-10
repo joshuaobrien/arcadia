@@ -35,6 +35,19 @@ export interface LibraryArtwork {
   data: Uint8Array
 }
 
+export type LibraryAudioResponse = {
+  status: 200 | 206
+  contentType: string
+  contentLength?: string
+  contentRange?: string
+  acceptRanges?: string
+  body: ReadableStream<Uint8Array>
+} | {
+  status: 416
+  contentRange?: string
+  acceptRanges?: string
+}
+
 export interface LibraryCatalogQuery extends PageRequest {
   term?: string
   fresh?: boolean
@@ -53,4 +66,5 @@ export interface LibraryCatalogPort {
   listTracks(query: LibraryCatalogQuery, context: OperationContext): Promise<Page<LibraryCatalogTrack> & { total: number }>
   listAlbumTracks(albumId: string, page: LibraryTrackPageRequest, context: OperationContext): Promise<Page<LibraryCatalogTrack> & { total: number }>
   getAlbumArtwork(albumId: string, context: OperationContext): Promise<LibraryArtwork | null>
+  getTrackAudio(trackId: string, range: string | undefined, context: OperationContext): Promise<LibraryAudioResponse | null>
 }

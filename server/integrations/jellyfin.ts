@@ -1,6 +1,6 @@
 import type { OperationContext, PageRequest } from './common.js'
 import { AdapterError } from './errors.js'
-import type { LibraryAlbum, LibraryAlbumQuery, LibraryArtist, LibraryArtwork, LibraryCatalogPort, LibraryCatalogQuery, LibraryCatalogTrack, LibraryTrackPageRequest } from './library-catalog.js'
+import type { LibraryAlbum, LibraryAlbumQuery, LibraryArtist, LibraryArtwork, LibraryAudioResponse, LibraryCatalogPort, LibraryCatalogQuery, LibraryCatalogTrack, LibraryTrackPageRequest } from './library-catalog.js'
 
 type JsonObject = Record<string, unknown>
 type Fetch = typeof globalThis.fetch
@@ -121,6 +121,32 @@ export class JellyfinAdapter implements LibraryCatalogPort {
     return { contentType, data }
   }
 
+  async getTrackAudio(trackId: string, range: string | undefined, context: OperationContext): Promise<LibraryAudioResponse | null> {
+    assertItemId(trackId)
+    if (range !== undefined && !isSingleByteRange(range)) throw new Error('Invalid byte range')
+    const response = await this.#request(`Audio/${trackId}/stream`, { static: 'true' }, context, 'audio/*',
+      range === undefined ? undefined : { Range: range })
+    if (response.status === 404) return null
+    if (response.status === 416) {
+      await response.body?.cancel()
+      return {
+        status: 416,
+        ...optionalHeader(response, 'content-range', 'contentRange'),
+        ...optionalHeader(response, 'accept-ranges', 'acceptRanges'),
+      }
+    }
+    if (response.status !== 200 && response.status !== 206) throw this.#responseError(response.status)
+    if (!response.body) throw this.#responseError(response.status)
+    return {
+      status: response.status,
+      contentType: response.headers.get('content-type') ?? 'application/octet-stream',
+      ...optionalHeader(response, 'content-length', 'contentLength'),
+      ...optionalHeader(response, 'content-range', 'contentRange'),
+      ...optionalHeader(response, 'accept-ranges', 'acceptRanges'),
+      body: response.body,
+    }
+  }
+
   async #allAlbums(context: OperationContext, fresh = false): Promise<LibraryAlbum[]> {
     if (fresh) this.#albumsCache = undefined
     if (this.#albumsCache && this.#albumsCache.expiresAt > Date.now()) return this.#albumsCache.value
@@ -189,11 +215,14 @@ export class JellyfinAdapter implements LibraryCatalogPort {
     query: Record<string, string | number>,
     context: OperationContext,
     accept: string,
+    extraHeaders?: Record<string, string>,
   ): Promise<Response> {
     const url = new URL(path, this.#baseUrl)
     for (const [key, value] of Object.entries(query)) url.searchParams.set(key, String(value))
-    const timeout = AbortSignal.timeout(this.#timeoutMs)
-    const signal = context.signal ? AbortSignal.any([context.signal, timeout]) : timeout
+    const timeout = new AbortController()
+    const timer = setTimeout(() => timeout.abort(), this.#timeoutMs)
+    timer.unref()
+    const signal = context.signal ? AbortSignal.any([context.signal, timeout.signal]) : timeout.signal
     try {
       return await this.#fetch(url, {
         signal,
@@ -201,6 +230,7 @@ export class JellyfinAdapter implements LibraryCatalogPort {
           Accept: accept,
           Authorization: `MediaBrowser Token="${this.#apiKey}"`,
           'X-Needle-Operation-Id': context.operationId,
+          ...extraHeaders,
         },
       })
     } catch (error) {
@@ -210,6 +240,8 @@ export class JellyfinAdapter implements LibraryCatalogPort {
         message: 'Jellyfin is unavailable',
         retryable: true,
       }, { cause: error })
+    } finally {
+      clearTimeout(timer)
     }
   }
 
@@ -222,6 +254,18 @@ export class JellyfinAdapter implements LibraryCatalogPort {
       providerStatus: status,
     })
   }
+}
+
+function isSingleByteRange(value: string): boolean {
+  const match = /^bytes=(\d*)-(\d*)$/.exec(value)
+  if (!match || (!match[1] && !match[2])) return false
+  if (match[1] && match[2] && BigInt(match[1]) > BigInt(match[2])) return false
+  return true
+}
+
+function optionalHeader(response: Response, header: string, property: string): Record<string, string> {
+  const value = response.headers.get(header)
+  return value === null ? {} : { [property]: value }
 }
 
 export function createJellyfinAdapterFromEnv(env: NodeJS.ProcessEnv = process.env): JellyfinAdapter | null {
