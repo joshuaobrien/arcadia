@@ -75,6 +75,47 @@ test('Lidarr release lookup retains the artist display name', async () => {
   assert.equal(release.trackCount, 14)
 })
 
+test('Lidarr lists an uninstalled artist discography by MusicBrainz identity', async () => {
+  const artistId = '6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f'
+  const requests = []
+  const adapter = mockAdapter(async (input, init) => {
+    const url = new URL(input)
+    requests.push({ url, init })
+    assert.equal(url.origin, 'https://musicbrainz.test')
+    assert.equal(url.pathname, '/ws/2/release-group')
+    assert.equal(url.searchParams.get('artist'), artistId)
+    assert.equal(url.searchParams.get('release-group-status'), 'website-default')
+    assert.equal(url.searchParams.get('limit'), '100')
+    return json({
+      'release-group-count': 1,
+      'release-groups': [{
+        id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+        title: 'Future Nostalgia',
+        'primary-type': 'Album',
+        'first-release-date': '2020-03-27',
+      }],
+    })
+  }, { musicBrainzBaseUrl: 'https://musicbrainz.test/ws/2/' })
+
+  const releases = await adapter.listArtistReleases(
+    { adapterId: 'lidarr', nativeId: `artist:mbid:${artistId}` },
+    context,
+  )
+
+  assert.equal(requests.length, 1)
+  assert.equal(requests[0].init.headers['X-Api-Key'], undefined)
+  assert.match(requests[0].init.headers['User-Agent'], /^Needle\//)
+  assert.deepEqual(releases, [{
+    ref: { adapterId: 'lidarr', nativeId: 'album:mbid:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' },
+    artistRef: { adapterId: 'lidarr', nativeId: `artist:mbid:${artistId}` },
+    title: 'Future Nostalgia',
+    releaseDate: '2020-03-27',
+    releaseType: 'Album',
+    musicBrainzReleaseGroupId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+    images: ['https://coverartarchive.org/release-group/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/front-250'],
+  }])
+})
+
 test('Lidarr reuses an installed release by exact MusicBrainz identity', async () => {
   const releaseGroupId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
   const requests = []

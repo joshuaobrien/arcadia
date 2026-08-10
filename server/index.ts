@@ -360,7 +360,7 @@ export function buildApp(options: BuildAppOptions = {}) {
     },
   }, async (request) => {
     const operationId = crypto.randomUUID()
-    const [libraryResult, artistResult, trackResult, catalogResult] = await Promise.all([
+    const [libraryResult, artistResult, trackResult] = await Promise.all([
       readProjection(jellyfin !== null, [], () => listAllMatchingAlbums(
         jellyfin!,
         request.query.term,
@@ -372,12 +372,27 @@ export function buildApp(options: BuildAppOptions = {}) {
       readProjection(typeof jellyfin?.listTracks === 'function', [], async () => (await jellyfin!.listTracks(
         { limit: 12, term: request.query.term }, { operationId: `${operationId}:tracks` },
       )).items),
-      readProjection(lidarr !== null, [], () => lidarr!.lookupReleases(
-        request.query.term,
-        { operationId: `${operationId}:catalog` },
-      )),
     ])
-    const acquisitions = acquisitionRepository?.list() ?? []
+    const catalogResult = await readProjection(lidarr !== null, { releases: [] as readonly CatalogRelease[], exactArtist: undefined as string | undefined }, async () => {
+      const context = { operationId: `${operationId}:catalog` }
+      const artists = await lidarr!.lookupArtists(request.query.term, context)
+      const exactArtists = artists.filter(artist => normalizedSearchText(artist.name) === normalizedSearchText(request.query.term))
+      if (exactArtists.length !== 1) {
+        return { releases: await lidarr!.lookupReleases(request.query.term, context), exactArtist: undefined }
+      }
+      return {
+        releases: (await lidarr!.listArtistReleases(exactArtists[0].ref, context))
+          .map(release => ({ ...release, artistName: exactArtists[0].name })),
+        exactArtist: exactArtists[0].name,
+      }
+    })
+    const exactArtist = catalogResult.value.exactArtist
+    const libraryAlbums = exactArtist
+      ? libraryResult.value.filter(album => normalizedSearchText(album.albumArtist) === normalizedSearchText(exactArtist))
+      : libraryResult.value
+    const acquisitions = (acquisitionRepository?.list() ?? []).filter(acquisition => (
+      !exactArtist || normalizedSearchText(acquisition.artist) === normalizedSearchText(exactArtist)
+    ))
     return {
       sources: {
         library: libraryResult.state,
@@ -386,7 +401,7 @@ export function buildApp(options: BuildAppOptions = {}) {
         catalog: catalogResult.state,
         wanted: acquisitionRepository ? 'available' : 'unconfigured',
       },
-      items: mergeMusicReleases(libraryResult.value, catalogResult.value, acquisitions, request.query.term),
+      items: mergeMusicReleases(libraryAlbums, catalogResult.value.releases, acquisitions, request.query.term),
       artists: artistResult.value,
       tracks: trackResult.value,
     }
@@ -1154,6 +1169,10 @@ async function listAllMatchingAlbums(
     cursor = page.nextCursor
   } while (cursor)
   return items
+}
+
+function normalizedSearchText(value: string | undefined): string {
+  return value?.trim().replace(/\s+/g, ' ').toLocaleLowerCase() ?? ''
 }
 
 async function listAllAlbumTracks(adapter: LibraryCatalogPort, albumId: string, context: OperationContext, fresh = false) {

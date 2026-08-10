@@ -238,6 +238,89 @@ test('music search combines library, catalog, and wanted state by MusicBrainz id
   assert.equal(libraryPages, 2)
 })
 
+test('exact artist search returns that artist discography instead of fuzzy title matches', async (t) => {
+  const artistId = '6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f'
+  let fuzzyReleaseSearches = 0
+  const lidarr = {
+    lookupArtists: async () => [{
+      ref: { adapterId: 'lidarr', nativeId: `artist:mbid:${artistId}` },
+      name: 'Dua Lipa',
+      musicBrainzArtistId: artistId,
+    }],
+    lookupReleases: async () => {
+      fuzzyReleaseSearches += 1
+      return [{
+        ref: { adapterId: 'lidarr', nativeId: 'album:mbid:ffffffff-bbbb-cccc-dddd-eeeeeeeeeeee' },
+        artistRef: { adapterId: 'lidarr', nativeId: 'artist:mbid:eeeeeeee-bbbb-cccc-dddd-eeeeeeeeeeee' },
+        artistName: 'Piano Dreamers',
+        title: 'Piano Dreamers Play Dua Lipa',
+      }]
+    },
+    listArtistReleases: async ref => {
+      assert.deepEqual(ref, { adapterId: 'lidarr', nativeId: `artist:mbid:${artistId}` })
+      return [
+        {
+          ref: { adapterId: 'lidarr', nativeId: 'album:mbid:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' },
+          artistRef: ref,
+          title: 'Houdini',
+          releaseType: 'Single',
+          musicBrainzReleaseGroupId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+        },
+        {
+          ref: { adapterId: 'lidarr', nativeId: 'album:mbid:bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee' },
+          artistRef: ref,
+          title: 'Future Nostalgia',
+          releaseType: 'Album',
+          musicBrainzReleaseGroupId: 'bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee',
+        },
+      ]
+    },
+  }
+  const jellyfin = {
+    listAlbums: async () => ({ items: [
+      { id: 'a'.repeat(32), title: 'Dua Lipa Tribute', albumArtist: 'Other Artist' },
+    ], total: 1 }),
+    listArtists: async () => ({ items: [], total: 0 }),
+    listTracks: async () => ({ items: [], total: 0 }),
+  }
+  const app = buildApp({ jellyfin, lidarr, logger: false })
+  t.after(() => app.close())
+
+  const response = await app.inject({ method: 'GET', url: '/api/music/releases?term=%20DUA%20%20LIPA%20' })
+
+  assert.equal(response.statusCode, 200)
+  assert.equal(fuzzyReleaseSearches, 0)
+  assert.deepEqual(response.json().items.map(item => [item.artist, item.title]), [
+    ['Dua Lipa', 'Future Nostalgia'],
+    ['Dua Lipa', 'Houdini'],
+  ])
+})
+
+test('music search keeps fuzzy release lookup when artist identity is ambiguous', async (t) => {
+  let discographySearches = 0
+  const lidarr = {
+    lookupArtists: async () => [
+      { ref: { adapterId: 'lidarr', nativeId: 'artist:mbid:a' }, name: 'Same Name' },
+      { ref: { adapterId: 'lidarr', nativeId: 'artist:mbid:b' }, name: 'Same Name' },
+    ],
+    lookupReleases: async () => [{
+      ref: { adapterId: 'lidarr', nativeId: 'album:mbid:c' },
+      artistRef: { adapterId: 'lidarr', nativeId: 'artist:mbid:a' },
+      artistName: 'Same Name',
+      title: 'A Release',
+    }],
+    listArtistReleases: async () => { discographySearches += 1; return [] },
+  }
+  const app = buildApp({ jellyfin: null, lidarr, logger: false })
+  t.after(() => app.close())
+
+  const response = await app.inject({ method: 'GET', url: '/api/music/releases?term=Same%20Name' })
+
+  assert.equal(response.statusCode, 200)
+  assert.equal(discographySearches, 0)
+  assert.equal(response.json().items[0].title, 'A Release')
+})
+
 test('Lidarr API reports an unconfigured adapter without making a request', async (t) => {
   const app = buildApp({ lidarr: null, logger: false })
   t.after(() => app.close())
