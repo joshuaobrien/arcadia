@@ -1143,7 +1143,7 @@ function AlbumDetailHero({ album, tracks, close, playTrack }: {
   playTrack: (track: PlayerTrack) => void
 }) {
   const [artwork, setArtwork] = useState(album.hasArtwork)
-  const firstPlayable = tracks.find((track): track is PlayerTrack => Boolean(track.id && track.title))
+  const firstPlayable = tracks.find(track => track.id)
   const artworkUrl = `/api/library/albums/${album.id}/artwork`
 
   return <section className={`album-detail-hero ${artwork ? 'has-artwork' : ''}`}>
@@ -1157,7 +1157,7 @@ function AlbumDetailHero({ album, tracks, close, playTrack }: {
       <strong>{album.albumArtist}</strong>
       <span>{[album.year, `${tracks.length} ${tracks.length === 1 ? 'track' : 'tracks'}`].filter(Boolean).join(' · ')}</span>
       <div className="album-detail-actions">
-        {firstPlayable && <button className="button primary" onClick={() => playTrack({ ...firstPlayable, albumId: album.id, album: album.title, albumArtist: album.albumArtist })}>
+        {firstPlayable?.id && <button className="button primary" onClick={() => playTrack({ ...firstPlayable, id: firstPlayable.id!, title: firstPlayable.title ?? 'Untitled track', albumId: album.id, album: album.title, albumArtist: album.albumArtist })}>
           <Play size={12} fill="currentColor" /> Play album
         </button>}
         <button className="button" onClick={close}><ArrowLeft size={13} /> Collection</button>
@@ -1646,7 +1646,11 @@ function PlayerBar({ selection, close }: { selection: PlaybackSelection; close: 
   const togglePlayback = () => {
     const audio = audioRef.current
     if (!audio) return
-    if (audio.paused) void audio.play().catch(() => setFailed(true))
+    if (audio.paused) void audio.play().catch(() => {
+      if (audioRef.current !== audio) return
+      setPlaying(false)
+      setLoading(false)
+    })
     else audio.pause()
   }
   const seek = (value: number) => {
@@ -1679,7 +1683,7 @@ function PlayerBar({ selection, close }: { selection: PlaybackSelection; close: 
       <button className="player-control" type="button" aria-label={muted ? 'Unmute' : 'Mute'} onClick={toggleMute}>{muted || volume === 0 ? <VolumeX size={14} /> : <Volume2 size={14} />}</button>
       <input className="player-volume" type="range" min="0" max="1" step="0.05" value={muted ? 0 : volume} aria-label="Volume" onChange={event => changeVolume(Number(event.currentTarget.value))} />
     </div>
-    <audio ref={audioRef} key={selection.requestId} autoPlay preload="metadata" src={`/api/library/songs/${track.id}/stream`} onLoadStart={() => setLoading(true)} onWaiting={() => setLoading(true)} onCanPlay={() => setLoading(false)} onPlaying={() => { setPlaying(true); setLoading(false) }} onPause={() => setPlaying(false)} onTimeUpdate={event => setCurrentTime(event.currentTarget.currentTime)} onDurationChange={event => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)} onVolumeChange={event => { setVolume(event.currentTarget.volume); setMuted(event.currentTarget.muted) }} onError={() => { setFailed(true); setLoading(false); setPlaying(false) }} />
+    <audio ref={audioRef} key={selection.requestId} autoPlay preload="metadata" src={`/api/library/songs/${track.id}/stream`} onLoadStart={() => setLoading(true)} onLoadedMetadata={event => { event.currentTarget.volume = volume; event.currentTarget.muted = muted }} onWaiting={() => setLoading(true)} onCanPlay={() => setLoading(false)} onPlaying={() => { setPlaying(true); setLoading(false) }} onPause={() => setPlaying(false)} onTimeUpdate={event => setCurrentTime(event.currentTarget.currentTime)} onDurationChange={event => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)} onVolumeChange={event => { setVolume(event.currentTarget.volume); setMuted(event.currentTarget.muted) }} onError={() => { setFailed(true); setLoading(false); setPlaying(false) }} />
     <button className="player-close" type="button" aria-label="Close player" title="Close player" onClick={close}><X size={14} /></button>
   </section>
 }

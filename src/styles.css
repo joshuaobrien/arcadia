@@ -463,7 +463,8 @@ main.library-main { width: min(1380px, calc(100% - 32px)); }
 }
 
 @media (max-width: 350px) {
-  .album-case { width: 96px; height: 96px; }
+  .album-case { width: 94px; height: 94px; }
+  .album-play { top: 76px; }
   .album-card { min-height: 200px; }
   .artist-image { width: 88px; height: 88px; }
 }
