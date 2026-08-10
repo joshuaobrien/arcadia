@@ -1534,12 +1534,28 @@ function SongRow({ track, library, playTrack }: { track: LibraryTrack; library: 
   </article>
 }
 
+function groupSearchReleases(items: readonly MusicRelease[]) {
+  const groups = [
+    { type: 'album', label: 'Albums', items: [] as MusicRelease[] },
+    { type: 'ep', label: 'EPs', items: [] as MusicRelease[] },
+    { type: 'single', label: 'Singles', items: [] as MusicRelease[] },
+    { type: 'other', label: 'Other releases', items: [] as MusicRelease[] },
+  ]
+  for (const item of items) {
+    const type = item.libraryAlbum ? 'album' : item.catalogRelease?.releaseType?.trim().toLowerCase()
+    const group = groups.find(candidate => candidate.type === type) ?? groups[3]
+    group.items.push(item)
+  }
+  return groups.filter(group => group.items.length > 0)
+}
+
 function LibraryView({ library, acquisitions, playTrack }: { library: LibraryModel; acquisitions: AcquisitionsModel; playTrack: (track: PlayerTrack) => void }) {
   const page = library.page
   const currentPage = library.section === 'albums' ? page : library.section === 'artists' ? library.artistPage : library.songPage
   const unavailable = (library.error && !currentPage) || (currentPage && (!currentPage.configured || !currentPage.mounted))
   const album = library.selectedAlbum
   const searchResult = library.searchResult
+  const releaseGroups = groupSearchReleases(searchResult?.items ?? [])
   const resultCount = (searchResult?.items.length ?? 0) + (searchResult?.artists.length ?? 0) + (searchResult?.tracks.length ?? 0)
   const browsingCollection = !album && !library.activeTerm
   const sectionDetails = library.section === 'albums'
@@ -1609,9 +1625,12 @@ function LibraryView({ library, acquisitions, playTrack }: { library: LibraryMod
               {searchResult && sourceWarning(searchResult.sources) && <div className="source-strip">{sourceWarning(searchResult.sources)}</div>}
               {library.loading ? <div className="idle-state compact"><Disc3 size={28} className="spinning" /><span>Reading music index</span></div>
                 : <div className="search-groups">
+                  {releaseGroups.map(group => <section key={group.type}>
+                    <header className="collection-heading"><h2>{group.label}</h2><span>{group.items.length}</span></header>
+                    <div className="album-grid">{group.items.map(item => <UnifiedReleaseCard item={item} library={library} acquisitions={acquisitions} libraryAvailable={searchResult?.sources.library === 'available'} playTrack={playTrack} key={item.key} />)}</div>
+                  </section>)}
                   {!!searchResult?.artists.length && <section><header className="collection-heading"><h2>Artists</h2><span>{searchResult.artists.length}</span></header><div className="artist-grid compact">{searchResult.artists.map(artist => <ArtistCard artist={artist} library={library} key={artist.name.toLowerCase()} />)}</div></section>}
                   {!!searchResult?.tracks.length && <section><header className="collection-heading"><h2>Songs</h2><span>{searchResult.tracks.length}</span></header><div className="panel song-list">{searchResult.tracks.map(track => <SongRow track={track} library={library} playTrack={playTrack} key={track.id ?? `${track.title}:${track.album}`} />)}</div></section>}
-                  {!!searchResult?.items.length && <section><header className="collection-heading"><h2>Albums</h2><span>{searchResult.items.length}</span></header><div className="album-grid">{searchResult.items.map(item => <UnifiedReleaseCard item={item} library={library} acquisitions={acquisitions} libraryAvailable={searchResult.sources.library === 'available'} playTrack={playTrack} key={item.key} />)}</div></section>}
                 </div>}
               {!library.loading && !resultCount && <div className="panel"><p className="empty-row">No artists, songs, or albums found</p></div>}
             </> : unavailable ? <div className="integration-state">
