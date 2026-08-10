@@ -1076,31 +1076,34 @@ function needleStatus(library: LibraryModel) {
   return { label: 'library ready', className: 'available' }
 }
 
-function Header({ view, setView, library, acquisitions }: {
+function Sidebar({ view, setView, library, acquisitions }: {
   view: View
   setView: (view: View) => void
   library: LibraryModel
   acquisitions: AcquisitionsModel
 }) {
   const status = needleStatus(library)
+  const incoming = acquisitions.items.filter(item => !['completed', 'failed', 'cancelled'].includes(item.state)).length
   return (
-    <header className="header">
+    <aside className="sidebar">
       <div className="brand">
         <span className="brand-mark"><Disc3 size={18} /></span>
         <span>needle<small>your music library</small></span>
       </div>
       <nav aria-label="Primary">
-        <button className={view === 'library' ? 'active' : ''} onClick={() => setView('library')}>
-          <LibraryBig size={14} /> Collection
+        <small>LIBRARY</small>
+        <button title="Collection" className={view === 'library' ? 'active' : ''} onClick={() => setView('library')}>
+          <LibraryBig size={15} /><span>Collection</span>
         </button>
-        {acquisitions.configured && <button className={view === 'wanted' ? 'active' : ''} onClick={() => setView('wanted')}>
-          <Bookmark size={14} /> Incoming
+        <small>LIBRARY FLOW</small>
+        {acquisitions.configured && <button title="Incoming" className={view === 'wanted' ? 'active' : ''} onClick={() => setView('wanted')}>
+          <Bookmark size={15} /><span>Incoming</span>{incoming > 0 && <em>{incoming}</em>}
         </button>}
-        <button className={view === 'imports' ? 'active' : ''} onClick={() => setView('imports')}>
-          <PackageOpen size={14} /> Inbox
+        <button title="Inbox" className={view === 'imports' ? 'active' : ''} onClick={() => setView('imports')}>
+          <PackageOpen size={15} /><span>Inbox</span>
         </button>
-        <button className={view === 'activity' ? 'active' : ''} onClick={() => setView('activity')}>
-          <Activity size={14} /> History
+        <button title="History" className={view === 'activity' ? 'active' : ''} onClick={() => setView('activity')}>
+          <Activity size={15} /><span>History</span>
         </button>
       </nav>
       <div className={`connection ${status.className}`}>
@@ -1108,7 +1111,7 @@ function Header({ view, setView, library, acquisitions }: {
         <div><small>COLLECTION</small><strong>{status.label}</strong></div>
         <code>{library.page?.total ?? '—'} albums</code>
       </div>
-    </header>
+    </aside>
   )
 }
 
@@ -1909,7 +1912,7 @@ function App() {
 
   return (
     <div className="app-shell">
-      <Header view={view} setView={navigate} library={library} acquisitions={acquisitions} />
+      <Sidebar view={view} setView={navigate} library={library} acquisitions={acquisitions} />
       <main>
         {view === 'library' && <LibraryView library={library} acquisitions={acquisitions} />}
         {view === 'imports' && <ImportsView beets={beets} />}
