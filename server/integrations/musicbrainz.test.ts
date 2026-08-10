@@ -49,3 +49,10 @@ test('MusicBrainz health and provider errors are defensive', async () => {
   const malformed = new MusicBrainzAdapter({ fetch: async () => json({ artists: [{ name: 'missing id' }] }) })
   await assert.rejects(() => malformed.lookupArtists('x', context), (error: unknown) => error instanceof AdapterError && error.code === 'transient-provider-failure')
 })
+
+test('MusicBrainz lists paginated concrete editions and tolerates omitted browse fields', async () => {
+  const releaseId = '12345678-1234-1234-1234-123456789abc'; let page = 0
+  const adapter = new MusicBrainzAdapter({ fetch: async input => { const url = new URL(String(input)); assert.equal(url.searchParams.get('inc'), 'media+recordings+artist-credits+labels+release-groups'); page++; return json({ 'release-count': 2, releases: [{ id: page === 1 ? releaseId : '22345678-1234-1234-1234-123456789abc', title: 'Edition', date: '2020', country: 'GB', status: 'Official', barcode: '1', 'label-info': [{ 'catalog-number': 'CAT', label: { name: 'Label' } }], media: page === 1 ? [{ position: 1, format: 'CD', tracks: [{ position: 1, number: '1', title: 'Song', length: 123000, recording: { id: artistId, title: 'Song', 'artist-credit': [{ name: 'Artist' }] } }] }] : undefined }] }) } })
+  const editions = await adapter.listReleaseEditions(groupId, context)
+  assert.equal(editions.length, 2); assert.equal(editions[0].tracks[0].durationMs, 123000); assert.equal(editions[0].label, 'Label'); assert.deepEqual(editions[1].tracks, [])
+})
