@@ -23,6 +23,7 @@ interface CatalogRelease {
   releaseType?: string
   trackCount?: number
   musicBrainzReleaseGroupId?: string
+  images?: readonly string[]
 }
 
 interface LidarrStatus {
@@ -1465,7 +1466,7 @@ function formatDuration(value?: number): string {
 
 function formatReleaseDate(value?: string, fallbackYear?: number): string {
   const match = value?.match(/^(\d{4})-(\d{2})-(\d{2})/)
-  if (!match) return fallbackYear?.toString() ?? 'Date unknown'
+  if (!match || Number(match[1]) < 1000) return fallbackYear && fallbackYear >= 1000 ? fallbackYear.toString() : 'Date unknown'
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
   const month = months[Number(match[2]) - 1]
   return month ? `${month} ${Number(match[3])}, ${match[1]}` : match[1]
@@ -1482,6 +1483,7 @@ function UnifiedReleaseCard({ item, library, acquisitions, libraryAvailable, pla
   const release = item.catalogRelease
   const acquisition = item.acquisition ?? (release ? acquisitions.find(release) : undefined)
   const wanted = item.state === 'wanted' || acquisition?.state === 'wanted'
+  const [artwork, setArtwork] = useState(Boolean(release?.images?.[0]))
 
   if (album) {
     return <OwnedAlbumCard album={album} library={library} playTrack={playTrack} title={item.title} inLibrary />
@@ -1489,7 +1491,10 @@ function UnifiedReleaseCard({ item, library, acquisitions, libraryAvailable, pla
 
   return (
     <article className="album-card release-card missing">
-      <div className="album-case"><i /></div>
+      <div className="album-case">
+        <i />
+        {artwork && release?.images?.[0] && <img src={release.images[0]} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setArtwork(false)} />}
+      </div>
       <strong>{item.title}</strong>
       <small>{item.artist}</small>
       <div className="release-details">

@@ -77,9 +77,26 @@ export function mergeMusicReleases(
   }
 
   return [...result.values()].sort((left, right) => compareTuple(
-    [left.artist, left.title, releaseTypeRank(left), left.year?.toString() ?? '', left.key],
-    [right.artist, right.title, releaseTypeRank(right), right.year?.toString() ?? '', right.key],
+    [searchMatchRank(left, normalizedTerm), releaseTypeRank(left), textMatchRank(left, normalizedTerm), left.artist, left.title, descendingYear(left), left.key],
+    [searchMatchRank(right, normalizedTerm), releaseTypeRank(right), textMatchRank(right, normalizedTerm), right.artist, right.title, descendingYear(right), right.key],
   ))
+}
+
+function searchMatchRank(release: MusicRelease, term: string): string {
+  const artist = release.artist.trim().toLowerCase()
+  const title = release.title.trim().toLowerCase()
+  if (artist === term) return '0'
+  if (title === term) return '1'
+  return '2'
+}
+
+function textMatchRank(release: MusicRelease, term: string): string {
+  const artist = release.artist.trim().toLowerCase()
+  const title = release.title.trim().toLowerCase()
+  if (artist.includes(term)) return '0'
+  if (title.startsWith(term)) return '1'
+  if (title.includes(term)) return '2'
+  return '3'
 }
 
 function releaseTypeRank(release: MusicRelease): string {
@@ -89,6 +106,10 @@ function releaseTypeRank(release: MusicRelease): string {
     case 'single': return '2'
     default: return '3'
   }
+}
+
+function descendingYear(release: MusicRelease): string {
+  return String(9999 - (release.year ?? 0)).padStart(4, '0')
 }
 
 function releaseState(acquisition: AcquisitionJob | undefined, inLibrary: boolean): MusicReleaseState {

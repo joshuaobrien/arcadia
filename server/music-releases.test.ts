@@ -80,6 +80,22 @@ test('same-title catalog results preserve editions and rank albums before single
   ])
 })
 
+test('catalog search prioritizes exact artists and albums over covers and remixes', () => {
+  const catalog = [
+    { ref: { adapterId: 'lidarr', nativeId: 'cover' }, artistRef: { adapterId: 'lidarr', nativeId: 'artist:cover' },
+      artistName: 'Piano Dreamers', title: 'Piano Dreamers Play Dua Lipa', releaseType: 'Album' },
+    { ref: { adapterId: 'lidarr', nativeId: 'remix' }, artistRef: { adapterId: 'lidarr', nativeId: 'artist:remix' },
+      artistName: 'KRAS', title: 'Dua Lipa - Houdini (Remix)', releaseType: 'Single' },
+    { ref: { adapterId: 'lidarr', nativeId: 'album' }, artistRef: { adapterId: 'lidarr', nativeId: 'artist:dua' },
+      artistName: 'Dua Lipa', title: 'Future Nostalgia', releaseType: 'Album', releaseDate: '2020-03-27' },
+    { ref: { adapterId: 'lidarr', nativeId: 'single' }, artistRef: { adapterId: 'lidarr', nativeId: 'artist:dua' },
+      artistName: 'Dua Lipa', title: 'Houdini', releaseType: 'Single', releaseDate: '2023-11-09' },
+  ]
+  const releases = mergeMusicReleases([], catalog, [], 'dua lipa')
+
+  assert.deepEqual(releases.map(item => item.catalogRelease?.ref.nativeId), ['album', 'single', 'cover', 'remix'])
+})
+
 test('unified releases project linked import lifecycle without fuzzy identity', () => {
   const base = {
     id: 'wanted-1', artist: 'Broadcast', release: 'Tender Buttons',
