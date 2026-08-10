@@ -194,6 +194,22 @@ interface AcquisitionProfile {
   kind: 'metadata' | 'quality'
 }
 
+type JourneyStage = 'requested' | 'queued' | 'downloading' | 'review' | 'importing' | 'verifying' | 'collected' | 'attention'
+
+interface JourneyDetailResponse {
+  job: AcquisitionJob
+  stage: JourneyStage
+  progress?: { percent?: number; bytesTotal?: number; bytesRemaining?: number; etaSeconds?: number }
+  events: { kind: string; label: string; occurredAt: string; detail?: string }[]
+  nextAction?: { kind: 'review'; folder: BeetsInboxEntry }
+  importOperation?: BeetsImportOperation
+  libraryAlbumIds: string[]
+  sources: {
+    download: 'available' | 'unconfigured' | 'unavailable'
+    review: 'available' | 'unconfigured' | 'unavailable'
+  }
+}
+
 interface LibraryTrack {
   id?: string
   relativePath?: string
@@ -576,18 +592,23 @@ function useBeetsReadModel(acquisitions: readonly AcquisitionJob[], onLifecycleC
     return () => controller.abort()
   }, [refresh])
 
-  async function openFolder(folder: BeetsInboxEntry) {
-    if (submissionInFlight.current) return
+  function openFolder(folder: BeetsInboxEntry, acquisitionId?: string): boolean {
+    if (submissionInFlight.current) return false
     submissionInFlight.current = true
     const request = ++activeRequest.current
     setSelectedFolder(folder)
     setPreview(null)
     setSelectedCandidates({})
     setDuplicateActions({})
-    setAcquisitionDecision(undefined)
+    setAcquisitionDecision(acquisitionId)
     setApproved(false)
     setError(null)
     setWorkflowState('previewing')
+    void openFolderWorkflow(folder, request)
+    return true
+  }
+
+  async function openFolderWorkflow(folder: BeetsInboxEntry, request: number) {
     try {
       const existingStatus = currentFolderStatus(folder, folderStatuses)
       let session: BeetsPreviewSession
@@ -1036,13 +1057,14 @@ function Header({ view, setView, lidarr, beets, library, acquisitions }: {
   )
 }
 
-function HomeView({ lidarr, beets, imports, acquisitions, library, setView }: {
+function HomeView({ lidarr, beets, imports, acquisitions, library, setView, openJourney }: {
   lidarr: LidarrReadModel
   beets: BeetsReadModel
   imports: BeetsImportOperationsModel
   acquisitions: AcquisitionsModel
   library: LibraryModel
   setView: (view: View) => void
+  openJourney: (id: string) => void
 }) {
   const stagedAlbums = beets.folders
     .flatMap(root => collectStagedAlbums(root))
@@ -1125,7 +1147,7 @@ function HomeView({ lidarr, beets, imports, acquisitions, library, setView }: {
           <header><h2>In motion</h2><span>{activeJourneys.length}</span></header>
           {activeJourneys.map(item => {
             const activity = journeyActivity(item, lidarr)
-            return <button className="home-row" key={item.id} onClick={() => setView('wanted')}>
+            return <button className="home-row" key={item.id} onClick={() => openJourney(item.id)}>
               <Disc3 size={17} />
               <div>
                 <strong>{item.release}</strong>
@@ -1622,7 +1644,127 @@ function ImportReview({ beets, folder }: { beets: BeetsReadModel; folder: BeetsI
   )
 }
 
-function WantedView({ acquisitions, lidarr }: { acquisitions: AcquisitionsModel; lidarr: LidarrReadModel }) {
+function useJourneyDetail(id: string) {
+  const [detail, setDetail] = useState<JourneyDetailResponse | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const activeRequest = useRef(0)
+
+  const refresh = useCallback(async (signal?: AbortSignal, background = false) => {
+    const request = ++activeRequest.current
+    if (!background) setLoading(true)
+    try {
+      const next = await getJson<JourneyDetailResponse>(`/api/journeys/${encodeURIComponent(id)}`, signal)
+      if (request !== activeRequest.current || signal?.aborted) return
+      setDetail(next)
+      setError(null)
+    } catch (requestError) {
+      if (request === activeRequest.current && !isAbortError(requestError)) setError(errorMessage(requestError))
+    } finally {
+      if (request === activeRequest.current && !signal?.aborted) setLoading(false)
+    }
+  }, [id])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    let timer: number | undefined
+    const poll = async (background: boolean) => {
+      await refresh(controller.signal, background)
+      if (!controller.signal.aborted) timer = window.setTimeout(() => { void poll(true) }, 7_500)
+    }
+    void poll(false)
+    return () => {
+      controller.abort()
+      if (timer !== undefined) window.clearTimeout(timer)
+    }
+  }, [refresh])
+
+  return { detail, error, loading, refresh: () => refresh() }
+}
+
+function JourneyDetailView({ id, beets, library, setView, close }: {
+  id: string
+  beets: BeetsReadModel
+  library: LibraryModel
+  setView: (view: View) => void
+  close: () => void
+}) {
+  const model = useJourneyDetail(id)
+  const detail = model.detail
+  const stages = [
+    { id: 'requested', label: 'Requested' },
+    { id: 'downloading', label: 'Download' },
+    { id: 'review', label: 'Review' },
+    { id: 'importing', label: 'Import' },
+    { id: 'verifying', label: 'Verify' },
+    { id: 'collected', label: 'Collected' },
+  ] as const
+  const stageIndex = detail?.stage === 'queued' || detail?.stage === 'downloading' ? 1
+    : detail?.stage === 'attention' ? Math.max(0, detail.nextAction ? 2 : detail.importOperation ? 3 : 0)
+    : Math.max(0, stages.findIndex(stage => stage.id === detail?.stage))
+
+  return <section>
+    <div className="page-heading">
+      <div><p>03 / RELEASE JOURNEY</p><h1>{detail?.job.release ?? 'Journey'}</h1></div>
+      <button className="button" onClick={close}><ArrowLeft size={13} /> Journeys</button>
+    </div>
+    {model.error && <div className="error-strip">{model.error}</div>}
+    {!detail && model.loading ? <div className="idle-state"><Disc3 size={34} className="spinning" /><span>Reading release journey</span></div> : detail && <>
+      <section className={`journey-hero panel ${detail.stage}`}>
+        <header><h2>{detail.job.artist ?? 'Release journey'}</h2><span>{detail.stage.replace('-', ' ')}</span></header>
+        <div className="journey-stage-rail">
+          {stages.map((stage, index) => <div className={index < stageIndex ? 'done' : index === stageIndex ? 'active' : ''} key={stage.id}>
+            <i>{index < stageIndex ? <Check size={10} /> : index + 1}</i><span>{stage.label}</span>
+          </div>)}
+        </div>
+        {detail.stage === 'attention' && <div className="journey-attention"><Radio size={16} /><strong>This journey needs attention</strong></div>}
+        {detail.progress?.percent !== undefined && <div className="journey-transfer">
+          <div><strong>{detail.progress.percent}% downloaded</strong><span>{formatBytes(detail.progress.bytesRemaining)} remaining of {formatBytes(detail.progress.bytesTotal)}</span></div>
+          <div className="meter"><i style={{ width: `${detail.progress.percent}%` }} /></div>
+        </div>}
+        <div className="journey-actions">
+          {detail.nextAction?.kind === 'review' && <button className="button primary" disabled={beets.workflowState === 'previewing' || beets.workflowState === 'importing'} onClick={() => {
+            if (beets.openFolder(detail.nextAction!.folder, detail.job.id)) setView('imports')
+          }}><PackageOpen size={13} /> {beets.workflowState === 'previewing' || beets.workflowState === 'importing' ? 'Review busy' : 'Review metadata'}</button>}
+          {detail.stage === 'collected' && <button className="button primary" onClick={() => {
+            const album = library.page?.items.find(item => detail.libraryAlbumIds.includes(item.id))
+            setView('library')
+            if (album) void library.openAlbum(album)
+          }}><LibraryBig size={13} /> Open Collection</button>}
+          {detail.stage === 'attention' && <button className="button" onClick={() => setView('activity')}><Radio size={13} /> View activity</button>}
+          {!detail.nextAction && detail.stage === 'review' && <span>Downloaded music is waiting to be matched with one staged folder.</span>}
+        </div>
+      </section>
+
+      {(detail.sources.download !== 'available' || detail.sources.review !== 'available') && <div className="source-strip">
+        {detail.sources.download !== 'available' ? `Download activity ${detail.sources.download}` : ''}
+        {detail.sources.download !== 'available' && detail.sources.review !== 'available' ? ' · ' : ''}
+        {detail.sources.review !== 'available' ? `Review inbox ${detail.sources.review}` : ''}
+      </div>}
+
+      <section className="panel journey-events">
+        <header><h2>Journey timeline</h2><span>{detail.events.length}</span></header>
+        {detail.events.map((event, index) => <article key={`${event.kind}:${event.occurredAt}:${index}`}>
+          <i />
+          <div><strong>{event.label}</strong>{event.detail && <small>{event.detail}</small>}</div>
+          <time>{new Date(event.occurredAt).toLocaleString()}</time>
+        </article>)}
+      </section>
+    </>}
+  </section>
+}
+
+function WantedView({ acquisitions, lidarr, selectedJourneyId, openJourney, closeJourney, beets, library, setView }: {
+  acquisitions: AcquisitionsModel
+  lidarr: LidarrReadModel
+  selectedJourneyId: string | null
+  openJourney: (id: string) => void
+  closeJourney: () => void
+  beets: BeetsReadModel
+  library: LibraryModel
+  setView: (view: View) => void
+}) {
+  if (selectedJourneyId) return <JourneyDetailView id={selectedJourneyId} beets={beets} library={library} setView={setView} close={closeJourney} />
   const refreshing = acquisitions.loading || lidarr.loading
   return (
     <section>
@@ -1639,7 +1781,7 @@ function WantedView({ acquisitions, lidarr }: { acquisitions: AcquisitionsModel;
         <header><h2>Release progress</h2><span>{acquisitions.items.length}</span></header>
         {acquisitions.items.length ? acquisitions.items.map(item => {
           const activity = journeyActivity(item, lidarr)
-          return <article className="wanted-row" key={item.id}>
+          return <button className="wanted-row" key={item.id} onClick={() => openJourney(item.id)}>
             <div className="media-object case"><i /></div>
             <div>
               <strong>{item.release}</strong>
@@ -1648,7 +1790,7 @@ function WantedView({ acquisitions, lidarr }: { acquisitions: AcquisitionsModel;
             </div>
             <span className={`state-tag ${activity.className}`}>{activity.label}</span>
             <time>{new Date(item.createdAt).toLocaleString()}</time>
-          </article>
+          </button>
         }) : <p className="empty-row">No release journeys yet</p>}
       </section>
     </section>
@@ -1657,6 +1799,7 @@ function WantedView({ acquisitions, lidarr }: { acquisitions: AcquisitionsModel;
 
 function App() {
   const [view, setView] = useState<View>('home')
+  const [selectedJourneyId, setSelectedJourneyId] = useState<string | null>(null)
   const acquisitions = useAcquisitions()
   const activeJourneyDates = acquisitions.items
     .filter(item => item.state !== 'completed' && item.state !== 'failed' && item.state !== 'cancelled')
@@ -1665,15 +1808,23 @@ function App() {
   const importOperations = useBeetsImportOperations(acquisitions.refresh)
   const beets = useBeetsReadModel(acquisitions.items, acquisitions.refresh)
   const library = useLibrary()
+  const navigate = (next: View) => {
+    setSelectedJourneyId(null)
+    setView(next)
+  }
+  const openJourney = (id: string) => {
+    setSelectedJourneyId(id)
+    setView('wanted')
+  }
 
   return (
     <div className="app-shell">
-      <Header view={view} setView={setView} lidarr={lidarr} beets={beets} library={library} acquisitions={acquisitions} />
+      <Header view={view} setView={navigate} lidarr={lidarr} beets={beets} library={library} acquisitions={acquisitions} />
       <main>
-        {view === 'home' && <HomeView lidarr={lidarr} beets={beets} imports={importOperations} acquisitions={acquisitions} library={library} setView={setView} />}
+        {view === 'home' && <HomeView lidarr={lidarr} beets={beets} imports={importOperations} acquisitions={acquisitions} library={library} setView={navigate} openJourney={openJourney} />}
         {view === 'library' && <LibraryView library={library} acquisitions={acquisitions} />}
         {view === 'imports' && <ImportsView beets={beets} />}
-        {view === 'wanted' && <WantedView acquisitions={acquisitions} lidarr={lidarr} />}
+        {view === 'wanted' && <WantedView acquisitions={acquisitions} lidarr={lidarr} selectedJourneyId={selectedJourneyId} openJourney={openJourney} closeJourney={() => setSelectedJourneyId(null)} beets={beets} library={library} setView={navigate} />}
         {view === 'activity' && <ActivityView lidarr={lidarr} imports={importOperations} sectionNumber={acquisitions.configured ? '04' : '03'} />}
       </main>
     </div>

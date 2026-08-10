@@ -133,12 +133,41 @@ main { width: min(1160px, calc(100% - 48px)); margin: 0 auto; padding: 42px 0 70
 .history-row > div { min-width: 0; display: flex; flex-direction: column; }
 .history-row strong { overflow: hidden; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
 .history-row small, .history-row time { margin-top: 3px; color: #62665f; font-size: 7px; }
-.wanted-row { min-height: 65px; padding: 8px 10px; display: grid; grid-template-columns: 48px minmax(0,1fr) auto 145px; align-items: center; gap: 11px; border-bottom: 1px solid #96988f; }
+.wanted-row { width: 100%; min-height: 65px; padding: 8px 10px; display: grid; grid-template-columns: 48px minmax(0,1fr) auto 145px; align-items: center; gap: 11px; color: inherit; background: transparent; border: 0; border-bottom: 1px solid #96988f; text-align: left; }
 .wanted-row:last-child { border: 0; }
+.wanted-row:hover { background: #cecec5; }
 .wanted-row > div:nth-child(2) { min-width: 0; display: flex; flex-direction: column; }
 .wanted-row strong { overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .wanted-row small, .wanted-row time { margin-top: 3px; color: #62665f; font-size: 7px; }
 .wanted-row time { text-align: right; }
+.journey-hero { margin-bottom: 13px; }
+.journey-hero > header > span { padding: 3px 5px; color: #22384a; background: #b8c4cc; border: 1px solid #79909f; text-transform: uppercase; }
+.journey-hero.attention > header > span { color: #4d282e; background: #c5aaad; border-color: #896369; }
+.journey-stage-rail { padding: 20px 13px 16px; display: grid; grid-template-columns: repeat(6, minmax(0,1fr)); }
+.journey-stage-rail > div { min-width: 0; position: relative; display: flex; flex-direction: column; align-items: center; gap: 7px; color: #686c65; font-size: 7px; text-align: center; }
+.journey-stage-rail > div::before { content: ''; height: 2px; position: absolute; left: 0; right: 0; top: 8px; background: #92948c; }
+.journey-stage-rail > div:first-child::before { left: 50%; }
+.journey-stage-rail > div:last-child::before { right: 50%; }
+.journey-stage-rail i { width: 18px; height: 18px; z-index: 1; display: grid; place-items: center; color: #555a54; background: #b4b5ad; border: 1px solid #797b73; border-radius: 50%; font-size: 6px; font-style: normal; }
+.journey-stage-rail .done::before, .journey-stage-rail .active::before, .journey-stage-rail .done i { background: var(--green); }
+.journey-stage-rail .done i { color: white; border-color: #315440; }
+.journey-stage-rail .active { color: #263c4e; font-weight: 600; }
+.journey-stage-rail .active i { color: white; background: var(--blue); border-color: #263c4e; box-shadow: 0 0 0 3px #9eacb6; }
+.journey-attention { margin: 0 12px 12px; padding: 9px 10px; display: flex; align-items: center; gap: 8px; color: #4d282e; background: #cbb7b8; border: 1px solid #896369; font-size: 8px; }
+.journey-transfer { margin: 0 12px 12px; padding: 10px; background: #b9bab1; border: 1px solid #8a8c83; }
+.journey-transfer > div:first-child { display: flex; justify-content: space-between; gap: 10px; font-size: 8px; }
+.journey-transfer span { color: #5a5e58; font-size: 7px; }
+.journey-actions { min-height: 52px; padding: 9px 12px; display: flex; align-items: center; justify-content: flex-end; border-top: 1px solid #96988f; }
+.journey-actions > span { color: #5b5f59; font-size: 7px; }
+.journey-events article { min-height: 58px; padding: 9px 11px; display: grid; grid-template-columns: 12px minmax(0,1fr) auto; align-items: center; gap: 10px; border-bottom: 1px solid #96988f; }
+.journey-events article:last-child { border-bottom: 0; }
+.journey-events article > i { width: 8px; height: 8px; position: relative; background: var(--blue); border: 1px solid #263c4e; transform: rotate(45deg); }
+.journey-events article > i::after { content: ''; width: 1px; height: 50px; position: absolute; left: 10px; top: 5px; background: #8b8d85; transform: rotate(-45deg); transform-origin: top; }
+.journey-events article:last-child > i::after { display: none; }
+.journey-events article > div { min-width: 0; display: flex; flex-direction: column; }
+.journey-events strong { font-size: 8px; }
+.journey-events small { margin-top: 4px; overflow: hidden; color: #62665f; font-size: 7px; text-overflow: ellipsis; white-space: nowrap; }
+.journey-events time { color: #60645e; font-size: 7px; text-align: right; }
 .inbox-grid { margin-bottom: 13px; display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; }
 .inbox-card { min-width: 0; padding: 11px; background: var(--surface); border: 1px solid #73756d; box-shadow: inset 1px 1px #f1f0e8, inset -1px -1px #92948b; }
 .inbox-card header { display: flex; justify-content: space-between; gap: 8px; }
@@ -246,6 +275,7 @@ main { width: min(1160px, calc(100% - 48px)); margin: 0 auto; padding: 42px 0 70
   .history-row time { display: none; }
   .wanted-row { grid-template-columns: 43px minmax(0,1fr) auto; }
   .wanted-row time { display: none; }
+  .journey-stage-rail { padding-inline: 7px; }
   .inbox-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
   .candidate-list { grid-template-columns: 1fr; }
   .album-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
@@ -274,6 +304,13 @@ main { width: min(1160px, calc(100% - 48px)); margin: 0 auto; padding: 42px 0 70
   .result-actions { grid-column: 2; justify-self: start; }
   .home-row { grid-template-columns: 24px minmax(0,1fr); }
   .home-row .state-tag { grid-column: 2; justify-self: start; }
+  .journey-stage-rail { padding: 18px 3px 14px; }
+  .journey-stage-rail > div { gap: 6px; font-size: 6px; }
+  .journey-stage-rail i { width: 16px; height: 16px; }
+  .journey-stage-rail > div::before { top: 7px; }
+  .journey-transfer > div:first-child { align-items: flex-start; flex-direction: column; gap: 3px; }
+  .journey-events article { grid-template-columns: 12px minmax(0,1fr); }
+  .journey-events time { grid-column: 2; margin-top: -4px; text-align: left; }
   .setup-fields { grid-template-columns: 1fr; }
   .queue-row { grid-template-columns: 42px minmax(0,1fr); }
   .state-tag { grid-column: 2; justify-self: start; }

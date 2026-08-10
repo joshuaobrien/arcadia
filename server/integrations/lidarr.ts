@@ -28,7 +28,7 @@ import { AdapterError } from './errors.js'
 type JsonObject = Record<string, unknown>
 type Fetch = typeof globalThis.fetch
 
-interface LidarrOptions {
+export interface LidarrOptions {
   adapterId?: string
   baseUrl: string
   apiKey: string
@@ -362,6 +362,10 @@ export class LidarrAdapter implements CatalogLookupPort, AcquisitionAutomationPo
   }
 
   #historyItem(value: JsonObject): AcquisitionHistoryItem {
+    const data = object(value.data) ?? {}
+    // Lidarr's droppedPath is the completed download path. Do not guess from
+    // other history metadata, titles, or download IDs.
+    const droppedPath = optionalString(data.droppedPath)
     return {
       ref: this.#ref('history', number(value.id)),
       eventType: string(value.eventType),
@@ -369,7 +373,8 @@ export class LidarrAdapter implements CatalogLookupPort, AcquisitionAutomationPo
       artist: object(value.artist) ? this.#artist(object(value.artist)!) : undefined,
       release: object(value.album) ? this.#album(object(value.album)!) : undefined,
       underlyingDownloadRef: optionalString(value.downloadId),
-      data: object(value.data) ?? {},
+      output: droppedPath ? this.#path(droppedPath) : undefined,
+      data,
     }
   }
 
@@ -539,10 +544,25 @@ export class LidarrAdapter implements CatalogLookupPort, AcquisitionAutomationPo
 
 export function createLidarrAdapterFromEnv(env: NodeJS.ProcessEnv = process.env): LidarrAdapter | null {
   if (!env.LIDARR_URL || !env.LIDARR_API_KEY) return null
+  const pathMappings = parsePathMappings(env.LIDARR_PATH_MAPPINGS)
   return new LidarrAdapter({
     baseUrl: env.LIDARR_URL,
     apiKey: env.LIDARR_API_KEY,
+    pathMappings,
   })
+}
+
+function parsePathMappings(raw: string | undefined): LidarrOptions['pathMappings'] {
+  if (!raw) return []
+  let value: unknown
+  try { value = JSON.parse(raw) } catch { throw new Error('LIDARR_PATH_MAPPINGS must be valid JSON') }
+  if (!Array.isArray(value) || !value.every(item => {
+    const mapping = object(item)
+    return mapping && Object.keys(mapping).every(key => ['id', 'providerPrefix', 'needlePrefix'].includes(key))
+      && [mapping.id, mapping.providerPrefix, mapping.needlePrefix].every(part => typeof part === 'string' && part.length > 0)
+      && string(mapping.providerPrefix).startsWith('/') && string(mapping.needlePrefix).startsWith('/')
+  })) throw new Error('LIDARR_PATH_MAPPINGS must be an array of absolute path mappings')
+  return value as NonNullable<LidarrOptions['pathMappings']>
 }
 
 function string(value: unknown): string {

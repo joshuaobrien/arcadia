@@ -193,6 +193,104 @@ test('Lidarr API reports an unconfigured adapter without making a request', asyn
   assert.equal(artists.json().error.code, 'unavailable')
 })
 
+test('journey detail uses exact identity, paginates safely, and makes an exact review handoff', async (t) => {
+  const mbid = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+  const job = { id: 'journey-1', state: 'wanted', artist: 'Right Artist', release: 'Same Title', musicBrainzReleaseGroupId: mbid,
+    searchRefs: [{ adapterId: 'lidarr', nativeId: 'album:id:9' }], createdAt: '2026-08-01T00:00:00Z', updatedAt: '2026-08-01T00:00:00Z' }
+  const release = (id, musicBrainzReleaseGroupId, title = 'Same Title') => ({ ref: { adapterId: 'lidarr', nativeId: `album:id:${id}` },
+    artistRef: { adapterId: 'lidarr', nativeId: 'artist:id:1' }, title, musicBrainzReleaseGroupId })
+  const queueCursors = []
+  const historyCursors = []
+  const lidarr = {
+    listQueue: async ({ cursor }) => {
+      queueCursors.push(cursor)
+      if (!cursor) return { items: [{ ref: { adapterId: 'lidarr', nativeId: 'queue:id:1' }, title: 'Same Title', state: 'downloading', rawState: 'downloading',
+        release: release(9, mbid.toUpperCase()), bytesTotal: 100, bytesRemaining: 25, output: { providerPath: '/data/Album', needlePath: '/inbox/Album/' }, statusMessages: [] }], nextCursor: 'page-2' }
+      return { items: [{ ref: { adapterId: 'lidarr', nativeId: 'queue:id:2' }, title: 'Same Title', state: 'failed', rawState: 'failed',
+        release: release(10, 'ffffffff-bbbb-cccc-dddd-eeeeeeeeeeee'), statusMessages: [] }], nextCursor: 'page-2' }
+    },
+    listHistory: async (since, { cursor }) => {
+      assert.equal(since, job.createdAt)
+      historyCursors.push(cursor)
+      if (!cursor) return { items: [
+        { ref: { adapterId: 'lidarr', nativeId: 'history:id:1' }, eventType: 'grabbed', occurredAt: '2026-08-02T00:00:00Z', release: release(99, undefined, 'Same Title'), data: {} },
+        { ref: { adapterId: 'lidarr', nativeId: 'history:id:2' }, eventType: 'downloadFolderImported', occurredAt: '2026-08-03T00:00:00Z', release: release(9, mbid), output: { providerPath: '/data/Album', needlePath: '/inbox/Album' }, data: {} },
+        { ref: { adapterId: 'lidarr', nativeId: 'history:id:3' }, eventType: 'downloadFailed', occurredAt: '2026-08-04T00:00:00Z', release: release(11, 'ffffffff-bbbb-cccc-dddd-eeeeeeeeeeee'), data: {} },
+        { ref: { adapterId: 'lidarr', nativeId: 'history:id:4' }, eventType: 'renamedTrack', occurredAt: '2026-08-05T00:00:00Z', release: release(9, mbid), data: {} },
+      ], nextCursor: 'history-2' }
+      return { items: [], nextCursor: 'history-2' }
+    },
+  }
+  const beets = { listFolders: async () => [{ name: 'Album', providerPath: '/inbox/Album', hash: 'hash', album: true, type: 'directory', children: [] }] }
+  const repository = { list: () => [job], get: id => id === job.id ? job : null, wantRelease: () => { throw new Error('unused') },
+    getDefaults: () => null, setDefaults: value => value, listBeetsImportOperations: () => [] }
+  const app = buildApp({ lidarr, beets, acquisitionRepository: repository, logger: false })
+  t.after(() => app.close())
+
+  const response = await app.inject({ method: 'GET', url: '/api/journeys/journey-1' })
+  assert.equal(response.statusCode, 200)
+  assert.equal(response.json().stage, 'review')
+  assert.deepEqual(response.json().progress, { percent: 75, bytesTotal: 100, bytesRemaining: 25 })
+  assert.deepEqual(response.json().events.map(event => event.kind), ['downloadFolderImported', 'journey-created'])
+  assert.equal(response.json().nextAction.folder.providerPath, '/inbox/Album')
+  assert.deepEqual(queueCursors, [undefined, 'page-2'])
+  assert.deepEqual(historyCursors, [undefined, 'history-2'])
+})
+
+test('journey review handoff requires a mapped authoritative completed-download path', async () => {
+  const job = { id: 'j', state: 'wanted', release: 'Album', searchRefs: [{ adapterId: 'lidarr', nativeId: 'album:id:9' }],
+    createdAt: '2026-08-01T00:00:00Z', updatedAt: '2026-08-01T00:00:00Z' }
+  const release = { ref: job.searchRefs[0], artistRef: { adapterId: 'lidarr', nativeId: 'artist:id:1' }, title: 'Album' }
+  const repository = { list: () => [job], get: () => job, wantRelease: () => {}, getDefaults: () => null,
+    setDefaults: value => value, listBeetsImportOperations: () => [] }
+  const cases = [
+    {
+      queue: [{ ref: { adapterId: 'lidarr', nativeId: 'queue:id:1' }, title: 'Album', state: 'completed', rawState: 'completed', release,
+        output: { providerPath: '/data/Album', needlePath: '/inbox/Album' }, statusMessages: [] }],
+      history: [], folderPath: '/inbox/Album', expectedStage: 'review',
+    },
+    {
+      queue: [],
+      history: [{ ref: { adapterId: 'lidarr', nativeId: 'history:id:1' }, eventType: 'downloadFolderImported', occurredAt: '2026-08-03T00:00:00Z',
+        release, output: { providerPath: '/inbox/Album' }, data: {} }],
+      folderPath: '/inbox/Album', expectedStage: 'review',
+    },
+    {
+      queue: [],
+      history: [
+        { ref: { adapterId: 'lidarr', nativeId: 'history:id:1' }, eventType: 'downloadFolderImported', occurredAt: '2026-08-03T00:00:00Z', release, data: {} },
+        { ref: { adapterId: 'lidarr', nativeId: 'history:id:2' }, eventType: 'downloadFailed', occurredAt: '2026-08-02T00:00:00Z', release,
+          output: { providerPath: '/data/Wrong', needlePath: '/inbox/Wrong' }, data: {} },
+      ],
+      folderPath: '/inbox/Wrong', expectedStage: 'review',
+    },
+  ]
+  for (const scenario of cases) {
+    const lidarr = { listQueue: async () => ({ items: scenario.queue }), listHistory: async () => ({ items: scenario.history }) }
+    const beets = { listFolders: async () => [{ name: 'Album', providerPath: scenario.folderPath, hash: 'h', album: true, type: 'directory', children: [] }] }
+    const app = buildApp({ lidarr, beets, acquisitionRepository: repository, logger: false })
+    const body = (await app.inject({ method: 'GET', url: '/api/journeys/j' })).json()
+    assert.equal(body.stage, scenario.expectedStage)
+    assert.equal(body.nextAction, undefined)
+    await app.close()
+  }
+})
+
+test('journey detail omits fuzzy and ambiguous folder matches and durable import state wins', async (t) => {
+  const job = { id: 'j', state: 'wanted', release: 'Album', searchRefs: [{ adapterId: 'lidarr', nativeId: 'album:id:9' }], createdAt: '2026-08-01T00:00:00Z', updatedAt: '2026-08-01T00:00:00Z' }
+  const operation = { id: 'op', sessionId: 's', providerPath: '/inbox/Album', hash: 'h', state: 'library-confirmed', selections: [], acquisitionId: 'j', libraryAlbumIds: ['library-1'], createdAt: job.createdAt, updatedAt: job.updatedAt }
+  const release = { ref: job.searchRefs[0], artistRef: { adapterId: 'lidarr', nativeId: 'artist:id:1' }, title: 'Album' }
+  const lidarr = { listQueue: async () => ({ items: [] }), listHistory: async () => ({ items: [{ ref: { adapterId: 'lidarr', nativeId: 'history:id:1' }, eventType: 'downloadFailed', occurredAt: job.createdAt, release, output: { providerPath: '/data/Album', needlePath: '/inbox/Artist/Album' }, data: {} }] }) }
+  const beets = { listFolders: async () => [{ name: 'Album', providerPath: '/other/Album', hash: 'h', album: true, type: 'directory', children: [] }] }
+  const repository = { list: () => [job], get: () => job, wantRelease: () => {}, getDefaults: () => null, setDefaults: value => value, listBeetsImportOperations: () => [operation] }
+  const app = buildApp({ lidarr, beets, acquisitionRepository: repository, logger: false })
+  t.after(() => app.close())
+  const body = (await app.inject({ method: 'GET', url: '/api/journeys/j' })).json()
+  assert.equal(body.stage, 'collected')
+  assert.equal(body.nextAction, undefined)
+  assert.deepEqual(body.libraryAlbumIds, ['library-1'])
+})
+
 test('beets read routes expose normalized items and truthful unconfigured errors', async (t) => {
   const unconfigured = buildApp({ beets: null, lidarr: null, jellyfin: null, logger: false })
   t.after(() => unconfigured.close())
