@@ -10,7 +10,7 @@ const json = (value: unknown, status = 200) => new Response(JSON.stringify(value
 
 test('MusicBrainz searches encode terms and map artist and release-group identity', async () => {
   const urls: URL[] = []
-  const adapter = new MusicBrainzAdapter({ baseUrl: 'https://mb.test/ws/2/', fetch: async (input, init) => {
+  const adapter = new MusicBrainzAdapter({ baseUrl: 'https://mb.test/ws/2/', requestIntervalMs: 0, fetch: async (input, init) => {
     const url = new URL(String(input)); urls.push(url)
     assert.match(String((init?.headers as Record<string, string>)['User-Agent']), /^Needle\//)
     if (url.pathname.endsWith('/artist')) return json({ artists: [{ id: artistId, name: 'A&B', 'sort-name': 'B, A', disambiguation: 'test' }] })
@@ -29,7 +29,7 @@ test('MusicBrainz searches encode terms and map artist and release-group identit
 
 test('MusicBrainz exact artist discography uses website-default pagination', async () => {
   const offsets: string[] = []
-  const adapter = new MusicBrainzAdapter({ fetch: async input => {
+  const adapter = new MusicBrainzAdapter({ requestIntervalMs: 0, fetch: async input => {
     const url = new URL(String(input)); offsets.push(url.searchParams.get('offset')!)
     assert.equal(url.searchParams.get('artist'), artistId)
     assert.equal(url.searchParams.get('release-group-status'), 'website-default')
@@ -42,17 +42,23 @@ test('MusicBrainz exact artist discography uses website-default pagination', asy
 })
 
 test('MusicBrainz health and provider errors are defensive', async () => {
-  const unavailable = new MusicBrainzAdapter({ fetch: async () => { throw new Error('offline') } })
+  const unavailable = new MusicBrainzAdapter({ requestIntervalMs: 0, fetch: async () => { throw new Error('offline') } })
   assert.equal((await unavailable.probe(context)).state, 'unavailable')
-  const limited = new MusicBrainzAdapter({ fetch: async () => new Response('', { status: 503, headers: { 'retry-after': '4' } }) })
-  await assert.rejects(() => limited.lookupArtists('x', context), (error: unknown) => error instanceof AdapterError && error.code === 'rate-limited' && error.retryAfterSeconds === 4)
-  const malformed = new MusicBrainzAdapter({ fetch: async () => json({ artists: [{ name: 'missing id' }] }) })
+  const limited = new MusicBrainzAdapter({ requestIntervalMs: 0, fetch: async () => new Response('', { status: 503, headers: { 'retry-after': '0' } }) })
+  await assert.rejects(() => limited.lookupArtists('x', context), (error: unknown) => error instanceof AdapterError && error.code === 'rate-limited' && error.retryAfterSeconds === 0)
+  let attempts = 0
+  const recovered = new MusicBrainzAdapter({ requestIntervalMs: 0, fetch: async () => ++attempts === 1
+    ? new Response('', { status: 503 })
+    : json({ artists: [{ id: artistId, name: 'Recovered' }] }) })
+  assert.equal((await recovered.lookupArtists('Recovered', context))[0].name, 'Recovered')
+  assert.equal(attempts, 2)
+  const malformed = new MusicBrainzAdapter({ requestIntervalMs: 0, fetch: async () => json({ artists: [{ name: 'missing id' }] }) })
   await assert.rejects(() => malformed.lookupArtists('x', context), (error: unknown) => error instanceof AdapterError && error.code === 'transient-provider-failure')
 })
 
 test('MusicBrainz lists paginated concrete editions and tolerates omitted browse fields', async () => {
   const releaseId = '12345678-1234-1234-1234-123456789abc'; let page = 0
-  const adapter = new MusicBrainzAdapter({ fetch: async input => { const url = new URL(String(input)); assert.equal(url.searchParams.get('inc'), 'media+recordings+artist-credits+labels+release-groups'); page++; return json({ 'release-count': 2, releases: [{ id: page === 1 ? releaseId : '22345678-1234-1234-1234-123456789abc', title: 'Edition', date: '2020', country: 'GB', status: 'Official', barcode: '1', 'label-info': [{ 'catalog-number': 'CAT', label: { name: 'Label' } }], media: page === 1 ? [{ position: 1, format: 'CD', tracks: [{ position: 1, number: '1', title: 'Song', length: 123000, recording: { id: artistId, title: 'Song', 'artist-credit': [{ name: 'Artist' }] } }] }] : undefined }] }) } })
+  const adapter = new MusicBrainzAdapter({ requestIntervalMs: 0, fetch: async input => { const url = new URL(String(input)); assert.equal(url.searchParams.get('inc'), 'media+recordings+artist-credits+labels+release-groups'); page++; return json({ 'release-count': 2, releases: [{ id: page === 1 ? releaseId : '22345678-1234-1234-1234-123456789abc', title: 'Edition', date: '2020', country: 'GB', status: 'Official', barcode: '1', 'label-info': [{ 'catalog-number': 'CAT', label: { name: 'Label' } }], media: page === 1 ? [{ position: 1, format: 'CD', tracks: [{ position: 1, number: '1', title: 'Song', length: 123000, recording: { id: artistId, title: 'Song', 'artist-credit': [{ name: 'Artist' }] } }] }] : undefined }] }) } })
   const editions = await adapter.listReleaseEditions(groupId, context)
   assert.equal(editions.length, 2); assert.equal(editions[0].tracks[0].durationMs, 123000); assert.equal(editions[0].label, 'Label'); assert.deepEqual(editions[1].tracks, [])
 })
