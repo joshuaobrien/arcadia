@@ -23,7 +23,7 @@ export class DirectAcquisitionService {
       const queries=[`${job.artist} ${job.release}`,...(job.release.trim().split(/\s+/).length>=2?[job.release]:[])]
       for(const query of queries){const result=await this.slskd.search(query,context);searches.push(result);const ranked=groupAndMatch(searches,job.artist,job.release,editions);if(ranked.some(c=>c.score>=35&&!c.matches[0]?.rejected))break}
       const candidates=groupAndMatch(searches,job.artist,job.release,editions).slice(0,this.#max);let workflow=this.repository.storeDirectCandidates(job.id,editions,candidates,searches.map(s=>s.searchId));const top=candidates[0],next=candidates.find(c=>c.id!==top?.id)
-      if(top?.autoSelectEligible&&(!next||top.score-next.score>=this.#lead))workflow=await this.select(job.id,top.id,context,`Automatic selection: score ${top.score}${next?`, lead ${top.score-next.score}`:', only candidate'}`)
+      if(top?.autoSelectEligible&&(top.score===100||!next||top.score-next.score>=this.#lead))workflow=await this.select(job.id,top.id,context,`Automatic selection: score ${top.score}${top.score===100?', perfect match':next?`, lead ${top.score-next.score}`:', only candidate'}`)
       return workflow
     }catch(error){const current=this.repository.getDirectWorkflow(job.id);if(current&&this.repository.get(job.id)?.state==='searching')this.repository.storeDirectCandidates(job.id,[],[],[]);throw error}
   }

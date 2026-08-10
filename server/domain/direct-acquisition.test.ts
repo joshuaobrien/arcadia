@@ -54,12 +54,29 @@ test('direct acquisition auto-submits one complete candidate and reconciles its 
   assert.equal(repository.get(jobId)?.state, 'completed')
 })
 
-test('direct acquisition keeps equally good peer folders for manual selection', async (t) => {
+test('direct acquisition deterministically auto-selects the first of equally perfect peer folders', async (t) => {
   const { repository, jobId } = await fixture(t)
   const files = ['Broadcast\\Tender Buttons\\01 Song 1.flac', 'Broadcast\\Tender Buttons\\02 Song 2.flac']
   const slskd = new FakeSlskd({ searchId: 'search', responses: [response('peer-a', files), response('peer-b', files)] })
   const workflow = await new DirectAcquisitionService(repository, { listReleaseEditions: async () => [edition] }, slskd).search(jobId, context)
   assert.equal(workflow.candidates.length, 2)
+  assert.equal(workflow.candidates[0].score, 100)
+  assert.equal(workflow.submissionState, 'submitted')
+  assert.equal(repository.get(jobId)?.state, 'queued')
+  assert.equal(slskd.submissions.length, 1)
+  assert.match(workflow.selectionExplanation!, /perfect match/)
+})
+
+test('direct acquisition still requires selection for equally good non-perfect matches', async (t) => {
+  const { repository, jobId } = await fixture(t)
+  const timedEdition = { ...edition, tracks: edition.tracks.map(track => ({ ...track, durationMs: 180_000 })) }
+  const files = [
+    { filename: 'Broadcast\\Tender Buttons\\01 Song 1.flac', size: 1000, length: 190 },
+    { filename: 'Broadcast\\Tender Buttons\\02 Song 2.flac', size: 1000, length: 190 },
+  ]
+  const slskd = new FakeSlskd({ searchId: 'search', responses: [{ username: 'peer-a', files }, { username: 'peer-b', files }] })
+  const workflow = await new DirectAcquisitionService(repository, { listReleaseEditions: async () => [timedEdition] }, slskd).search(jobId, context)
+  assert.ok(workflow.candidates[0].score < 100)
   assert.equal(workflow.submissionState, 'none')
   assert.equal(repository.get(jobId)?.state, 'selection-required')
   assert.equal(slskd.submissions.length, 0)
