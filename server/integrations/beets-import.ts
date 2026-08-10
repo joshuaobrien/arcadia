@@ -52,9 +52,16 @@ export interface BeetsPreviewCandidate {
   album?: string
   year?: number
   source?: string
+  country?: string
+  label?: string
+  catalogNumber?: string
+  media?: string
+  mediumCount?: number
   distance: number
   penalties: readonly string[]
   trackCount: number
+  tracks: readonly { title?: string, artist?: string, length?: number, index?: number, medium?: number }[]
+  trackMapping: Readonly<Record<string, number>>
   duplicateCount: number
 }
 

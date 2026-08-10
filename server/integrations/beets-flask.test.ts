@@ -63,7 +63,7 @@ test('beets-flask submits exact preview and import choices and normalizes candid
       tasks: [{
         id: 'task-1', current_metadata: { artist: 'Raw Artist', album: 'Raw Album', year: '2026' },
         items: [{ title: null, artist: null, length: 181.5, format: 'FLAC' }],
-        candidates: [{ id: 'candidate-1', info: { artist: 'Matched Artist', album: 'Matched Album', year: 2025, data_source: 'MusicBrainz' }, distance: 0.08, penalties: ['track_title'], tracks: [{}], duplicate_ids: ['duplicate-1'] }],
+        candidates: [{ id: 'candidate-1', info: { artist: 'Matched Artist', album: 'Matched Album', year: 2025, data_source: 'MusicBrainz', country: 'JP', label: 'Label', catalognum: 'CAT-1', media: 'CD', mediums: 2 }, distance: 0.08, penalties: ['track_title'], tracks: [{ title: 'Matched Track', artist: 'Matched Artist', length: 180, index: 1, medium: 1 }], mapping: { 0: 0 }, duplicate_ids: ['duplicate-1'] }],
         asis_candidate: { id: 'asis-task-1', info: { artist: 'Raw Artist', album: 'Raw Album' }, distance: 0, penalties: [], tracks: [{}], duplicate_ids: [] },
       }],
     })
@@ -83,6 +83,11 @@ test('beets-flask submits exact preview and import choices and normalizes candid
     { id: 'asis-task-1', kind: 'as-is' },
   ])
   assert.equal(session.tasks[0].candidates[0].duplicateCount, 1)
+  assert.equal(session.tasks[0].candidates[0].country, 'JP')
+  assert.equal(session.tasks[0].candidates[0].catalogNumber, 'CAT-1')
+  assert.equal(session.tasks[0].candidates[0].mediumCount, 2)
+  assert.deepEqual(session.tasks[0].candidates[0].tracks[0], { title: 'Matched Track', artist: 'Matched Artist', length: 180, index: 1, medium: 1 })
+  assert.deepEqual(session.tasks[0].candidates[0].trackMapping, { 0: 0 })
   assert.equal(session.tasks[0].items[0].title, undefined)
   assert.deepEqual(requests[0], {
     path: '/api_v1/session/enqueue', operationId: 'preview-operation',

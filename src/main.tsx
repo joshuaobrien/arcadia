@@ -77,9 +77,16 @@ interface BeetsPreviewCandidate {
   album?: string
   year?: number
   source?: string
+  country?: string
+  label?: string
+  catalogNumber?: string
+  media?: string
+  mediumCount?: number
   distance: number
   penalties: string[]
   trackCount: number
+  tracks: { title?: string; artist?: string; length?: number; index?: number; medium?: number }[]
+  trackMapping: Record<string, number>
   duplicateCount: number
 }
 
@@ -1867,6 +1874,50 @@ function acquisitionOptionLabel(item: AcquisitionJob): string {
   return details.length ? `${title} · ${details.join(' · ')}` : title
 }
 
+function candidateComparisons(task: BeetsPreviewTask, candidate: BeetsPreviewCandidate) {
+  const comparisons = [
+    { label: 'Album', current: task.currentMetadata.album ?? 'Unknown', proposed: candidate.album ?? 'Unknown' },
+    { label: 'Artist', current: task.currentMetadata.artist ?? 'Unknown', proposed: candidate.artist ?? 'Unknown' },
+    { label: 'Year', current: task.currentMetadata.year?.toString() ?? 'Unknown', proposed: candidate.year?.toString() ?? 'Unknown' },
+    { label: 'Tracks', current: task.items.length.toString(), proposed: candidate.trackCount.toString() },
+  ]
+  return comparisons.map(comparison => ({
+    ...comparison,
+    changed: comparison.current.trim().toLocaleLowerCase() !== comparison.proposed.trim().toLocaleLowerCase(),
+  }))
+}
+
+function penaltyLabel(penalty: string): string {
+  const labels: Record<string, string> = {
+    album: 'Album title differs',
+    artist: 'Artist differs',
+    year: 'Release year differs',
+    tracks: 'Track matching required',
+    track_title: 'Track titles differ',
+    track_artist: 'Track artists differ',
+    track_length: 'Track durations differ',
+    extra_items: 'Track count differs',
+    missing_items: 'Track count differs',
+  }
+  return labels[penalty] ?? penalty.replaceAll('_', ' ')
+}
+
+function trackMatchDetail(item: BeetsPreviewTask['items'][number], index: number, candidate: BeetsPreviewCandidate | undefined) {
+  if (!candidate) return undefined
+  const mappedIndex = candidate.trackMapping[String(index)] ?? (candidate.kind === 'as-is' ? index : undefined)
+  const match = mappedIndex === undefined ? undefined : candidate.tracks[mappedIndex]
+  if (!match) return { className: 'missing', label: 'Not in release' }
+  const currentTitle = item.title?.trim().toLocaleLowerCase()
+  const matchedTitle = match.title?.trim().toLocaleLowerCase()
+  const titleMatches = Boolean(currentTitle && matchedTitle && currentTitle === matchedTitle)
+  const durationDelta = item.length !== undefined && match.length !== undefined ? Math.round(match.length - item.length) : undefined
+  if (titleMatches && (durationDelta === undefined || Math.abs(durationDelta) <= 2)) {
+    return { className: 'match', label: 'Matches' }
+  }
+  if (!titleMatches && match.title) return { className: 'changed', label: `Matches “${match.title}”` }
+  return { className: 'changed', label: durationDelta === undefined ? 'Metadata differs' : `${durationDelta > 0 ? '+' : ''}${durationDelta}s duration` }
+}
+
 function ImportReview({ beets, folder }: { beets: BeetsReadModel; folder: BeetsInboxEntry }) {
   const session = beets.preview
   const allSelected = Boolean(session?.tasks.length) && session!.tasks.every(task => beets.selectedCandidates[task.id])
@@ -1890,12 +1941,20 @@ function ImportReview({ beets, folder }: { beets: BeetsReadModel; folder: BeetsI
         <button className="button" onClick={beets.closeFolder}><ArrowLeft size={13} /> Review</button>
       </div>}
       {session && <div className="preview-layout">
-        {session.tasks.map((task, taskIndex) => (
-          <section className="panel preview-task" key={task.id}>
+        {session.tasks.map((task, taskIndex) => {
+          const selectedCandidate = task.candidates.find(candidate => candidate.id === beets.selectedCandidates[task.id])
+          return <section className="panel preview-task" key={task.id}>
             <header><h2>{task.currentMetadata.album ?? `Album group ${taskIndex + 1}`}</h2><span>{task.items.length} tracks</span></header>
             <div className="candidate-list">
               {task.candidates.map(candidate => {
                 const active = beets.selectedCandidates[task.id] === candidate.id
+                const comparisons = candidateComparisons(task, candidate)
+                const details = [
+                  candidate.country,
+                  candidate.label,
+                  candidate.catalogNumber,
+                  candidate.media && `${candidate.mediumCount ?? 1} × ${candidate.media}`,
+                ].filter(Boolean)
                 return <button
                   className={`candidate-card ${active ? 'selected' : ''}`}
                   key={candidate.id}
@@ -1904,19 +1963,33 @@ function ImportReview({ beets, folder }: { beets: BeetsReadModel; folder: BeetsI
                 >
                   <span className="candidate-radio">{active && <Check size={11} />}</span>
                   <div>
-                    <strong>{candidate.kind === 'as-is' ? 'Keep current metadata' : candidate.album ?? 'Untitled candidate'}</strong>
+                    <div className="candidate-heading">
+                      <strong>{candidate.kind === 'as-is' ? 'Keep current metadata' : candidate.album ?? 'Untitled candidate'}</strong>
+                      <b>{candidate.kind === 'as-is' ? 'Unchanged' : `${Math.max(0, (1 - candidate.distance) * 100).toFixed(1)}% match`}</b>
+                    </div>
                     <small>{candidate.kind === 'as-is' ? `${task.currentMetadata.artist ?? 'Unknown artist'} · as downloaded` : [candidate.artist, candidate.year, candidate.source].filter(Boolean).join(' · ')}</small>
+                    {candidate.kind === 'candidate' && <dl className="candidate-comparison">
+                      {comparisons.map(comparison => <div className={comparison.changed ? 'changed' : 'same'} key={comparison.label}>
+                        <dt>{comparison.label}</dt>
+                        <dd>{comparison.changed ? <><span>{comparison.current}</span><i>→</i><strong>{comparison.proposed}</strong></> : <><Check size={9} /><strong>{comparison.proposed}</strong></>}</dd>
+                      </div>)}
+                    </dl>}
+                    {details.length > 0 && <small className="candidate-edition">{details.join(' · ')}</small>}
                     <code>{candidate.trackCount} tracks · distance {candidate.distance.toFixed(3)}{candidate.duplicateCount ? ` · ${candidate.duplicateCount} duplicate${candidate.duplicateCount === 1 ? '' : 's'}` : ''}</code>
-                    {candidate.penalties.length > 0 && <em>{candidate.penalties.join(' · ')}</em>}
+                    {candidate.penalties.length > 0 && <div className="candidate-penalties">{[...new Set(candidate.penalties.map(penaltyLabel))].map(label => <em key={label}>{label}</em>)}</div>}
                   </div>
                 </button>
               })}
             </div>
             <div className="preview-tracks">
-              {task.items.map((item, index) => <div key={`${item.title}:${index}`}>
+              {task.items.map((item, index) => {
+                const match = trackMatchDetail(item, index, selectedCandidate)
+                return <div key={`${item.title}:${index}`}>
                 <b>{index + 1}</b><span><strong>{item.title ?? 'Untitled track'}</strong><small>{item.artist ?? item.format ?? 'Audio'}</small></span>
+                {match && <em className={`track-match ${match.className}`}>{match.label}</em>}
                 <code>{formatDuration(item.length)}</code>
-              </div>)}
+                </div>
+              })}
             </div>
             <label className="duplicate-policy">
               If this album duplicates library metadata
@@ -1926,7 +1999,7 @@ function ImportReview({ beets, folder }: { beets: BeetsReadModel; folder: BeetsI
               </select>
             </label>
           </section>
-        ))}
+        })}
         <section className="panel lifecycle-link-panel">
           <header><h2>Release journey</h2><span>Explicit link</span></header>
           <label className="duplicate-policy">
