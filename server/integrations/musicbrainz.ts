@@ -12,9 +12,14 @@ export interface MusicBrainzOptions {
   userAgent?: string
 }
 
+export interface ReleaseTrack { mediumPosition: number; mediumTitle?: string; mediumFormat?: string; position: number; number?: string; title: string; recordingMbid?: string; durationMs?: number; artistCredit?: string }
+export interface ReleaseMedium { position: number; title?: string; format?: string; tracks: readonly ReleaseTrack[] }
+export interface ConcreteRelease { id: string; title?: string; date?: string; country?: string; status?: string; barcode?: string; label?: string; catalogNumber?: string; media: readonly ReleaseMedium[]; tracks: readonly ReleaseTrack[] }
+export interface ReleaseMetadataPort { listReleaseEditions(releaseGroupMbid: string, context: OperationContext): Promise<readonly ConcreteRelease[]> }
+
 const MBID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
-export class MusicBrainzAdapter implements CatalogLookupPort {
+export class MusicBrainzAdapter implements CatalogLookupPort, ReleaseMetadataPort {
   readonly adapterId = 'musicbrainz'
   readonly kind = 'musicbrainz' as const
   readonly #baseUrl: URL
@@ -70,6 +75,39 @@ export class MusicBrainzAdapter implements CatalogLookupPort {
     }
   }
 
+  async listReleaseEditions(releaseGroupMbid: string, context: OperationContext): Promise<readonly ConcreteRelease[]> {
+    const id = releaseGroupMbid.toLowerCase()
+    if (!MBID.test(id)) throw this.#error('invalid-request', 'release-group requires a valid MusicBrainz ID', false)
+    const result: ConcreteRelease[] = []
+    let offset = 0
+    while (true) {
+      const payload = await this.#request('release', { 'release-group': id, inc: 'media+recordings+artist-credits+labels+release-groups', limit: 100, offset }, context)
+      const releases = array(payload.releases)
+      const count = typeof payload['release-count'] === 'number' ? payload['release-count'] : offset + releases.length
+      result.push(...releases.map(value => this.#edition(requiredObject(value, this))))
+      offset += releases.length
+      if (!releases.length || offset >= count) return result
+    }
+  }
+
+  #edition(release: JsonObject): ConcreteRelease {
+    const media = array(release.media).flatMap((value, mediumIndex) => {
+      const medium = object(value); if (!medium) return []
+      const position = positiveNumber(medium.position) ?? mediumIndex + 1
+      const tracks = array(medium.tracks).flatMap((value, trackIndex) => {
+        const track = object(value); if (!track) return []
+        const recording = object(track.recording)
+        const recordingId = optionalString(recording?.id)?.toLowerCase()
+        const title = optionalString(track.title) ?? optionalString(recording?.title)
+        if (!title) return []
+        return [{ mediumPosition: position, mediumTitle: optionalString(medium.title), mediumFormat: optionalString(medium.format), position: positiveNumber(track.position) ?? trackIndex + 1, number: optionalString(track.number), title, recordingMbid: recordingId && MBID.test(recordingId) ? recordingId : undefined, durationMs: nonnegativeNumber(track.length) ?? nonnegativeNumber(recording?.length), artistCredit: artistCredit(track['artist-credit']) ?? artistCredit(recording?.['artist-credit']) }]
+      })
+      return [{ position, title: optionalString(medium.title), format: optionalString(medium.format), tracks }]
+    }).sort((a, b) => a.position - b.position)
+    const labelInfo = object(array(release['label-info'])[0])
+    return { id: this.#id(release.id, 'release'), title: optionalString(release.title), date: optionalString(release.date), country: optionalString(release.country), status: optionalString(release.status), barcode: optionalString(release.barcode), label: optionalString(object(labelInfo?.label)?.name), catalogNumber: optionalString(labelInfo?.['catalog-number']), media, tracks: media.flatMap(m => m.tracks).sort((a, b) => a.mediumPosition - b.mediumPosition || a.position - b.position) }
+  }
+
   #release(group: JsonObject, fallbackArtist?: JsonObject): CatalogRelease {
     const id = this.#id(group.id, 'release-group')
     const credit = object(array(group['artist-credit'])[0])
@@ -122,3 +160,6 @@ function array(value: unknown): unknown[] { return Array.isArray(value) ? value 
 function optionalString(value: unknown): string | undefined { return typeof value === 'string' && value.length ? value : undefined }
 function requiredString(value: unknown, adapter: MusicBrainzAdapter): string { const result = optionalString(value); if (!result) throw new AdapterError({ code: 'transient-provider-failure', adapterId: adapter.adapterId, message: 'MusicBrainz returned a malformed response', retryable: true }); return result }
 function requiredNumber(value: unknown, adapter: MusicBrainzAdapter): number { if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) throw new AdapterError({ code: 'transient-provider-failure', adapterId: adapter.adapterId, message: 'MusicBrainz returned a malformed response', retryable: true }); return value }
+function nonnegativeNumber(value: unknown): number | undefined { return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined }
+function positiveNumber(value: unknown): number | undefined { return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : undefined }
+function artistCredit(value: unknown): string | undefined { const parts = array(value).flatMap(item => { const credit = object(item); const name = optionalString(credit?.name) ?? optionalString(object(credit?.artist)?.name); return name ? [`${name}${optionalString(credit?.joinphrase) ?? ''}`] : [] }); return parts.length ? parts.join('') : undefined }

@@ -1,5 +1,5 @@
-export type AdapterKind = 'lidarr' | 'musicbrainz' | 'beets'
-export type Protocol = 'torrent' | 'usenet'
+export type AdapterKind = 'lidarr' | 'musicbrainz' | 'beets' | 'slskd'
+export type Protocol = 'torrent' | 'usenet' | 'soulseek'
 export type IsoDateTime = string
 
 export interface OperationContext {
