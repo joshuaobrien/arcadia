@@ -34,6 +34,7 @@ export interface LidarrOptions {
   apiKey: string
   fetch?: Fetch
   timeoutMs?: number
+  musicBrainzBaseUrl?: string
   pathMappings?: readonly {
     id: string
     providerPrefix: string
@@ -48,6 +49,11 @@ interface PagingResource {
   records: JsonObject[]
 }
 
+interface MusicBrainzReleaseGroupPage {
+  'release-group-count': number
+  'release-groups': JsonObject[]
+}
+
 export class LidarrAdapter implements CatalogLookupPort, AcquisitionAutomationPort {
   readonly adapterId: string
   readonly kind = 'lidarr' as const
@@ -56,6 +62,7 @@ export class LidarrAdapter implements CatalogLookupPort, AcquisitionAutomationPo
   readonly #apiKey: string
   readonly #fetch: Fetch
   readonly #timeoutMs: number
+  readonly #musicBrainzBaseUrl: URL
   readonly #pathMappings: LidarrOptions['pathMappings']
 
   constructor(options: LidarrOptions) {
@@ -71,6 +78,7 @@ export class LidarrAdapter implements CatalogLookupPort, AcquisitionAutomationPo
     this.#apiKey = options.apiKey
     this.#fetch = options.fetch ?? globalThis.fetch
     this.#timeoutMs = options.timeoutMs ?? 10_000
+    this.#musicBrainzBaseUrl = new URL(options.musicBrainzBaseUrl ?? 'https://musicbrainz.org/ws/2/')
     this.#pathMappings = options.pathMappings ?? []
   }
 
@@ -116,9 +124,25 @@ export class LidarrAdapter implements CatalogLookupPort, AcquisitionAutomationPo
   }
 
   async listArtistReleases(artist: ProviderRef, context: OperationContext): Promise<readonly CatalogRelease[]> {
-    const artistId = this.#numericId(artist, 'artist')
-    const albums = await this.#request<JsonObject[]>('album', { artistId }, context)
-    return albums.map((album) => this.#album(album))
+    this.#assertAdapter(artist)
+    if (artist.nativeId.startsWith('artist:id:')) {
+      const albums = await this.#request<JsonObject[]>('album', { artistId: this.#numericId(artist, 'artist') }, context)
+      return albums.map((album) => this.#album(album))
+    }
+
+    const artistMbid = this.#foreignId(artist, 'artist').toLowerCase()
+    if (!isMusicBrainzId(artistMbid)) {
+      throw this.#error('invalid-request', 'artist requires a valid MusicBrainz ID', false)
+    }
+    const releases: CatalogRelease[] = []
+    let offset = 0
+    do {
+      const page = await this.#musicBrainzRequest(artistMbid, offset, context)
+      releases.push(...page['release-groups'].map(release => this.#musicBrainzRelease(release, artistMbid)))
+      offset += page['release-groups'].length
+      if (page['release-groups'].length === 0 || offset >= page['release-group-count']) break
+    } while (true)
+    return releases
   }
 
   async listProfiles(context: OperationContext): Promise<readonly AcquisitionProfile[]> {
@@ -335,6 +359,22 @@ export class LidarrAdapter implements CatalogLookupPort, AcquisitionAutomationPo
     }
   }
 
+  #musicBrainzRelease(value: JsonObject, artistMbid: string): CatalogRelease {
+    const releaseMbid = string(value.id).toLowerCase()
+    if (!isMusicBrainzId(releaseMbid)) {
+      throw this.#error('transient-provider-failure', 'MusicBrainz returned a release without an identifier', true)
+    }
+    return {
+      ref: this.#foreignRef('album', releaseMbid),
+      artistRef: this.#foreignRef('artist', artistMbid),
+      title: string(value.title),
+      releaseDate: optionalString(value['first-release-date']),
+      releaseType: optionalString(value['primary-type']),
+      musicBrainzReleaseGroupId: releaseMbid,
+      images: [`https://coverartarchive.org/release-group/${releaseMbid}/front-250`],
+    }
+  }
+
   #profile(value: JsonObject, kind: AcquisitionProfile['kind']): AcquisitionProfile {
     return {
       ref: this.#ref(`profile:${kind}`, number(value.id)),
@@ -527,6 +567,45 @@ export class LidarrAdapter implements CatalogLookupPort, AcquisitionAutomationPo
       return JSON.parse(text) as T
     } catch (error) {
       throw this.#error('transient-provider-failure', 'Lidarr returned an invalid response', true, response.status, error)
+    }
+  }
+
+  async #musicBrainzRequest(artistMbid: string, offset: number, context: OperationContext): Promise<MusicBrainzReleaseGroupPage> {
+    const url = new URL('release-group', this.#musicBrainzBaseUrl)
+    url.searchParams.set('artist', artistMbid)
+    url.searchParams.set('release-group-status', 'website-default')
+    url.searchParams.set('limit', '100')
+    url.searchParams.set('offset', String(offset))
+    url.searchParams.set('fmt', 'json')
+    const timeout = AbortSignal.timeout(this.#timeoutMs)
+    const signal = context.signal ? AbortSignal.any([context.signal, timeout]) : timeout
+    let response: Response
+    try {
+      response = await this.#fetch(url, {
+        signal,
+        headers: {
+          Accept: 'application/json',
+          'User-Agent': 'Needle/0.1 (https://github.com/joshuaobrien/needle)',
+          'X-Needle-Operation-Id': context.operationId,
+        },
+      })
+    } catch (error) {
+      throw this.#error('unavailable', 'MusicBrainz is unavailable', true, undefined, error)
+    }
+    if (!response.ok) {
+      throw this.#error(
+        statusCode(response.status),
+        `MusicBrainz request failed with status ${response.status}`,
+        response.status >= 500 || response.status === 429,
+        response.status,
+        undefined,
+        parseRetryAfter(response.headers.get('retry-after')),
+      )
+    }
+    try {
+      return await response.json() as MusicBrainzReleaseGroupPage
+    } catch (error) {
+      throw this.#error('transient-provider-failure', 'MusicBrainz returned an invalid response', true, response.status, error)
     }
   }
 
