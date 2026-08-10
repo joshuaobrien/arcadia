@@ -588,6 +588,7 @@ export function buildApp(options: BuildAppOptions = {}) {
               title: { type: 'string', minLength: 1, maxLength: 500 },
               releaseDate: { type: 'string', minLength: 1, maxLength: 40 },
               releaseType: { type: 'string', minLength: 1, maxLength: 100 },
+              trackCount: { type: 'integer', minimum: 1, maximum: 10000 },
               musicBrainzReleaseGroupId: {
                 type: 'string',
                 pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',

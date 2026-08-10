@@ -313,6 +313,12 @@ export class LidarrAdapter implements CatalogLookupPort, AcquisitionAutomationPo
     const artistId = optionalNumber(value.artistId) ?? optionalNumber(artist?.id)
     const artistMbid = optionalString(artist?.foreignArtistId) ?? optionalString(artist?.mbId)
     const albumMbid = optionalString(value.foreignAlbumId)
+    const releaseTrackCounts = Array.isArray(value.releases)
+      ? value.releases.flatMap(release => {
+        const trackCount = optionalNumber(object(release)?.trackCount)
+        return trackCount && trackCount > 0 ? [trackCount] : []
+      })
+      : []
     return {
       ref: number(value.id) > 0 ? this.#ref('album', number(value.id)) : this.#foreignRef('album', albumMbid),
       artistRef: artistId && artistId > 0
@@ -322,6 +328,7 @@ export class LidarrAdapter implements CatalogLookupPort, AcquisitionAutomationPo
       title: string(value.title),
       releaseDate: optionalString(value.releaseDate),
       releaseType: optionalString(value.albumType),
+      trackCount: releaseTrackCounts.length ? Math.min(...releaseTrackCounts) : undefined,
       musicBrainzReleaseGroupId: albumMbid,
       monitored: optionalBoolean(value.monitored),
       images: imageUrls(value),

@@ -57,6 +57,29 @@ test('unified releases retain wanted records when catalog lookup is unavailable'
   assert.equal(item.title, 'Tender Buttons')
 })
 
+test('same-title catalog results preserve editions and rank albums before singles', () => {
+  const releases = mergeMusicReleases([], [
+    {
+      ref: { adapterId: 'lidarr', nativeId: 'album:mbid:single' },
+      artistRef: { adapterId: 'lidarr', nativeId: 'artist:mbid:yeule' },
+      artistName: 'yeule', title: 'Evangelic Girl Is a Gun', releaseType: 'Single', trackCount: 3,
+      releaseDate: '2025-04-08T00:00:00Z', musicBrainzReleaseGroupId: '4292e32e-469a-4c14-a025-3abbef5fd703',
+    },
+    {
+      ref: { adapterId: 'lidarr', nativeId: 'album:mbid:album' },
+      artistRef: { adapterId: 'lidarr', nativeId: 'artist:mbid:yeule' },
+      artistName: 'yeule', title: 'Evangelic Girl Is a Gun', releaseType: 'Album', trackCount: 10,
+      releaseDate: '2025-05-30T00:00:00Z', musicBrainzReleaseGroupId: '325775d4-08d2-411a-b3bb-d7e9e7a0cf92',
+    },
+  ], [], 'Evangelic Girl Is a Gun')
+
+  assert.equal(releases.length, 2)
+  assert.deepEqual(releases.map(item => [item.catalogRelease?.releaseType, item.catalogRelease?.trackCount]), [
+    ['Album', 10],
+    ['Single', 3],
+  ])
+})
+
 test('unified releases project linked import lifecycle without fuzzy identity', () => {
   const base = {
     id: 'wanted-1', artist: 'Broadcast', release: 'Tender Buttons',
