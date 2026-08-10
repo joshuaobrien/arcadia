@@ -1079,6 +1079,63 @@ function AlbumArtwork({ album }: { album: LibraryAlbum }) {
   )
 }
 
+function OwnedAlbumCard({ album, library, playTrack, title = album.title, inLibrary = false }: {
+  album: LibraryAlbum
+  library: LibraryModel
+  playTrack: (track: PlayerTrack) => void
+  title?: string
+  inLibrary?: boolean
+}) {
+  const [loadingTrack, setLoadingTrack] = useState(false)
+  const [playError, setPlayError] = useState<string | null>(null)
+
+  async function playAlbum() {
+    setLoadingTrack(true)
+    setPlayError(null)
+    try {
+      const result = await getJson<LibraryPage<LibraryTrack>>(`/api/library/albums/${album.id}/tracks?limit=1`)
+      const track = result.items[0]
+      if (!track?.id) throw new Error('No playable tracks found')
+      playTrack({
+        ...track,
+        id: track.id,
+        title: track.title ?? 'Untitled track',
+        albumId: album.id,
+        album: album.title,
+        albumArtist: album.albumArtist,
+      })
+    } catch (requestError) {
+      setPlayError(errorMessage(requestError))
+    } finally {
+      setLoadingTrack(false)
+    }
+  }
+
+  return <article className={`album-card owned-album-card${inLibrary ? ' release-card' : ''}`}>
+    <button
+      className="album-open"
+      onClick={() => library.openAlbum(album)}
+      disabled={library.openingAlbum !== null}
+      aria-label={`Open ${title} by ${album.albumArtist}`}
+    >
+      <AlbumArtwork album={album} key={`${album.id}:${library.artworkRevision}`} />
+      <strong>{title}</strong>
+      <small>{album.albumArtist}</small>
+      <div className="album-meta"><span>{album.year ?? '—'}</span>{inLibrary ? <span className="release-state present">In library</span> : <span>{album.trackCount ? `${album.trackCount} tracks` : 'Album'}</span>}</div>
+    </button>
+    <button
+      className="album-play"
+      onClick={playAlbum}
+      disabled={loadingTrack}
+      aria-label={`Play ${title} by ${album.albumArtist}`}
+      title={playError ?? `Play ${title}`}
+    >
+      {loadingTrack ? <RefreshCw size={16} className="spinning" /> : <Play size={16} fill="currentColor" />}
+    </button>
+    {playError && <span className="album-play-error" role="status">Playback unavailable</span>}
+  </article>
+}
+
 function needleStatus(library: LibraryModel) {
   if (library.loading) return { label: 'indexing', className: 'degraded' }
   if (library.error) return { label: 'attention', className: 'offline' }
@@ -1351,11 +1408,12 @@ function formatDuration(value?: number): string {
   return `${minutes}:${seconds.toString().padStart(2, '0')}`
 }
 
-function UnifiedReleaseCard({ item, library, acquisitions, libraryAvailable }: {
+function UnifiedReleaseCard({ item, library, acquisitions, libraryAvailable, playTrack }: {
   item: MusicRelease
   library: LibraryModel
   acquisitions: AcquisitionsModel
   libraryAvailable: boolean
+  playTrack: (track: PlayerTrack) => void
 }) {
   const album = item.libraryAlbum
   const release = item.catalogRelease
@@ -1363,14 +1421,7 @@ function UnifiedReleaseCard({ item, library, acquisitions, libraryAvailable }: {
   const wanted = item.state === 'wanted' || acquisition?.state === 'wanted'
 
   if (album) {
-    return (
-      <button className="album-card release-card" onClick={() => library.openAlbum(album)} disabled={library.openingAlbum !== null}>
-        <AlbumArtwork album={album} key={`${album.id}:${library.artworkRevision}`} />
-        <strong>{item.title}</strong>
-        <small>{item.artist}</small>
-        <div className="album-meta"><span>{item.year ?? '—'}</span><span className="release-state present">In library</span></div>
-      </button>
-    )
+    return <OwnedAlbumCard album={album} library={library} playTrack={playTrack} title={item.title} inLibrary />
   }
 
   return (
@@ -1415,6 +1466,7 @@ function ArtistCard({ artist, library }: { artist: LibraryArtist; library: Libra
     </div>
     <strong>{artist.name}</strong>
     <small>{artist.albumCount} {artist.albumCount === 1 ? 'album' : 'albums'}</small>
+    <span className="artist-open"><Disc3 size={11} /> Open discography</span>
   </button>
 }
 
@@ -1515,7 +1567,7 @@ function LibraryView({ library, acquisitions, playTrack }: { library: LibraryMod
                 : <div className="search-groups">
                   {!!searchResult?.artists.length && <section><header className="collection-heading"><h2>Artists</h2><span>{searchResult.artists.length}</span></header><div className="artist-grid compact">{searchResult.artists.map(artist => <ArtistCard artist={artist} library={library} key={artist.name.toLowerCase()} />)}</div></section>}
                   {!!searchResult?.tracks.length && <section><header className="collection-heading"><h2>Songs</h2><span>{searchResult.tracks.length}</span></header><div className="panel song-list">{searchResult.tracks.map(track => <SongRow track={track} library={library} playTrack={playTrack} key={track.id ?? `${track.title}:${track.album}`} />)}</div></section>}
-                  {!!searchResult?.items.length && <section><header className="collection-heading"><h2>Albums</h2><span>{searchResult.items.length}</span></header><div className="album-grid">{searchResult.items.map(item => <UnifiedReleaseCard item={item} library={library} acquisitions={acquisitions} libraryAvailable={searchResult.sources.library === 'available'} key={item.key} />)}</div></section>}
+                  {!!searchResult?.items.length && <section><header className="collection-heading"><h2>Albums</h2><span>{searchResult.items.length}</span></header><div className="album-grid">{searchResult.items.map(item => <UnifiedReleaseCard item={item} library={library} acquisitions={acquisitions} libraryAvailable={searchResult.sources.library === 'available'} playTrack={playTrack} key={item.key} />)}</div></section>}
                 </div>}
               {!library.loading && !resultCount && <div className="panel"><p className="empty-row">No artists, songs, or albums found</p></div>}
             </> : unavailable ? <div className="integration-state">
@@ -1526,12 +1578,7 @@ function LibraryView({ library, acquisitions, playTrack }: { library: LibraryMod
             </div> : library.loading ? <div className="idle-state compact"><Disc3 size={28} className="spinning" /><span>Reading {library.section}</span></div> : <>
               {library.section === 'albums' && <div className="album-grid">
                 {page?.items.map(item => (
-                  <button className="album-card" key={item.id} onClick={() => library.openAlbum(item)} disabled={library.openingAlbum !== null}>
-                    <AlbumArtwork album={item} key={`${item.id}:${library.artworkRevision}`} />
-                    <strong>{item.title}</strong>
-                    <small>{item.albumArtist}</small>
-                    <div className="album-meta"><span>{item.year ?? '—'}</span><span>{item.trackCount ? `${item.trackCount} tracks` : 'Album'}</span></div>
-                  </button>
+                  <OwnedAlbumCard album={item} library={library} playTrack={playTrack} key={item.id} />
                 ))}
               </div>}
               {library.section === 'artists' && <div className="artist-grid">{library.artistPage?.items.map(artist => <ArtistCard artist={artist} library={library} key={artist.name.toLowerCase()} />)}</div>}
