@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { createRoot } from 'react-dom/client'
-import { Activity, ArrowLeft, Bookmark, Check, Disc3, House, LibraryBig, PackageOpen, Radio, RefreshCw, Search, ShieldCheck } from 'lucide-react'
+import { Activity, ArrowLeft, Bookmark, Check, Disc3, LibraryBig, PackageOpen, Radio, RefreshCw, Search, ShieldCheck } from 'lucide-react'
 import './styles.css'
 
 interface ProviderRef {
@@ -278,7 +278,7 @@ interface MusicSearchResponse {
   items: MusicRelease[]
 }
 
-type View = 'home' | 'library' | 'imports' | 'wanted' | 'activity'
+type View = 'library' | 'imports' | 'wanted' | 'activity'
 
 async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   const response = await fetch(path, { signal })
@@ -1009,49 +1009,44 @@ function AlbumArtwork({ album }: { album: LibraryAlbum }) {
   )
 }
 
-function needleStatus(lidarr: LidarrReadModel, beets: BeetsReadModel, library: LibraryModel) {
-  if (lidarr.loading || beets.loading || library.loading) return { label: 'syncing', className: 'degraded' }
-  if (lidarr.error || beets.error || library.error) return { label: 'attention', className: 'offline' }
-  if (!lidarr.status?.configured || !beets.status?.configured || !library.page?.configured || !library.page.mounted) return { label: 'setup needed', className: 'degraded' }
-  return { label: 'ready', className: 'available' }
+function needleStatus(library: LibraryModel) {
+  if (library.loading) return { label: 'indexing', className: 'degraded' }
+  if (library.error) return { label: 'attention', className: 'offline' }
+  if (!library.page?.configured || !library.page.mounted) return { label: 'setup needed', className: 'degraded' }
+  return { label: 'library ready', className: 'available' }
 }
 
-function Header({ view, setView, lidarr, beets, library, acquisitions }: {
+function Header({ view, setView, library, acquisitions }: {
   view: View
   setView: (view: View) => void
-  lidarr: LidarrReadModel
-  beets: BeetsReadModel
   library: LibraryModel
   acquisitions: AcquisitionsModel
 }) {
-  const status = needleStatus(lidarr, beets, library)
+  const status = needleStatus(library)
   return (
     <header className="header">
       <div className="brand">
         <span className="brand-mark"><Disc3 size={18} /></span>
-        <span>needle<small>your music, end to end</small></span>
+        <span>needle<small>your music library</small></span>
       </div>
       <nav aria-label="Primary">
-        <button className={view === 'home' ? 'active' : ''} onClick={() => setView('home')}>
-          <House size={14} /> Home
-        </button>
         <button className={view === 'library' ? 'active' : ''} onClick={() => setView('library')}>
           <LibraryBig size={14} /> Collection
         </button>
-        <button className={view === 'imports' ? 'active' : ''} onClick={() => setView('imports')}>
-          <PackageOpen size={14} /> Review
-        </button>
         {acquisitions.configured && <button className={view === 'wanted' ? 'active' : ''} onClick={() => setView('wanted')}>
-          <Bookmark size={14} /> Journeys
+          <Bookmark size={14} /> Incoming
         </button>}
+        <button className={view === 'imports' ? 'active' : ''} onClick={() => setView('imports')}>
+          <PackageOpen size={14} /> Inbox
+        </button>
         <button className={view === 'activity' ? 'active' : ''} onClick={() => setView('activity')}>
-          <Activity size={14} /> Timeline
+          <Activity size={14} /> History
         </button>
       </nav>
       <div className={`connection ${status.className}`}>
         <span />
-        <div><small>NEEDLE</small><strong>{status.label}</strong></div>
-        <code>system</code>
+        <div><small>COLLECTION</small><strong>{status.label}</strong></div>
+        <code>{library.page?.total ?? '—'} albums</code>
       </div>
     </header>
   )
@@ -1312,16 +1307,16 @@ function UnifiedReleaseCard({ item, library, acquisitions, libraryAvailable }: {
               >
                 {acquisitions.savingRef === providerRefKey(release.ref) ? 'Searching…' : <><RefreshCw size={10} /> Search again</>}
               </button>
-                : wanted ? <span className="release-state wanted"><Check size={9} /> Wanted</span>
+                : wanted ? <span className="release-state wanted"><Check size={9} /> On the way</span>
           : !libraryAvailable ? <span className="release-state unknown">Library unknown</span>
             : release && acquisitions.configured ? <button
             className="want-button"
             disabled={acquisitions.savingRef !== null}
             onClick={() => acquisitions.wantRelease(release)}
           >
-            {acquisitions.savingRef === providerRefKey(release.ref) ? 'Saving…' : <><Bookmark size={10} /> Want</>}
+            {acquisitions.savingRef === providerRefKey(release.ref) ? 'Adding…' : <><Bookmark size={10} /> Add to library</>}
           </button>
-            : <span className="release-state requestable">Can request</span>}
+            : <span className="release-state requestable">Available to add</span>}
       </div>
     </article>
   )
@@ -1337,8 +1332,8 @@ function LibraryView({ library, acquisitions }: { library: LibraryModel; acquisi
     <section>
       <div className="page-heading">
         <div>
-          <p>01 / YOUR MUSIC</p>
-          <h1>{album?.title ?? 'Collection'}</h1>
+          <p>{album ? `${album.albumArtist} / ${library.tracks.length} TRACKS` : library.activeTerm ? 'YOUR LIBRARY + MUSIC CATALOG' : `${page?.total ?? 0} ALBUMS / YOUR MUSIC`}</p>
+          <h1>{album?.title ?? (library.activeTerm ? `Results for “${library.activeTerm}”` : 'Your library')}</h1>
         </div>
         {album
           ? <button className="button" onClick={library.closeAlbum}><ArrowLeft size={13} /> Collection</button>
@@ -1368,10 +1363,10 @@ function LibraryView({ library, acquisitions }: { library: LibraryModel; acquisi
                 aria-label="Album or album artist"
                 value={library.term}
                 onChange={event => library.setTerm(event.target.value)}
-                placeholder="album or album artist"
+                placeholder="search your library or find any album"
               />
               {library.activeTerm && <button className="button" type="button" onClick={library.clearSearch}>Clear</button>}
-              <button className="button primary" disabled={library.loading}>Find</button>
+              <button className="button primary" disabled={library.loading}>Search</button>
               <code>{library.activeTerm ? searchResult?.items.length ?? 0 : page?.total ?? 0}</code>
             </form>
             {library.activeTerm ? <>
@@ -1443,7 +1438,7 @@ function ActivityView({ lidarr, imports, sectionNumber }: { lidarr: LidarrReadMo
   return (
     <section>
       <div className="page-heading">
-        <div><p>{sectionNumber} / MUSIC IN MOTION</p><h1>Timeline</h1></div>
+        <div><p>{sectionNumber} / RECENT LIBRARY ACTIVITY</p><h1>History</h1></div>
         <button className="button" onClick={() => { void lidarr.refresh(); void imports.refresh() }} disabled={refreshing}>
           <RefreshCw size={13} className={refreshing ? 'spinning' : ''} /> Refresh
         </button>
@@ -1507,7 +1502,7 @@ function ImportsView({ beets }: { beets: BeetsReadModel }) {
   return (
     <section>
       <div className="page-heading">
-        <div><p>02 / READY TO REVIEW</p><h1>Review</h1></div>
+        <div><p>INBOX / READY TO REVIEW</p><h1>Inbox</h1></div>
         <button className="button" onClick={beets.refresh} disabled={beets.loading}>
           <RefreshCw size={13} className={beets.loading ? 'spinning' : ''} /> Refresh
         </button>
@@ -1706,7 +1701,7 @@ function JourneyDetailView({ id, beets, library, setView, close }: {
   return <section>
     <div className="page-heading">
       <div><p>03 / RELEASE JOURNEY</p><h1>{detail?.job.release ?? 'Journey'}</h1></div>
-      <button className="button" onClick={close}><ArrowLeft size={13} /> Journeys</button>
+      <button className="button" onClick={close}><ArrowLeft size={13} /> Incoming</button>
     </div>
     {model.error && <div className="error-strip">{model.error}</div>}
     {!detail && model.loading ? <div className="idle-state"><Disc3 size={34} className="spinning" /><span>Reading release journey</span></div> : detail && <>
@@ -1769,7 +1764,7 @@ function WantedView({ acquisitions, lidarr, selectedJourneyId, openJourney, clos
   return (
     <section>
       <div className="page-heading">
-        <div><p>03 / FROM WANT TO OWN</p><h1>Journeys</h1></div>
+        <div><p>INCOMING / ON THE WAY TO YOUR LIBRARY</p><h1>Incoming</h1></div>
         <button className="button" onClick={() => { void acquisitions.refresh(); void lidarr.refresh() }} disabled={refreshing}>
           <RefreshCw size={13} className={refreshing ? 'spinning' : ''} /> Refresh
         </button>
@@ -1798,7 +1793,7 @@ function WantedView({ acquisitions, lidarr, selectedJourneyId, openJourney, clos
 }
 
 function App() {
-  const [view, setView] = useState<View>('home')
+  const [view, setView] = useState<View>('library')
   const [selectedJourneyId, setSelectedJourneyId] = useState<string | null>(null)
   const acquisitions = useAcquisitions()
   const activeJourneyDates = acquisitions.items
@@ -1819,9 +1814,8 @@ function App() {
 
   return (
     <div className="app-shell">
-      <Header view={view} setView={navigate} lidarr={lidarr} beets={beets} library={library} acquisitions={acquisitions} />
+      <Header view={view} setView={navigate} library={library} acquisitions={acquisitions} />
       <main>
-        {view === 'home' && <HomeView lidarr={lidarr} beets={beets} imports={importOperations} acquisitions={acquisitions} library={library} setView={navigate} openJourney={openJourney} />}
         {view === 'library' && <LibraryView library={library} acquisitions={acquisitions} />}
         {view === 'imports' && <ImportsView beets={beets} />}
         {view === 'wanted' && <WantedView acquisitions={acquisitions} lidarr={lidarr} selectedJourneyId={selectedJourneyId} openJourney={openJourney} closeJourney={() => setSelectedJourneyId(null)} beets={beets} library={library} setView={navigate} />}
