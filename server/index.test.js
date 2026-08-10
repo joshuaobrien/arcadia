@@ -334,6 +334,49 @@ test('journey review handoff requires a mapped authoritative completed-download 
   }
 })
 
+test('journey review handoff follows an exact Lidarr download reference when completed download handling is disabled', async (t) => {
+  const job = { id: 'j', state: 'wanted', release: 'Album', searchRefs: [{ adapterId: 'lidarr', nativeId: 'album:id:9' }],
+    createdAt: '2026-08-01T00:00:00Z', updatedAt: '2026-08-01T00:00:00Z' }
+  const release = { ref: job.searchRefs[0], artistRef: { adapterId: 'lidarr', nativeId: 'artist:id:1' }, title: 'Album' }
+  let queue = [{ ref: { adapterId: 'lidarr', nativeId: 'queue:id:1' }, underlyingDownloadRef: 'download-123', title: 'Album',
+    state: 'downloading', rawState: 'downloading', release, statusMessages: [] }]
+  let history = [
+    { ref: { adapterId: 'lidarr', nativeId: 'history:id:1' }, eventType: 'grabbed', occurredAt: job.createdAt,
+      release, underlyingDownloadRef: 'download-123', data: {} },
+  ]
+  const lidarr = { listQueue: async () => ({ items: queue }), listHistory: async () => ({ items: history }) }
+  const folder = { name: 'Album', providerPath: '/inbox/lidarr/download-123/Artist - Album', hash: 'h', album: true, type: 'directory', children: [] }
+  const beets = { listFolders: async () => [
+    { name: 'Different Album', providerPath: '/inbox/Artist - Album', hash: 'other', album: true, type: 'directory', children: [] },
+    folder,
+  ] }
+  const repository = { list: () => [job], get: () => job, wantRelease: () => {}, getDefaults: () => null,
+    setDefaults: value => value, listBeetsImportOperations: () => [] }
+  const app = buildApp({ lidarr, beets, acquisitionRepository: repository, logger: false })
+  t.after(() => app.close())
+
+  const downloading = (await app.inject({ method: 'GET', url: '/api/journeys/j' })).json()
+  assert.equal(downloading.stage, 'downloading')
+  assert.equal(downloading.nextAction, undefined)
+
+  queue = []
+  const body = (await app.inject({ method: 'GET', url: '/api/journeys/j' })).json()
+  assert.equal(body.stage, 'review')
+  assert.deepEqual(body.nextAction, { kind: 'review', folder })
+
+  history = [{ ref: { adapterId: 'lidarr', nativeId: 'history:id:2' }, eventType: 'downloadFailed', occurredAt: '2026-08-01T00:01:00Z',
+    release, underlyingDownloadRef: 'download-123', data: {} }, ...history]
+  const failed = (await app.inject({ method: 'GET', url: '/api/journeys/j' })).json()
+  assert.equal(failed.stage, 'attention')
+  assert.equal(failed.nextAction, undefined)
+
+  history.push({ ref: { adapterId: 'lidarr', nativeId: 'history:id:3' }, eventType: 'downloadFolderImported', occurredAt: job.createdAt,
+    release, underlyingDownloadRef: 'download-123', output: { providerPath: '/downloads/Album', needlePath: folder.providerPath }, data: {} })
+  const failedAfterOutput = (await app.inject({ method: 'GET', url: '/api/journeys/j' })).json()
+  assert.equal(failedAfterOutput.stage, 'attention')
+  assert.equal(failedAfterOutput.nextAction, undefined)
+})
+
 test('journey detail omits fuzzy and ambiguous folder matches and durable import state wins', async (t) => {
   const job = { id: 'j', state: 'wanted', release: 'Album', searchRefs: [{ adapterId: 'lidarr', nativeId: 'album:id:9' }], createdAt: '2026-08-01T00:00:00Z', updatedAt: '2026-08-01T00:00:00Z' }
   const operation = { id: 'op', sessionId: 's', providerPath: '/inbox/Album', hash: 'h', state: 'library-confirmed', selections: [], acquisitionId: 'j', libraryAlbumIds: ['library-1'], createdAt: job.createdAt, updatedAt: job.updatedAt }
@@ -376,6 +419,8 @@ test('beets workflow gates mutations on the current album tree and validated cho
   const calls = []
   const operations = []
   let libraryAlbums = []
+  let libraryRefreshes = 0
+  let failLibraryRefresh = false
   let loseSubmissionCas = false
   let throwSubmissionCas = false
   const linkedAcquisition = { id: 'wanted-1', state: 'wanted', artist: 'Artist', release: 'Album', searchRefs: [{ adapterId: 'lidarr', nativeId: 'album:1' }], createdAt: '2026-08-09T00:00:00Z', updatedAt: '2026-08-09T00:00:00Z' }
@@ -434,6 +479,13 @@ test('beets workflow gates mutations on the current album tree and validated cho
     },
   }
   const jellyfin = {
+    refreshLibrary: async () => {
+      libraryRefreshes += 1
+      if (failLibraryRefresh) {
+        failLibraryRefresh = false
+        throw new AdapterError({ code: 'unavailable', adapterId: 'jellyfin', message: 'offline', retryable: true })
+      }
+    },
     listAlbums: async () => ({ items: libraryAlbums, total: libraryAlbums.length }),
     listAlbumTracks: async albumId => ({ items: albumId === 'album-1' || albumId === 'album-2' ? [{ id: `track-${albumId}`, title: 'Track', artists: ['Artist'] }] : [], total: 1 }),
     getAlbumArtwork: async () => null,
@@ -486,13 +538,19 @@ test('beets workflow gates mutations on the current album tree and validated cho
   session.tasks.push({ id: 'unapproved-task', chosenCandidateId: 'other-candidate', currentMetadata: {}, items: [], candidates: [] })
   assert.equal((await app.inject({ method: 'POST', url: '/api/imports/operations/import-operation-1/reconcile', payload: {} })).json().state, 'submitted')
   session.tasks.pop()
+  failLibraryRefresh = true
+  const refreshFailure = await app.inject({ method: 'POST', url: '/api/imports/operations/import-operation-1/reconcile', payload: {} })
+  assert.equal(refreshFailure.statusCode, 502)
+  assert.equal(operations[0].state, 'submitted')
   const providerCompleted = await app.inject({ method: 'POST', url: '/api/imports/operations/import-operation-1/reconcile', payload: {} })
   assert.equal(providerCompleted.json().state, 'provider-completed')
+  assert.equal(libraryRefreshes, 2)
   libraryAlbums = [
     { id: 'album-1', title: 'Album', albumArtist: 'Artist', trackCount: 1, hasArtwork: false },
     { id: 'album-2', title: 'Album', albumArtist: 'Artist', trackCount: 1, hasArtwork: false },
   ]
   assert.equal((await app.inject({ method: 'POST', url: '/api/imports/operations/import-operation-1/reconcile', payload: {} })).json().state, 'provider-completed')
+  assert.equal(libraryRefreshes, 2)
   libraryAlbums = libraryAlbums.slice(0, 1)
   const confirmed = await app.inject({ method: 'POST', url: '/api/imports/operations/import-operation-1/reconcile', payload: {} })
   assert.equal(confirmed.json().state, 'library-confirmed')
@@ -503,6 +561,7 @@ test('beets workflow gates mutations on the current album tree and validated cho
   session.id = 'session-2'
   session.progress = 20
   delete session.tasks[0].chosenCandidateId
+  await app.inject({ method: 'GET', url: `/api/imports/preview?providerPath=${encodeURIComponent(folder.providerPath)}&hash=${folder.hash}` })
   beets.enqueueImport = async () => { throw new Error('unexpected provider failure') }
   const failedSubmission = await app.inject({ method: 'POST', url: '/api/imports/import', payload: { acquisitionId: null, providerPath: folder.providerPath, hash: folder.hash, sessionId: session.id, choices: [{ taskId: 'task-1', candidateId: 'candidate-1', duplicateAction: 'skip' }] } })
   assert.equal(failedSubmission.statusCode, 503)
@@ -510,6 +569,7 @@ test('beets workflow gates mutations on the current album tree and validated cho
   assert.equal(operations[1].state, 'submission-unknown')
 
   session.id = 'session-3'
+  await app.inject({ method: 'GET', url: `/api/imports/preview?providerPath=${encodeURIComponent(folder.providerPath)}&hash=${folder.hash}` })
   beets.enqueueImport = async (request, context) => ({ jobId: 'accepted-but-not-persisted', kind: 'import_candidate', providerPath: request.providerPath, hash: request.hash, operationId: context.operationId })
   loseSubmissionCas = true
   const lostDurability = await app.inject({ method: 'POST', url: '/api/imports/import', payload: { acquisitionId: null, providerPath: folder.providerPath, hash: folder.hash, sessionId: session.id, choices: [{ taskId: 'task-1', candidateId: 'candidate-1', duplicateAction: 'skip' }] } })
@@ -519,15 +579,18 @@ test('beets workflow gates mutations on the current album tree and validated cho
 
   loseSubmissionCas = false
   session.id = 'session-4'
+  await app.inject({ method: 'GET', url: `/api/imports/preview?providerPath=${encodeURIComponent(folder.providerPath)}&hash=${folder.hash}` })
   beets.enqueueImport = async () => { throw new AdapterError({ code: 'invalid-request', adapterId: 'beets', message: 'Rejected before enqueue', retryable: false, providerStatus: 400 }) }
   const rejected = await app.inject({ method: 'POST', url: '/api/imports/import', payload: { acquisitionId: null, providerPath: folder.providerPath, hash: folder.hash, sessionId: session.id, choices: [{ taskId: 'task-1', candidateId: 'candidate-1', duplicateAction: 'skip' }] } })
   assert.equal(rejected.statusCode, 400)
   assert.equal(operations.some(item => item.sessionId === session.id), false)
   beets.enqueueImport = async (request, context) => ({ jobId: 'retry-job', kind: 'import_candidate', providerPath: request.providerPath, hash: request.hash, operationId: context.operationId })
+  await app.inject({ method: 'GET', url: `/api/imports/preview?providerPath=${encodeURIComponent(folder.providerPath)}&hash=${folder.hash}` })
   assert.equal((await app.inject({ method: 'POST', url: '/api/imports/import', payload: { acquisitionId: null, providerPath: folder.providerPath, hash: folder.hash, sessionId: session.id, choices: [{ taskId: 'task-1', candidateId: 'candidate-1', duplicateAction: 'skip' }] } })).statusCode, 202)
 
   session.id = 'session-5'
   throwSubmissionCas = true
+  await app.inject({ method: 'GET', url: `/api/imports/preview?providerPath=${encodeURIComponent(folder.providerPath)}&hash=${folder.hash}` })
   const failedDurabilityWrite = await app.inject({ method: 'POST', url: '/api/imports/import', payload: { acquisitionId: null, providerPath: folder.providerPath, hash: folder.hash, sessionId: session.id, choices: [{ taskId: 'task-1', candidateId: 'candidate-1', duplicateAction: 'skip' }] } })
   assert.equal(failedDurabilityWrite.statusCode, 503)
   assert.equal(failedDurabilityWrite.json().error.providerCode, 'outcome-unknown')
