@@ -292,6 +292,8 @@ main.library-main { width: min(1380px, calc(100% - 32px)); }
 .release-card.missing { cursor: default; }
 .release-card.missing .album-case::before { background: repeating-linear-gradient(135deg,#777b76 0 1px,#a5a69e 1px 5px); }
 .release-card > small { margin-bottom: 7px; }
+.release-details { min-height: 16px; display: flex; align-items: center; gap: 6px; color: #4f5c53; font-size: 7px; text-transform: uppercase; }
+.release-details span + span::before { margin-right: 6px; content: '·'; color: #858a83; }
 .release-card .album-meta { min-height: 29px; align-items: center; }
 .release-state { display: inline-flex; align-items: center; gap: 4px; }
 .release-state.present { color: #355743; }
