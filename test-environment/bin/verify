@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+port="${PORT:-8787}"
+base_url="http://127.0.0.1:${port}"
+
+curl -fsS "$base_url/api/health" >/dev/null
+curl -fsS "$base_url/api/library/albums?limit=1&fresh=true" \
+  | jq -e '.configured == true and .mounted == true and .total > 0' >/dev/null
+song_id="$(curl -fsS "$base_url/api/library/songs?limit=1&fresh=true" \
+  | jq -er 'select(.configured == true and .mounted == true and .total > 0) | .items[0].id')"
+range_result="$(curl -fsS -o /dev/null -w '%{http_code} %{size_download}' \
+  -H 'Range: bytes=0-63' "$base_url/api/library/songs/$song_id/stream")"
+[ "$range_result" = '206 64' ]
+curl -fsS "$base_url/api/services/lidarr" \
+  | jq -e '.configured == true and .health.state == "available"' >/dev/null
+curl -fsS "$base_url/api/services/beets" \
+  | jq -e '.configured == true and .health.state == "available"' >/dev/null
+curl -fsS "$base_url/api/imports/folders" \
+  | jq -e 'any(.items[]?.children[]?; .album == true and .name == "Needle Test Ensemble - Incoming Signals")' >/dev/null
+slskd_status="$(curl -sS -o /dev/null -w '%{http_code}' 'http://127.0.0.1:5030/health')"
+[ "$slskd_status" = 200 ] || [ "$slskd_status" = 502 ]
+echo "Needle can reach Lidarr, slskd, and beets-flask, browse the seeded inbox, read Jellyfin's library, and stream audio"

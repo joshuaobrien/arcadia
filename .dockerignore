@@ -8,3 +8,5 @@ server/**/*.test.js
 .env.*
 *.pem
 *.key
+test-environment/state
+test-environment/runtime.env

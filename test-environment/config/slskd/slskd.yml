@@ -1,0 +1,31 @@
+remote_configuration: false
+
+directories:
+  downloads: /downloads
+  incomplete: /incomplete
+
+web:
+  port: 5030
+  https:
+    disabled: true
+  authentication:
+    disabled: false
+    username: needle
+    password: needle-test-password
+    api_keys:
+      needle:
+        key: needle-test-slskd-api-key
+        role: administrator
+        cidr: 0.0.0.0/0,::/0
+
+soulseek:
+  listen_ip_address: 0.0.0.0
+  listen_port: 50300
+  connection:
+    proxy:
+      enabled: false
+
+integrations:
+  vpn:
+    enabled: false
+    port_forwarding: false

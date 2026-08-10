@@ -1,0 +1,62 @@
+plugins: [info, the, fetchart, embedart, ftintitle, lastgenre, missing, albumtypes, scrub, zero, mbsync, duplicates, convert, fromfilename, inline, edit, musicbrainz]
+
+directory: /music/imported
+
+import:
+  incomplete: no
+  languages: en
+  move: no
+  copy: yes
+  write: yes
+  delete: no
+  log: /logs/last_beets_imports.log
+  quiet_fallback: skip
+  detail: yes
+  duplicate_action: ask
+
+ui:
+  color: yes
+
+replace:
+  '[\\]': ""
+  "[_]": "-"
+  "[/]": "-"
+  '^\.+': ""
+  '[\x00-\x1f]': ""
+  '[<>:"\?\*\|]': ""
+  '\.$': ""
+  '\s+$': ""
+  '^\s+': ""
+  "^-": ""
+
+per_disc_numbering: no
+asciify_paths: yes
+threaded: no
+
+fetchart:
+  midwidth: 500
+  enforce_ratio: 10px
+  sources: coverart filesystem itunes amazon spotify albumart fanarttv
+
+embedart:
+  auto: yes
+  ifempty: yes
+  remove_art_file: yes
+
+ftintitle:
+  auto: yes
+  format: (feat. {0})
+
+lastgenre:
+  auto: yes
+  count: 4
+  prefer_specific: yes
+  force: yes
+  source: track
+  separator: "; "
+  fallback: ""
+
+match:
+  strong_rec_thresh: 0.1
+  distance_weights:
+    missing_tracks: 0.2

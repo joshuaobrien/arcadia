@@ -1,11 +1,9 @@
 services:
-  api:
-    command: npm run api
+  needle-test:
+    command: ./test-environment/bin/orb-stack
     port: 8787
     healthcheck:
       path: /api/health
-  web:
-    command: npm run dev -- --port 5173
-    port: 5173
-    healthcheck:
-      path: /
+    portal:
+      title: Needle test environment
+      description: Production-faithful seeded music stack
