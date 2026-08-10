@@ -119,9 +119,11 @@ main { width: min(1160px, calc(100% - 48px)); margin: 0 auto; padding: 42px 0 70
 .queue-copy small { margin-top: 4px; color: #575b55; font-size: 7px; }
 .meter { height: 7px; margin-top: 8px; padding: 1px; background: #a5a69d; border: 1px solid #777970; }
 .meter i { height: 100%; display: block; background: var(--blue); }
+.meter.compact { width: min(260px, 100%); height: 6px; margin-top: 6px; }
 .state-tag, .history-row > span { padding: 3px 5px; color: #2c4338; background: #aebeb3; border: 1px solid #778b7f; font-size: 6px; text-align: center; text-transform: uppercase; }
 .state-tag.failed { color: #4a292e; background: #c1a6a9; border-color: #8b656a; }
 .state-tag.paused, .state-tag.unknown { color: #4b412c; background: #c7b995; border-color: #95835e; }
+.state-tag.searching, .state-tag.queued, .state-tag.downloading { color: #34485a; background: #aebac3; border-color: #748794; }
 .import-operation-row > span.submission-unknown, .import-operation-row > span.submitting { color: #4b412c; background: #c7b995; border-color: #95835e; }
 .import-operation-row > span.submitted, .import-operation-row > span.provider-completed { color: #34485a; background: #aebac3; border-color: #748794; }
 .release-state.importing, .state-tag.importing { color: #34485a; background: #aebac3; border-color: #748794; }

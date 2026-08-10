@@ -169,6 +169,7 @@ interface AcquisitionJob {
 
 interface Page<T> {
   items: T[]
+  nextCursor?: string
 }
 
 interface AcquisitionResponse {
@@ -293,6 +294,21 @@ async function putJson<T>(path: string, payload: unknown): Promise<T> {
   return body
 }
 
+async function getPages<T>(path: string, signal: AbortSignal | undefined, follow: boolean): Promise<T[]> {
+  const items: T[] = []
+  const cursors = new Set<string>()
+  let cursor: string | undefined
+  do {
+    const page = await getJson<Page<T>>(`${path}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, signal)
+    items.push(...page.items)
+    if (!follow || !page.nextCursor) break
+    if (cursors.has(page.nextCursor)) throw new Error('Needle received a repeated activity cursor')
+    cursors.add(page.nextCursor)
+    cursor = page.nextCursor
+  } while (cursor)
+  return items
+}
+
 async function postBeetsMutation(path: string, payload: { providerPath: string; hash: string; [key: string]: unknown }, kind: BeetsJobAcknowledgement['kind']): Promise<BeetsJobAcknowledgement> {
   let response: Response
   try {
@@ -314,48 +330,139 @@ async function postBeetsMutation(path: string, payload: { providerPath: string; 
   return body
 }
 
-function useLidarrReadModel() {
+function useLidarrReadModel(historySince?: string) {
   const [status, setStatus] = useState<LidarrStatus | null>(null)
   const [queue, setQueue] = useState<QueueItem[]>([])
   const [history, setHistory] = useState<HistoryItem[]>([])
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [snapshotAvailable, setSnapshotAvailable] = useState(false)
+  const activeRequest = useRef(0)
 
-  const refresh = useCallback(async (signal?: AbortSignal) => {
-    setLoading(true)
-    setError(null)
+  const refresh = useCallback(async (signal?: AbortSignal, background = false) => {
+    const request = ++activeRequest.current
+    if (!background) setLoading(true)
     try {
       const nextStatus = await getJson<LidarrStatus>('/api/services/lidarr', signal)
-      setStatus(nextStatus)
       if (!nextStatus.configured || nextStatus.health?.state !== 'available') {
+        if (request !== activeRequest.current || signal?.aborted) return
+        setStatus(nextStatus)
         setQueue([])
         setHistory([])
+        setSnapshotAvailable(true)
+        setError(null)
         return
       }
 
-      const [queuePage, historyPage] = await Promise.all([
-        getJson<Page<QueueItem>>('/api/services/lidarr/queue?limit=25', signal),
-        getJson<Page<HistoryItem>>('/api/services/lidarr/history?limit=25', signal),
+      const historyPath = `/api/services/lidarr/history?limit=100${historySince ? `&since=${encodeURIComponent(historySince)}` : ''}`
+      const [nextQueue, nextHistory] = await Promise.all([
+        getPages<QueueItem>('/api/services/lidarr/queue?limit=100', signal, true),
+        getPages<HistoryItem>(historyPath, signal, Boolean(historySince)),
       ])
-      setQueue(queuePage.items)
-      setHistory(historyPage.items)
+      if (request !== activeRequest.current || signal?.aborted) return
+      setStatus(nextStatus)
+      setQueue(nextQueue)
+      setHistory(nextHistory)
+      setSnapshotAvailable(true)
+      setError(null)
     } catch (requestError) {
-      if (!isAbortError(requestError)) setError(errorMessage(requestError))
+      if (request === activeRequest.current && !isAbortError(requestError)) setError(errorMessage(requestError))
     } finally {
-      if (!signal?.aborted) setLoading(false)
+      if (request === activeRequest.current && !signal?.aborted) setLoading(false)
     }
-  }, [])
+  }, [historySince])
 
   useEffect(() => {
     const controller = new AbortController()
-    refresh(controller.signal)
-    return () => controller.abort()
+    let timer: number | undefined
+    setSnapshotAvailable(false)
+    const poll = async (background: boolean) => {
+      await refresh(controller.signal, background)
+      if (!controller.signal.aborted) timer = window.setTimeout(() => { void poll(true) }, 7_500)
+    }
+    void poll(false)
+    return () => {
+      controller.abort()
+      if (timer !== undefined) window.clearTimeout(timer)
+    }
   }, [refresh])
 
-  return { status, queue, history, error, loading, refresh: () => refresh() }
+  return { status, queue, history, error, loading, snapshotAvailable, refresh: () => refresh() }
 }
 
 type LidarrReadModel = ReturnType<typeof useLidarrReadModel>
+
+interface JourneyActivity {
+  label: string
+  className: string
+  detail: string
+  percent?: number
+}
+
+function journeyActivity(item: AcquisitionJob, lidarr: LidarrReadModel): JourneyActivity {
+  if (item.state !== 'wanted') {
+    const states: Record<Exclude<AcquisitionJob['state'], 'wanted'>, JourneyActivity> = {
+      searching: { label: 'Searching', className: 'searching', detail: 'Looking for this release' },
+      'selection-required': { label: 'Needs attention', className: 'selection-required', detail: 'Review the acquisition outcome' },
+      queued: { label: 'Queued', className: 'queued', detail: 'Waiting to download' },
+      transferring: { label: 'Downloading', className: 'downloading', detail: 'Transfer in progress' },
+      importing: { label: 'Importing', className: 'importing', detail: 'Moving into your collection' },
+      completed: { label: 'Collected', className: 'completed', detail: 'Verified in your collection' },
+      failed: { label: 'Failed', className: 'failed', detail: 'Acquisition needs attention' },
+      cancelled: { label: 'Cancelled', className: 'cancelled', detail: 'Acquisition was cancelled' },
+    }
+    return states[item.state]
+  }
+
+  if (lidarr.error) return { label: 'Unavailable', className: 'unknown', detail: 'Progress is temporarily unavailable' }
+  if (!lidarr.snapshotAvailable) return { label: 'Checking', className: 'unknown', detail: 'Checking search and download activity' }
+  if (!lidarr.status?.configured || lidarr.status.health?.state !== 'available') {
+    return { label: 'Unavailable', className: 'unknown', detail: 'Progress is temporarily unavailable' }
+  }
+
+  const queueItem = lidarr.queue.find(candidate => releaseMatchesJourney(item, candidate.release))
+  if (queueItem) {
+    const percent = queueItem.bytesTotal
+      ? Math.max(0, Math.min(100, Math.round(((queueItem.bytesTotal - (queueItem.bytesRemaining ?? queueItem.bytesTotal)) / queueItem.bytesTotal) * 100)))
+      : undefined
+    const states: Record<string, Omit<JourneyActivity, 'percent'>> = {
+      queued: { label: 'Queued', className: 'queued', detail: 'Waiting to download' },
+      downloading: { label: percent === undefined ? 'Downloading' : `${percent}%`, className: 'downloading', detail: `Downloading · ${formatBytes(queueItem.bytesTotal)}` },
+      paused: { label: 'Paused', className: 'paused', detail: 'Download paused' },
+      'post-processing': { label: 'Finishing', className: 'post-processing', detail: 'Download complete · preparing review' },
+      completed: { label: 'Downloaded', className: 'completed', detail: 'Waiting for import review' },
+      failed: { label: 'Failed', className: 'failed', detail: 'Download needs attention' },
+      unknown: { label: 'In progress', className: 'unknown', detail: 'Checking download state' },
+    }
+    return { ...(states[queueItem.state] ?? states.unknown), ...(percent === undefined ? {} : { percent }) }
+  }
+
+  const recognizedHistory = lidarr.history
+    .filter(event => releaseMatchesJourney(item, event.release) && Date.parse(event.occurredAt) >= Date.parse(item.createdAt))
+    .sort((left, right) => Date.parse(right.occurredAt) - Date.parse(left.occurredAt))
+  for (const historyItem of recognizedHistory) {
+    switch (historyItem.eventType.toLowerCase()) {
+      case 'downloadfailed':
+      case 'albumimportincomplete':
+      case 'downloadignored':
+        return { label: 'Needs attention', className: 'failed', detail: 'Download did not complete cleanly' }
+      case 'downloadfolderimported':
+      case 'trackfileimported':
+        return { label: 'Ready', className: 'completed', detail: 'Downloaded · ready for review' }
+      case 'grabbed':
+        return { label: 'Queued', className: 'queued', detail: 'Release sent to the download client' }
+    }
+  }
+  return { label: 'Requested', className: 'searching', detail: 'Search requested · waiting for a download' }
+}
+
+function releaseMatchesJourney(item: AcquisitionJob, release?: CatalogRelease): boolean {
+  if (!release) return false
+  const itemMusicBrainzId = item.musicBrainzReleaseGroupId?.toLowerCase()
+  const releaseMusicBrainzId = release.musicBrainzReleaseGroupId?.toLowerCase()
+  if (itemMusicBrainzId && releaseMusicBrainzId) return itemMusicBrainzId === releaseMusicBrainzId
+  return item.searchRefs.some(ref => ref.adapterId === release.ref.adapterId && ref.nativeId === release.ref.nativeId)
+}
 
 function useBeetsImportOperations(onLifecycleChange: () => void) {
   const [configured, setConfigured] = useState(false)
@@ -986,6 +1093,7 @@ function HomeView({ lidarr, beets, imports, acquisitions, library, setView }: {
       {imports.error && <div className="error-strip">{imports.error}</div>}
       {acquisitions.error && <div className="error-strip">{acquisitions.error}</div>}
       {library.error && <div className="error-strip">{library.error}</div>}
+      {lidarr.error && <div className="error-strip">Download progress unavailable: {lidarr.error}</div>}
 
       <div className="home-grid">
         <section className="panel home-panel">
@@ -1015,11 +1123,18 @@ function HomeView({ lidarr, beets, imports, acquisitions, library, setView }: {
 
         <section className="panel home-panel">
           <header><h2>In motion</h2><span>{activeJourneys.length}</span></header>
-          {activeJourneys.map(item => <button className="home-row" key={item.id} onClick={() => setView('wanted')}>
-            <Disc3 size={17} />
-            <div><strong>{item.release}</strong><small>{item.artist ?? 'Release journey'}</small></div>
-            <span className={`state-tag ${item.state}`}>{item.state.replace('-', ' ')}</span>
-          </button>)}
+          {activeJourneys.map(item => {
+            const activity = journeyActivity(item, lidarr)
+            return <button className="home-row" key={item.id} onClick={() => setView('wanted')}>
+              <Disc3 size={17} />
+              <div>
+                <strong>{item.release}</strong>
+                <small>{item.artist ? `${item.artist} · ${activity.detail}` : activity.detail}</small>
+                {activity.percent !== undefined && <div className="meter compact"><i style={{ width: `${activity.percent}%` }} /></div>}
+              </div>
+              <span className={`state-tag ${activity.className}`}>{activity.label}</span>
+            </button>
+          })}
           {!acquisitions.loading && !activeJourneys.length && <p className="empty-row">No active journeys</p>}
           {acquisitions.loading && !activeJourneys.length && <p className="empty-row">Checking journeys…</p>}
         </section>
@@ -1301,6 +1416,7 @@ function QueueRow({ item }: { item: QueueItem }) {
 function ActivityView({ lidarr, imports, sectionNumber }: { lidarr: LidarrReadModel; imports: BeetsImportOperationsModel; sectionNumber: string }) {
   const available = lidarr.status?.configured && lidarr.status.health?.state === 'available' && !lidarr.error
   const refreshing = lidarr.loading || imports.loading
+  const recentHistory = lidarr.history.slice(0, 25)
 
   return (
     <section>
@@ -1321,8 +1437,8 @@ function ActivityView({ lidarr, imports, sectionNumber }: { lidarr: LidarrReadMo
             : <p className="empty-row">Nothing incoming</p>}
         </section>}
         {available && <section className="panel history-panel">
-          <header><h2>Recent movement</h2><span>{lidarr.history.length}</span></header>
-          {lidarr.history.length ? lidarr.history.map(item => (
+          <header><h2>Recent movement</h2><span>{recentHistory.length}</span></header>
+          {recentHistory.length ? recentHistory.map(item => (
             <article className="history-row" key={item.ref.nativeId}>
               <span>{item.eventType}</span>
               <div><strong>{item.release?.title ?? item.artist?.name ?? 'Unmatched acquisition'}</strong><small>{item.artist?.name ?? item.underlyingDownloadRef ?? 'Acquisition source'}</small></div>
@@ -1506,27 +1622,34 @@ function ImportReview({ beets, folder }: { beets: BeetsReadModel; folder: BeetsI
   )
 }
 
-function WantedView({ acquisitions }: { acquisitions: AcquisitionsModel }) {
+function WantedView({ acquisitions, lidarr }: { acquisitions: AcquisitionsModel; lidarr: LidarrReadModel }) {
+  const refreshing = acquisitions.loading || lidarr.loading
   return (
     <section>
       <div className="page-heading">
         <div><p>03 / FROM WANT TO OWN</p><h1>Journeys</h1></div>
-        <button className="button" onClick={acquisitions.refresh} disabled={acquisitions.loading}>
-          <RefreshCw size={13} className={acquisitions.loading ? 'spinning' : ''} /> Refresh
+        <button className="button" onClick={() => { void acquisitions.refresh(); void lidarr.refresh() }} disabled={refreshing}>
+          <RefreshCw size={13} className={refreshing ? 'spinning' : ''} /> Refresh
         </button>
       </div>
       {acquisitions.error && <div className="error-strip">{acquisitions.error}</div>}
+      {lidarr.error && <div className="error-strip">Download progress unavailable: {lidarr.error}</div>}
       <AcquisitionSetup acquisitions={acquisitions} showConfigured />
       <section className="panel wanted-panel">
         <header><h2>Release progress</h2><span>{acquisitions.items.length}</span></header>
-        {acquisitions.items.length ? acquisitions.items.map(item => (
-          <article className="wanted-row" key={item.id}>
+        {acquisitions.items.length ? acquisitions.items.map(item => {
+          const activity = journeyActivity(item, lidarr)
+          return <article className="wanted-row" key={item.id}>
             <div className="media-object case"><i /></div>
-            <div><strong>{item.release}</strong><small>{item.artist ?? item.searchRefs[0]?.nativeId}</small></div>
-            <span className={`state-tag ${item.state}`}>{item.state.replace('-', ' ')}</span>
+            <div>
+              <strong>{item.release}</strong>
+              <small>{item.artist ? `${item.artist} · ${activity.detail}` : activity.detail}</small>
+              {activity.percent !== undefined && <div className="meter compact"><i style={{ width: `${activity.percent}%` }} /></div>}
+            </div>
+            <span className={`state-tag ${activity.className}`}>{activity.label}</span>
             <time>{new Date(item.createdAt).toLocaleString()}</time>
           </article>
-        )) : <p className="empty-row">No release journeys yet</p>}
+        }) : <p className="empty-row">No release journeys yet</p>}
       </section>
     </section>
   )
@@ -1534,8 +1657,11 @@ function WantedView({ acquisitions }: { acquisitions: AcquisitionsModel }) {
 
 function App() {
   const [view, setView] = useState<View>('home')
-  const lidarr = useLidarrReadModel()
   const acquisitions = useAcquisitions()
+  const activeJourneyDates = acquisitions.items
+    .filter(item => item.state !== 'completed' && item.state !== 'failed' && item.state !== 'cancelled')
+    .map(item => item.createdAt)
+  const lidarr = useLidarrReadModel(activeJourneyDates.length ? activeJourneyDates.sort()[0] : undefined)
   const importOperations = useBeetsImportOperations(acquisitions.refresh)
   const beets = useBeetsReadModel(acquisitions.items, acquisitions.refresh)
   const library = useLibrary()
@@ -1547,7 +1673,7 @@ function App() {
         {view === 'home' && <HomeView lidarr={lidarr} beets={beets} imports={importOperations} acquisitions={acquisitions} library={library} setView={setView} />}
         {view === 'library' && <LibraryView library={library} acquisitions={acquisitions} />}
         {view === 'imports' && <ImportsView beets={beets} />}
-        {view === 'wanted' && <WantedView acquisitions={acquisitions} />}
+        {view === 'wanted' && <WantedView acquisitions={acquisitions} lidarr={lidarr} />}
         {view === 'activity' && <ActivityView lidarr={lidarr} imports={importOperations} sectionNumber={acquisitions.configured ? '04' : '03'} />}
       </main>
     </div>
