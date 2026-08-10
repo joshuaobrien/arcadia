@@ -94,6 +94,8 @@ test('library browser proxies read-only Jellyfin albums, tracks, and artwork', a
       items: [{ id: 'b'.repeat(32), title: 'I Found the F', artists: ['Broadcast'], trackNumber: 1, durationSeconds: 123 }],
       total: 1,
     }),
+    listArtists: async () => ({ items: [{ name: 'Broadcast', albumCount: 1, representativeAlbumId: albumId }], total: 1 }),
+    listTracks: async () => ({ items: [{ id: 'b'.repeat(32), title: 'I Found the F', artists: ['Broadcast'], albumId }], total: 1 }),
     getAlbumArtwork: async () => ({ contentType: 'image/jpeg', data: new TextEncoder().encode('artwork') }),
   }
   const app = buildApp({ jellyfin, lidarr: null, logger: false })
@@ -102,6 +104,8 @@ test('library browser proxies read-only Jellyfin albums, tracks, and artwork', a
   const albums = await app.inject({ method: 'GET', url: '/api/library/albums?term=Broadcast' })
   const tracks = await app.inject({ method: 'GET', url: `/api/library/albums/${albumId}/tracks` })
   const artwork = await app.inject({ method: 'GET', url: `/api/library/albums/${albumId}/artwork` })
+  const artists = await app.inject({ method: 'GET', url: '/api/library/artists?term=Broad' })
+  const songs = await app.inject({ method: 'GET', url: '/api/library/songs?term=Found' })
 
   assert.equal(albums.json().configured, true)
   assert.equal(albums.json().items[0].title, 'Tender Buttons')
@@ -109,6 +113,9 @@ test('library browser proxies read-only Jellyfin albums, tracks, and artwork', a
   assert.equal(tracks.json().items[0].title, 'I Found the F')
   assert.equal(artwork.headers['content-type'], 'image/jpeg')
   assert.equal(artwork.body, 'artwork')
+  assert.deepEqual(artists.json(), { configured: true, mounted: true, scannedAt: null, total: 1,
+    items: [{ name: 'Broadcast', albumCount: 1, representativeAlbumId: albumId }] })
+  assert.equal(songs.json().items[0].albumId, albumId)
 })
 
 test('music search combines library, catalog, and wanted state by MusicBrainz identity', async (t) => {
@@ -142,6 +149,8 @@ test('music search combines library, catalog, and wanted state by MusicBrainz id
       }], total: 1 } : { items: [], total: 1, nextCursor: '100' }
     },
     listAlbumTracks: async () => ({ items: [], total: 0 }),
+    listArtists: async () => ({ items: [{ name: 'Broadcast', albumCount: 1 }], total: 1 }),
+    listTracks: async () => ({ items: [{ id: 'b'.repeat(32), title: 'Echo', artists: ['Broadcast'] }], total: 1 }),
     getAlbumArtwork: async () => null,
   }
   const lidarr = {
@@ -172,11 +181,13 @@ test('music search combines library, catalog, and wanted state by MusicBrainz id
   const response = await app.inject({ method: 'GET', url: '/api/music/releases?term=Broadcast' })
 
   assert.equal(response.statusCode, 200)
-  assert.deepEqual(response.json().sources, { library: 'available', catalog: 'available', wanted: 'available' })
+  assert.deepEqual(response.json().sources, { library: 'available', artists: 'available', tracks: 'available', catalog: 'available', wanted: 'available' })
   assert.equal(response.json().items.length, 2)
   assert.equal(response.json().items[0].state, 'in-library')
   assert.equal(response.json().items[0].acquisition.id, 'wanted-1')
   assert.equal(response.json().items[1].state, 'can-request')
+  assert.deepEqual(response.json().artists, [{ name: 'Broadcast', albumCount: 1 }])
+  assert.equal(response.json().tracks[0].title, 'Echo')
   assert.equal(libraryPages, 2)
 })
 

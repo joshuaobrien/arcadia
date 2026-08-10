@@ -1,6 +1,6 @@
 import type { OperationContext, PageRequest } from './common.js'
 import { AdapterError } from './errors.js'
-import type { LibraryAlbum, LibraryAlbumQuery, LibraryArtwork, LibraryCatalogPort, LibraryCatalogTrack, LibraryTrackPageRequest } from './library-catalog.js'
+import type { LibraryAlbum, LibraryAlbumQuery, LibraryArtist, LibraryArtwork, LibraryCatalogPort, LibraryCatalogQuery, LibraryCatalogTrack, LibraryTrackPageRequest } from './library-catalog.js'
 
 type JsonObject = Record<string, unknown>
 type Fetch = typeof globalThis.fetch
@@ -46,6 +46,48 @@ export class JellyfinAdapter implements LibraryCatalogPort {
       : albums
     const end = Math.min(matches.length, offset + query.limit)
     return { items: matches.slice(offset, end), total: matches.length, ...(end < matches.length ? { nextCursor: String(end) } : {}) }
+  }
+
+  async listArtists(query: LibraryCatalogQuery, context: OperationContext) {
+    const offset = pageOffset(query)
+    const groups = new Map<string, { names: string[], albumIds: string[] }>()
+    for (const item of await this.#allAlbums(context, query.fresh)) {
+      const key = item.albumArtist.toLowerCase()
+      const group = groups.get(key) ?? { names: [], albumIds: [] }
+      group.names.push(item.albumArtist)
+      group.albumIds.push(item.id)
+      groups.set(key, group)
+    }
+    const term = query.term?.trim().toLowerCase()
+    const matches: LibraryArtist[] = [...groups.values()].map(group => {
+      group.names.sort()
+      group.albumIds.sort()
+      return { name: group.names[0], albumCount: group.albumIds.length, representativeAlbumId: group.albumIds[0] }
+    }).filter(item => !term || item.name.toLowerCase().includes(term))
+      .sort((left, right) => compareTuple([left.name.toLowerCase(), left.name], [right.name.toLowerCase(), right.name]))
+    const end = Math.min(matches.length, offset + query.limit)
+    return { items: matches.slice(offset, end), total: matches.length, ...(end < matches.length ? { nextCursor: String(end) } : {}) }
+  }
+
+  async listTracks(query: LibraryCatalogQuery, context: OperationContext) {
+    const offset = pageOffset(query)
+    const term = query.term?.trim()
+    const response = await this.#json<JellyfinPage>('Items', {
+      IncludeItemTypes: 'Audio',
+      Recursive: 'true',
+      EnableImages: 'false',
+      EnableUserData: 'false',
+      Fields: 'MediaSources',
+      SortBy: 'SortName,IndexNumber',
+      SortOrder: 'Ascending',
+      StartIndex: offset,
+      Limit: query.limit,
+      ...(term ? { SearchTerm: term } : {}),
+    }, context)
+    const items = (response.Items ?? []).map(track)
+    const total = response.TotalRecordCount ?? items.length
+    const end = offset + items.length
+    return { items, total, ...(items.length > 0 && end < total ? { nextCursor: String(end) } : {}) }
   }
 
   async listAlbumTracks(albumId: string, page: LibraryTrackPageRequest, context: OperationContext) {
@@ -205,10 +247,16 @@ function album(value: JsonObject): LibraryAlbum {
 function track(value: JsonObject): LibraryCatalogTrack {
   const source = object(array(value.MediaSources)[0])
   const runtimeTicks = optionalNumber(value.RunTimeTicks)
+  const albumId = optionalString(value.AlbumId)
+  const albumTitle = optionalString(value.Album)
+  const albumArtist = optionalString(value.AlbumArtist) ?? optionalString(array(value.AlbumArtists)[0]?.Name)
   return {
     id: string(value.Id),
     title: string(value.Name),
     artists: stringArray(value.Artists),
+    ...(albumId ? { albumId } : {}),
+    ...(albumTitle ? { album: albumTitle } : {}),
+    ...(albumArtist ? { albumArtist } : {}),
     trackNumber: optionalNumber(value.IndexNumber),
     discNumber: optionalNumber(value.ParentIndexNumber),
     durationSeconds: runtimeTicks === undefined ? undefined : runtimeTicks / 10_000_000,
