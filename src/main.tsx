@@ -176,6 +176,23 @@ interface AcquisitionResponse {
   items: AcquisitionJob[]
 }
 
+interface AcquisitionDefaults {
+  root: ProviderRef
+  qualityProfile: ProviderRef
+  metadataProfile?: ProviderRef
+}
+
+interface AcquisitionRoot {
+  ref: ProviderRef
+  path: { providerPath: string }
+}
+
+interface AcquisitionProfile {
+  ref: ProviderRef
+  name: string
+  kind: 'metadata' | 'quality'
+}
+
 interface LibraryTrack {
   id?: string
   relativePath?: string
@@ -259,6 +276,17 @@ async function postJson<T>(path: string, payload: unknown, signal?: AbortSignal)
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
     signal,
+  })
+  const body = await response.json() as T & ErrorResponse
+  if (!response.ok) throw requestError(body, response.status)
+  return body
+}
+
+async function putJson<T>(path: string, payload: unknown): Promise<T> {
+  const response = await fetch(path, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
   })
   const body = await response.json() as T & ErrorResponse
   if (!response.ok) throw requestError(body, response.status)
@@ -588,7 +616,11 @@ type BeetsReadModel = ReturnType<typeof useBeetsReadModel>
 function useAcquisitions() {
   const [configured, setConfigured] = useState(false)
   const [items, setItems] = useState<AcquisitionJob[]>([])
+  const [defaults, setDefaults] = useState<AcquisitionDefaults | null | undefined>(undefined)
+  const [roots, setRoots] = useState<AcquisitionRoot[]>([])
+  const [profiles, setProfiles] = useState<AcquisitionProfile[]>([])
   const [loading, setLoading] = useState(true)
+  const [savingDefaults, setSavingDefaults] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [savingRef, setSavingRef] = useState<string | null>(null)
   const activeRequest = useRef(0)
@@ -599,10 +631,25 @@ function useAcquisitions() {
       setLoading(true)
       setError(null)
       try {
-        const result = await getJson<AcquisitionResponse>('/api/acquisitions', signal)
+        const [result, defaultsResult] = await Promise.all([
+          getJson<AcquisitionResponse>('/api/acquisitions', signal),
+          getJson<{ value: AcquisitionDefaults | null }>('/api/acquisition-defaults', signal),
+        ])
         if (request !== activeRequest.current || signal?.aborted) return
         setConfigured(result.configured)
         setItems(result.items)
+        setDefaults(defaultsResult.value)
+        try {
+          const [nextRoots, nextProfiles] = await Promise.all([
+            getJson<AcquisitionRoot[]>('/api/services/lidarr/roots', signal),
+            getJson<AcquisitionProfile[]>('/api/services/lidarr/profiles', signal),
+          ])
+          if (request !== activeRequest.current || signal?.aborted) return
+          setRoots(nextRoots)
+          setProfiles(nextProfiles)
+        } catch (requestError) {
+          if (!defaultsResult.value) throw requestError
+        }
       } catch (requestError) {
         if (request === activeRequest.current && !isAbortError(requestError)) setError(errorMessage(requestError))
       } finally {
@@ -625,16 +672,35 @@ function useAcquisitions() {
       const job = await postJson<AcquisitionJob>('/api/acquisitions', { release })
       setItems(current => current.some(item => item.id === job.id) ? current : [job, ...current])
     } catch (requestError) {
-      setError(errorMessage(requestError))
+      const message = errorMessage(requestError)
+      await refresh()
+      setError(message)
     } finally {
       setSavingRef(null)
     }
   }
 
-  function includes(release: CatalogRelease) {
-    return items.some(item => item.searchRefs.some(ref => (
+  async function saveDefaults(value: AcquisitionDefaults) {
+    setSavingDefaults(true)
+    setError(null)
+    try {
+      const result = await putJson<{ value: AcquisitionDefaults }>('/api/acquisition-defaults', value)
+      setDefaults(result.value)
+    } catch (requestError) {
+      setError(errorMessage(requestError))
+    } finally {
+      setSavingDefaults(false)
+    }
+  }
+
+  function find(release: CatalogRelease) {
+    const musicBrainzReleaseGroupId = release.musicBrainzReleaseGroupId?.toLowerCase()
+    return items.find(item => (
+      (musicBrainzReleaseGroupId && item.musicBrainzReleaseGroupId?.toLowerCase() === musicBrainzReleaseGroupId)
+      || item.searchRefs.some(ref => (
       ref.adapterId === release.ref.adapterId && ref.nativeId === release.ref.nativeId
-    )))
+      ))
+    ))
   }
 
   const refreshNow = useCallback(() => refresh(), [refresh])
@@ -642,12 +708,17 @@ function useAcquisitions() {
   return {
     configured,
     items,
+    defaults,
+    roots,
+    profiles,
     loading,
+    savingDefaults,
     error,
     savingRef,
     refresh: refreshNow,
     wantRelease,
-    includes,
+    saveDefaults,
+    find,
   }
 }
 
@@ -986,6 +1057,65 @@ function IntegrationState({ lidarr }: { lidarr: LidarrReadModel }) {
   )
 }
 
+function AcquisitionSetup({ acquisitions, showConfigured = false }: { acquisitions: AcquisitionsModel; showConfigured?: boolean }) {
+  const [rootKey, setRootKey] = useState('')
+  const [qualityKey, setQualityKey] = useState('')
+  const [metadataKey, setMetadataKey] = useState('')
+
+  const qualityProfiles = acquisitions.profiles.filter(profile => profile.kind === 'quality')
+  const metadataProfiles = acquisitions.profiles.filter(profile => profile.kind === 'metadata')
+  useEffect(() => {
+    if (acquisitions.defaults) {
+      setRootKey(providerRefKey(acquisitions.defaults.root))
+      setQualityKey(providerRefKey(acquisitions.defaults.qualityProfile))
+      setMetadataKey(acquisitions.defaults.metadataProfile ? providerRefKey(acquisitions.defaults.metadataProfile) : '')
+      return
+    }
+    if (acquisitions.roots.length === 1) setRootKey(providerRefKey(acquisitions.roots[0].ref))
+    if (qualityProfiles.length === 1) setQualityKey(providerRefKey(qualityProfiles[0].ref))
+  }, [acquisitions.defaults, acquisitions.roots, qualityProfiles])
+
+  const root = acquisitions.roots.find(item => providerRefKey(item.ref) === rootKey)
+  const qualityProfile = qualityProfiles.find(item => providerRefKey(item.ref) === qualityKey)
+  const metadataProfile = metadataProfiles.find(item => providerRefKey(item.ref) === metadataKey)
+  if (acquisitions.defaults === undefined) return null
+  if (acquisitions.defaults && !showConfigured) return null
+  if (acquisitions.defaults) return <section className="panel acquisition-setup configured">
+    <header><h2>Acquisition destination</h2><span>Configured</span></header>
+    <p>Lidarr · {root?.path.providerPath ?? acquisitions.defaults.root.nativeId} · {qualityProfile?.name ?? acquisitions.defaults.qualityProfile.nativeId}{acquisitions.defaults.metadataProfile ? ` · ${metadataProfile?.name ?? acquisitions.defaults.metadataProfile.nativeId}` : ''}</p>
+  </section>
+
+  return <form className="panel acquisition-setup" onSubmit={event => {
+    event.preventDefault()
+    if (!root || !qualityProfile) return
+    void acquisitions.saveDefaults({
+      root: root.ref,
+      qualityProfile: qualityProfile.ref,
+      ...(metadataProfile ? { metadataProfile: metadataProfile.ref } : {}),
+    })
+  }}>
+    <header><h2>Use existing Lidarr setup</h2><span>One time</span></header>
+    <p>Needle found these Lidarr roots and profiles. Choose which existing destination should stage new journeys.</p>
+    <div className="setup-fields">
+      <label>Staging root<select value={rootKey} onChange={event => setRootKey(event.target.value)} required>
+        <option value="">Choose a root</option>
+        {acquisitions.roots.map(item => <option value={providerRefKey(item.ref)} key={providerRefKey(item.ref)}>{item.path.providerPath}</option>)}
+      </select></label>
+      <label>Quality profile<select value={qualityKey} onChange={event => setQualityKey(event.target.value)} required>
+        <option value="">Choose a quality profile</option>
+        {qualityProfiles.map(item => <option value={providerRefKey(item.ref)} key={providerRefKey(item.ref)}>{item.name}</option>)}
+      </select></label>
+      <label>Metadata profile<select value={metadataKey} onChange={event => setMetadataKey(event.target.value)}>
+        <option value="">Use the root default</option>
+        {metadataProfiles.map(item => <option value={providerRefKey(item.ref)} key={providerRefKey(item.ref)}>{item.name}</option>)}
+      </select></label>
+      <button className="button primary" disabled={!root || !qualityProfile || acquisitions.savingDefaults}>
+        {acquisitions.savingDefaults ? 'Saving…' : 'Save destination'}
+      </button>
+    </div>
+  </form>
+}
+
 function formatBytes(value?: number | null): string {
   if (typeof value !== 'number' || !Number.isFinite(value)) return 'size unknown'
   const units = ['B', 'KB', 'MB', 'GB']
@@ -1014,7 +1144,8 @@ function UnifiedReleaseCard({ item, library, acquisitions, libraryAvailable }: {
 }) {
   const album = item.libraryAlbum
   const release = item.catalogRelease
-  const wanted = item.state === 'wanted' || Boolean(release && acquisitions.includes(release))
+  const acquisition = item.acquisition ?? (release ? acquisitions.find(release) : undefined)
+  const wanted = item.state === 'wanted' || acquisition?.state === 'wanted'
 
   if (album) {
     return (
@@ -1037,7 +1168,14 @@ function UnifiedReleaseCard({ item, library, acquisitions, libraryAvailable }: {
         {item.state === 'importing' ? <span className="release-state importing"><Radio size={9} /> Importing</span>
           : item.state === 'selection-required' ? <span className="release-state selection-required">Needs attention</span>
             : item.state === 'in-library' ? <span className="release-state present"><Check size={9} /> In library</span>
-              : wanted ? <span className="release-state wanted"><Check size={9} /> Wanted</span>
+              : wanted && release ? <button
+                className="want-button saved"
+                disabled={acquisitions.savingRef !== null}
+                onClick={() => acquisitions.wantRelease(release)}
+              >
+                {acquisitions.savingRef === providerRefKey(release.ref) ? 'Searching…' : <><RefreshCw size={10} /> Search again</>}
+              </button>
+                : wanted ? <span className="release-state wanted"><Check size={9} /> Wanted</span>
           : !libraryAvailable ? <span className="release-state unknown">Library unknown</span>
             : release && acquisitions.configured ? <button
             className="want-button"
@@ -1073,6 +1211,7 @@ function LibraryView({ library, acquisitions }: { library: LibraryModel; acquisi
       </div>
       {library.error && <div className="error-strip">{library.error}</div>}
       {acquisitions.error && <div className="error-strip">{acquisitions.error}</div>}
+      <AcquisitionSetup acquisitions={acquisitions} />
       {library.loading && !page && !library.activeTerm
         ? <div className="idle-state"><Disc3 size={34} className="spinning" /><span>Reading your collection</span></div>
         : album ? <section className="panel library-panel">
@@ -1377,6 +1516,7 @@ function WantedView({ acquisitions }: { acquisitions: AcquisitionsModel }) {
         </button>
       </div>
       {acquisitions.error && <div className="error-strip">{acquisitions.error}</div>}
+      <AcquisitionSetup acquisitions={acquisitions} showConfigured />
       <section className="panel wanted-panel">
         <header><h2>Release progress</h2><span>{acquisitions.items.length}</span></header>
         {acquisitions.items.length ? acquisitions.items.map(item => (

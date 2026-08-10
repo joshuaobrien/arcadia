@@ -69,6 +69,91 @@ test('Lidarr release lookup retains the artist display name', async () => {
   assert.deepEqual(release.artistRef, { adapterId: 'lidarr', nativeId: 'artist:mbid:artist-mbid' })
 })
 
+test('Lidarr reuses an installed release by exact MusicBrainz identity', async () => {
+  const releaseGroupId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+  const requests = []
+  const adapter = mockAdapter(async (input, init) => {
+    const url = new URL(input)
+    requests.push({ url, init })
+    assert.equal(url.pathname, '/api/v1/album')
+    assert.equal(url.searchParams.get('foreignAlbumId'), releaseGroupId)
+    return json([{
+      id: 9,
+      title: 'Tender Buttons',
+      foreignAlbumId: releaseGroupId,
+      artist: { id: 7, artistName: 'Broadcast', foreignArtistId: 'bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee' },
+    }])
+  })
+
+  const installed = await adapter.ensureRelease({
+    release: {
+      ref: { adapterId: 'lidarr', nativeId: `album:mbid:${releaseGroupId}` },
+      artistRef: { adapterId: 'lidarr', nativeId: 'artist:mbid:bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee' },
+      artistName: 'Broadcast',
+      title: 'Tender Buttons',
+      musicBrainzReleaseGroupId: releaseGroupId,
+    },
+    root: { adapterId: 'lidarr', nativeId: 'root:id:1' },
+    qualityProfile: { adapterId: 'lidarr', nativeId: 'profile:quality:id:2' },
+  }, context)
+
+  assert.deepEqual(installed.ref, { adapterId: 'lidarr', nativeId: 'album:id:9' })
+  assert.equal(requests.length, 1)
+})
+
+test('Lidarr adds only the exact release without an add-time search', async () => {
+  const releaseGroupId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+  const artistId = 'bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee'
+  const requests = []
+  const adapter = mockAdapter(async (input, init) => {
+    const url = new URL(input)
+    requests.push({ url, init })
+    if (url.pathname === '/api/v1/album' && init.method === 'GET') return json([])
+    if (url.pathname === '/api/v1/album/lookup') return json([{
+      id: 0,
+      title: 'Tender Buttons',
+      foreignAlbumId: releaseGroupId,
+      artist: { id: 0, artistName: 'Broadcast', foreignArtistId: artistId },
+    }])
+    if (url.pathname === '/api/v1/rootfolder/1') return json({ id: 1, path: '/music', defaultMetadataProfileId: 3 })
+    if (url.pathname === '/api/v1/album' && init.method === 'POST') return json({
+      id: 9,
+      title: 'Tender Buttons',
+      foreignAlbumId: releaseGroupId,
+      artist: { id: 7, artistName: 'Broadcast', foreignArtistId: artistId },
+    }, { status: 201 })
+    throw new Error(`Unexpected request ${init.method} ${url.pathname}`)
+  })
+
+  const installed = await adapter.ensureRelease({
+    release: {
+      ref: { adapterId: 'lidarr', nativeId: `album:mbid:${releaseGroupId}` },
+      artistRef: { adapterId: 'lidarr', nativeId: `artist:mbid:${artistId}` },
+      artistName: 'Broadcast',
+      title: 'Tender Buttons',
+      musicBrainzReleaseGroupId: releaseGroupId,
+    },
+    root: { adapterId: 'lidarr', nativeId: 'root:id:1' },
+    qualityProfile: { adapterId: 'lidarr', nativeId: 'profile:quality:id:2' },
+  }, context)
+
+  assert.deepEqual(installed.ref, { adapterId: 'lidarr', nativeId: 'album:id:9' })
+  assert.equal(requests[1].url.searchParams.get('term'), `lidarr:${releaseGroupId}`)
+  const body = JSON.parse(requests[3].init.body)
+  assert.equal(body.foreignAlbumId, releaseGroupId)
+  assert.equal(body.monitored, false)
+  assert.equal(body.anyReleaseOk, true)
+  assert.equal(body.addOptions.searchForNewAlbum, false)
+  assert.equal(body.artist.foreignArtistId, artistId)
+  assert.equal(body.artist.rootFolderPath, '/music')
+  assert.equal(body.artist.qualityProfileId, 2)
+  assert.equal(body.artist.metadataProfileId, 3)
+  assert.equal(body.artist.monitored, false)
+  assert.equal(body.artist.monitorNewItems, 'none')
+  assert.deepEqual(body.artist.addOptions.albumsToMonitor, [releaseGroupId])
+  assert.equal(body.artist.addOptions.searchForMissingAlbums, false)
+})
+
 test('Lidarr queue maps paging, states, nested catalog data, and provider paths', async () => {
   const adapter = mockAdapter(async (input) => {
     const url = new URL(input)

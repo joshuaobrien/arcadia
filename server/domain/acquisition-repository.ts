@@ -165,6 +165,14 @@ export class AcquisitionRepository {
     const id = randomUUID()
     const now = new Date().toISOString()
     const musicBrainzReleaseGroupId = release.musicBrainzReleaseGroupId?.trim().toLowerCase() ?? null
+    if (musicBrainzReleaseGroupId) {
+      const existing = this.#database.prepare(`
+        SELECT id, state, adapter_id, native_id, artist, release, musicbrainz_release_group_id, import_adapter_id, import_native_id, created_at, updated_at
+        FROM acquisitions
+        WHERE adapter_id = ? AND musicbrainz_release_group_id = ?
+      `).get(release.ref.adapterId, musicBrainzReleaseGroupId) as unknown as AcquisitionRow | undefined
+      if (existing) return { job: toJob(existing), created: false }
+    }
     const result = this.#database.prepare(`
       INSERT INTO acquisitions (
         id, state, adapter_id, native_id, artist, release, musicbrainz_release_group_id, created_at, updated_at

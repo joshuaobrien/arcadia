@@ -23,11 +23,17 @@ test('acquisition repository persists wanted releases and deduplicates provider 
   const repository = new AcquisitionRepository(path)
   const first = repository.wantRelease(release)
   const duplicate = repository.wantRelease(release)
+  const sameReleaseWithLocalRef = repository.wantRelease({
+    ...release,
+    ref: { adapterId: 'lidarr', nativeId: 'album:id:99' },
+  })
   repository.close()
 
   assert.equal(first.created, true)
   assert.equal(duplicate.created, false)
+  assert.equal(sameReleaseWithLocalRef.created, false)
   assert.equal(first.job.id, duplicate.job.id)
+  assert.equal(first.job.id, sameReleaseWithLocalRef.job.id)
   assert.equal(first.job.state, 'wanted')
   assert.equal(first.job.artist, 'Broadcast')
   assert.equal(first.job.release, 'Tender Buttons')
@@ -192,7 +198,11 @@ test('linked beets imports move wanted acquisitions through importing, attention
   repository.transitionBeetsImportOperation(linked.id, 'submitting', 'submission-unknown')
   assert.equal(repository.get(firstWanted.id)?.state, 'selection-required')
 
-  const secondWanted = repository.wantRelease({ ...release, ref: { adapterId: 'lidarr', nativeId: 'album:id:43' } }).job
+  const secondWanted = repository.wantRelease({
+    ...release,
+    ref: { adapterId: 'lidarr', nativeId: 'album:id:43' },
+    musicBrainzReleaseGroupId: 'bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee',
+  }).job
   const completed = repository.createBeetsImportOperation({ ...input, sessionId: 'completed-session', acquisitionId: secondWanted.id }).operation
   repository.transitionBeetsImportOperation(completed.id, 'submitting', 'submitted', { providerJobId: 'job' })
   repository.transitionBeetsImportOperation(completed.id, 'submitted', 'provider-completed')

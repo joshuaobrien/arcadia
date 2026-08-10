@@ -379,15 +379,19 @@ test('beets workflow gates mutations on the current album tree and validated cho
   assert.deepEqual(calls.map(([kind]) => kind), ['preview', 'import'])
 })
 
-test('acquisition API records Needle-owned wanted state without calling Lidarr', async (t) => {
+test('acquisition API persists wanted state and starts one exact Lidarr album search', async (t) => {
   const calls = []
   const jobs = []
+  const defaults = {
+    root: { adapterId: 'lidarr', nativeId: 'root:id:1' },
+    qualityProfile: { adapterId: 'lidarr', nativeId: 'profile:quality:id:2' },
+  }
   const acquisitionRepository = {
     list: () => jobs,
-    getDefaults: () => null,
-    setDefaults: (defaults) => defaults,
+    getDefaults: () => defaults,
+    setDefaults: (value) => value,
     wantRelease: (release) => {
-      calls.push(release)
+      calls.push(['persist', release])
       const job = {
         id: 'job-1',
         state: 'wanted',
@@ -401,7 +405,20 @@ test('acquisition API records Needle-owned wanted state without calling Lidarr',
       return { job, created: true }
     },
   }
-  const app = buildApp({ acquisitionRepository, lidarr: null, logger: false })
+  const installedRef = { adapterId: 'lidarr', nativeId: 'album:id:42' }
+  const lidarr = {
+    adapterId: 'lidarr',
+    ensureRelease: async (request) => {
+      calls.push(['ensure', request])
+      return { ...request.release, ref: installedRef }
+    },
+    setReleaseWanted: async (ref, wanted) => { calls.push(['monitor', ref, wanted]) },
+    startSearch: async (target) => {
+      calls.push(['search', target])
+      return { ref: { adapterId: 'lidarr', nativeId: 'command:id:9' }, kind: 'search-release', state: 'queued', rawState: 'queued' }
+    },
+  }
+  const app = buildApp({ acquisitionRepository, lidarr, logger: false })
   t.after(() => app.close())
 
   const create = await app.inject({
@@ -413,6 +430,7 @@ test('acquisition API records Needle-owned wanted state without calling Lidarr',
         artistRef: { adapterId: 'lidarr', nativeId: 'artist:id:7' },
         artistName: 'Broadcast',
         title: 'Tender Buttons',
+        musicBrainzReleaseGroupId: 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
       },
     },
   })
@@ -423,7 +441,124 @@ test('acquisition API records Needle-owned wanted state without calling Lidarr',
   assert.equal(list.statusCode, 200)
   assert.equal(list.json().configured, true)
   assert.deepEqual(list.json().items, [create.json()])
-  assert.equal(calls.length, 1)
+  assert.deepEqual(calls.map(([kind]) => kind), ['persist', 'ensure', 'monitor', 'search'])
+  assert.deepEqual(calls[0][1].ref, { adapterId: 'lidarr', nativeId: 'album:mbid:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' })
+  assert.equal(calls[0][1].musicBrainzReleaseGroupId, 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee')
+  assert.deepEqual(calls[1][1], { release: calls[0][1], ...defaults })
+  assert.deepEqual(calls[2].slice(1), [installedRef, true])
+  assert.deepEqual(calls[3][1], { kind: 'release', release: installedRef })
+})
+
+test('acquisition API requires defaults before persisting or calling Lidarr', async (t) => {
+  let persisted = false
+  let called = false
+  const acquisitionRepository = {
+    list: () => [],
+    getDefaults: () => null,
+    setDefaults: (value) => value,
+    wantRelease: () => { persisted = true; throw new Error('unexpected persistence') },
+  }
+  const lidarr = { adapterId: 'lidarr', ensureRelease: async () => { called = true } }
+  const app = buildApp({ acquisitionRepository, lidarr, logger: false })
+  t.after(() => app.close())
+
+  const response = await app.inject({ method: 'POST', url: '/api/acquisitions', payload: { release: {
+    ref: { adapterId: 'lidarr', nativeId: 'album:mbid:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' },
+    artistRef: { adapterId: 'lidarr', nativeId: 'artist:mbid:bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee' },
+    title: 'Tender Buttons',
+    musicBrainzReleaseGroupId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+  } } })
+
+  assert.equal(response.statusCode, 400)
+  assert.equal(persisted, false)
+  assert.equal(called, false)
+})
+
+test('acquisition API retains wanted intent and retries a failed Lidarr handoff', async (t) => {
+  const releaseGroupId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+  const job = {
+    id: 'retry-job', state: 'wanted', release: 'Tender Buttons', musicBrainzReleaseGroupId: releaseGroupId,
+    searchRefs: [{ adapterId: 'lidarr', nativeId: `album:mbid:${releaseGroupId}` }],
+    createdAt: '2026-08-08T00:00:00Z', updatedAt: '2026-08-08T00:00:00Z',
+  }
+  let writes = 0
+  let ensureAttempts = 0
+  let monitored = 0
+  let searched = 0
+  const acquisitionRepository = {
+    list: () => [job],
+    getDefaults: () => ({
+      root: { adapterId: 'lidarr', nativeId: 'root:id:1' },
+      qualityProfile: { adapterId: 'lidarr', nativeId: 'profile:quality:id:2' },
+    }),
+    setDefaults: (value) => value,
+    wantRelease: () => ({ job, created: ++writes === 1 }),
+  }
+  const installedRef = { adapterId: 'lidarr', nativeId: 'album:id:42' }
+  const lidarr = {
+    adapterId: 'lidarr',
+    ensureRelease: async (request) => {
+      ensureAttempts += 1
+      if (ensureAttempts === 1) throw new AdapterError({ code: 'unavailable', adapterId: 'lidarr', message: 'offline', retryable: true })
+      return { ...request.release, ref: installedRef }
+    },
+    setReleaseWanted: async () => { monitored += 1 },
+    startSearch: async () => {
+      searched += 1
+      return { ref: { adapterId: 'lidarr', nativeId: 'command:id:9' }, kind: 'search-release', state: 'queued', rawState: 'queued' }
+    },
+  }
+  const app = buildApp({ acquisitionRepository, lidarr, logger: false })
+  t.after(() => app.close())
+  const payload = { release: {
+    ref: { adapterId: 'lidarr', nativeId: `album:mbid:${releaseGroupId}` },
+    artistRef: { adapterId: 'lidarr', nativeId: 'artist:mbid:bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee' },
+    title: 'Tender Buttons',
+    musicBrainzReleaseGroupId: releaseGroupId,
+  } }
+
+  const failed = await app.inject({ method: 'POST', url: '/api/acquisitions', payload })
+  const retried = await app.inject({ method: 'POST', url: '/api/acquisitions', payload })
+
+  assert.equal(failed.statusCode, 502)
+  assert.equal(retried.statusCode, 200)
+  assert.equal(writes, 2)
+  assert.equal(ensureAttempts, 2)
+  assert.equal(monitored, 1)
+  assert.equal(searched, 1)
+})
+
+test('acquisition API does not restart a journey that has moved beyond wanted', async (t) => {
+  let providerCalls = 0
+  const job = {
+    id: 'importing-job', state: 'importing', release: 'Tender Buttons',
+    musicBrainzReleaseGroupId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+    searchRefs: [{ adapterId: 'lidarr', nativeId: 'album:mbid:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' }],
+    createdAt: '2026-08-08T00:00:00Z', updatedAt: '2026-08-08T00:00:00Z',
+  }
+  const acquisitionRepository = {
+    list: () => [job],
+    getDefaults: () => ({
+      root: { adapterId: 'lidarr', nativeId: 'root:id:1' },
+      qualityProfile: { adapterId: 'lidarr', nativeId: 'profile:quality:id:2' },
+    }),
+    setDefaults: (value) => value,
+    wantRelease: () => ({ job, created: false }),
+  }
+  const lidarr = { adapterId: 'lidarr', ensureRelease: async () => { providerCalls += 1 } }
+  const app = buildApp({ acquisitionRepository, lidarr, logger: false })
+  t.after(() => app.close())
+
+  const response = await app.inject({ method: 'POST', url: '/api/acquisitions', payload: { release: {
+    ref: { adapterId: 'lidarr', nativeId: 'album:mbid:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' },
+    artistRef: { adapterId: 'lidarr', nativeId: 'artist:mbid:bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee' },
+    title: 'Tender Buttons',
+    musicBrainzReleaseGroupId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+  } } })
+
+  assert.equal(response.statusCode, 200)
+  assert.equal(response.json().state, 'importing')
+  assert.equal(providerCalls, 0)
 })
 
 test('acquisition API reports unconfigured state and rejects writes', async (t) => {
