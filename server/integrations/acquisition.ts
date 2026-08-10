@@ -87,6 +87,8 @@ export interface AcquisitionHistoryItem {
   artist?: CatalogArtist
   release?: CatalogRelease
   underlyingDownloadRef?: string
+  /** Authoritative provider output path, mapped into Needle's namespace when configured. */
+  output?: ServicePath
   data: Readonly<Record<string, unknown>>
 }
 

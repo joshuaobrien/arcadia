@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { AdapterError } from './errors.ts'
-import { LidarrAdapter } from './lidarr.ts'
+import { LidarrAdapter, createLidarrAdapterFromEnv } from './lidarr.ts'
 
 // Shared operation context makes outbound correlation assertions deterministic.
 const context = { operationId: 'operation-123' }
@@ -201,6 +201,22 @@ test('Lidarr queue maps paging, states, nested catalog data, and provider paths'
     mappingId: 'downloads',
   })
   assert.deepEqual(page.items[0].statusMessages, ['Tracked', 'Waiting for import'])
+})
+
+test('Lidarr factory validates and applies explicit path mappings', async () => {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async () => json({ page: 1, pageSize: 1, totalRecords: 1, records: [{ id: 1, title: 'Album', status: 'queued', eventType: 'downloadFolderImported',
+    outputPath: '/data/downloads/music_path/Album', data: { droppedPath: '/data/downloads/music_path/Album' } }] })
+  try {
+    const adapter = createLidarrAdapterFromEnv({ LIDARR_URL: 'http://lidarr.test', LIDARR_API_KEY: 'key',
+      LIDARR_PATH_MAPPINGS: '[{"id":"downloads","providerPrefix":"/data/downloads/music_path","needlePrefix":"/music_path/torrents"}]' })
+    const page = await adapter.listQueue({ limit: 1 }, context)
+    const history = await adapter.listHistory(undefined, { limit: 1 }, context)
+    assert.equal(page.items[0].output.needlePath, '/music_path/torrents/Album')
+    assert.equal(history.items[0].output.needlePath, '/music_path/torrents/Album')
+    assert.throws(() => createLidarrAdapterFromEnv({ LIDARR_URL: 'http://lidarr.test', LIDARR_API_KEY: 'key', LIDARR_PATH_MAPPINGS: '{bad' }), /valid JSON/)
+    assert.throws(() => createLidarrAdapterFromEnv({ LIDARR_URL: 'http://lidarr.test', LIDARR_API_KEY: 'key', LIDARR_PATH_MAPPINGS: '[{"id":"x","providerPrefix":"relative","needlePrefix":"/ok"}]' }), /absolute path/)
+  } finally { globalThis.fetch = originalFetch }
 })
 
 test('Lidarr sends exact wanted-state and acquisition-search payloads', async () => {

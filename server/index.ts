@@ -11,9 +11,10 @@ import { isAdapterError } from './integrations/errors.js'
 import { AcquisitionLinkConflictError, AcquisitionRepository } from './domain/acquisition-repository.js'
 import type { BeetsImportOperation, BeetsImportSelection } from './domain/acquisition-repository.js'
 import type { AcquisitionAutomationPort } from './integrations/acquisition.js'
+import type { AcquisitionHistoryItem, AcquisitionQueueItem } from './integrations/acquisition.js'
 import type { CatalogLookupPort, CatalogRelease } from './integrations/catalog.js'
 import type { OperationContext } from './integrations/common.js'
-import type { AcquisitionDefaults } from './domain/acquisition.js'
+import type { AcquisitionDefaults, AcquisitionJob } from './domain/acquisition.js'
 import { readCanonicalLibrary } from './library.js'
 import type { LibraryInventory } from './library.js'
 import type { LibraryAlbum, LibraryCatalogPort } from './integrations/library-catalog.js'
@@ -460,6 +461,48 @@ export function buildApp(options: BuildAppOptions = {}) {
     configured: acquisitionRepository !== null,
     items: acquisitionRepository ? acquisitionRepository.list() : [],
   }))
+  app.get<{ Params: { id: string } }>('/api/journeys/:id', { schema: { params: {
+    type: 'object', required: ['id'], additionalProperties: false,
+    properties: { id: { type: 'string', minLength: 1, maxLength: 128 } },
+  } } }, async (request, reply) => {
+    if (!acquisitionRepository?.get) return reply.code(503).send({
+      error: { code: 'unavailable', message: 'Needle acquisition detail persistence is not configured' },
+    })
+    const job = acquisitionRepository.get(request.params.id)
+    if (!job) return reply.code(404).send({ error: { code: 'not-found', message: 'Journey was not found' } })
+
+    const operationId = crypto.randomUUID()
+    const download = await journeyDownloadProjection(lidarr, job, { operationId: `${operationId}:download` })
+    const review = await journeyReviewProjection(beets, download.outputs, { operationId: `${operationId}:review` })
+    const linked = acquisitionRepository.listBeetsImportOperations?.().filter(item => item.acquisitionId === job.id) ?? []
+    const importOperation = linked.length === 1 ? linked[0] : undefined
+    const stage = journeyStage(job.state, download.queue, download.history, importOperation)
+    const events = [
+      ...download.events,
+      { kind: 'journey-created', label: 'Journey started', occurredAt: job.createdAt },
+      ...(importOperation ? [{
+        kind: `import-${importOperation.state}`,
+        label: ({
+          submitting: 'Import submission started',
+          submitted: 'Import accepted',
+          'submission-unknown': 'Import outcome needs attention',
+          'provider-completed': 'Import completed · verifying collection',
+          'library-confirmed': 'Release verified in collection',
+        } as const)[importOperation.state],
+        occurredAt: importOperation.updatedAt,
+      }] : []),
+    ].sort((left, right) => right.occurredAt.localeCompare(left.occurredAt))
+    return {
+      job,
+      stage,
+      ...(download.progress ? { progress: download.progress } : {}),
+      events,
+      ...(stage === 'review' && review.folder ? { nextAction: { kind: 'review', folder: review.folder } } : {}),
+      ...(importOperation ? { importOperation } : {}),
+      libraryAlbumIds: importOperation ? [...importOperation.libraryAlbumIds] : [],
+      sources: { download: download.state, review: review.state },
+    }
+  })
   app.post<{ Body: { release: CatalogRelease } }>('/api/acquisitions', {
     schema: {
       body: {
@@ -861,6 +904,99 @@ function providerRefSchema() {
 
 function sameRef(left: { adapterId: string; nativeId: string }, right: { adapterId: string; nativeId: string }): boolean {
   return left.adapterId === right.adapterId && left.nativeId === right.nativeId
+}
+
+type SourceState = 'available' | 'unconfigured' | 'unavailable'
+const JOURNEY_EVENTS: Record<string, { label: string, stage: 'attention' | 'review' | 'queued' }> = {
+  downloadFailed: { label: 'Download failed', stage: 'attention' },
+  albumImportIncomplete: { label: 'Album import incomplete', stage: 'attention' },
+  downloadIgnored: { label: 'Download ignored', stage: 'attention' },
+  downloadFolderImported: { label: 'Download ready for review', stage: 'review' },
+  trackFileImported: { label: 'Track imported by Lidarr', stage: 'review' },
+  grabbed: { label: 'Download queued', stage: 'queued' },
+}
+
+async function allPages<T>(read: (cursor?: string) => Promise<{ items: readonly T[], nextCursor?: string }>): Promise<T[]> {
+  const items: T[] = []
+  const seen = new Set<string>()
+  let cursor: string | undefined
+  do {
+    const page = await read(cursor)
+    items.push(...page.items)
+    if (!page.nextCursor || seen.has(page.nextCursor)) break
+    seen.add(page.nextCursor)
+    cursor = page.nextCursor
+  } while (cursor)
+  return items
+}
+
+function journeyMatches(job: AcquisitionJob, release: CatalogRelease | undefined): boolean {
+  if (!release) return false
+  const jobMbid = job.musicBrainzReleaseGroupId?.trim().toLowerCase()
+  const releaseMbid = release.musicBrainzReleaseGroupId?.trim().toLowerCase()
+  if (jobMbid && releaseMbid) return jobMbid === releaseMbid
+  return job.searchRefs.some(ref => sameRef(ref, release.ref))
+}
+
+async function journeyDownloadProjection(lidarr: LidarrReadAdapter | null, job: NonNullable<ReturnType<AcquisitionRepository['get']>>, context: OperationContext) {
+  const empty: {
+    state: SourceState; queue: AcquisitionQueueItem[]; history: AcquisitionHistoryItem[]
+    events: Array<{ kind: string, label: string, occurredAt: string }>; outputs: string[]
+    progress?: { percent?: number, bytesTotal?: number, bytesRemaining?: number, etaSeconds?: number }
+  } = { state: 'unconfigured', queue: [], history: [], events: [], outputs: [] }
+  if (!lidarr) return empty
+  try {
+    const [allQueue, allHistory] = await Promise.all([
+      allPages(cursor => lidarr.listQueue({ cursor, limit: 100 }, context)),
+      allPages(cursor => lidarr.listHistory(job.createdAt, { cursor, limit: 100 }, context)),
+    ])
+    const queue = allQueue.filter(item => journeyMatches(job, item.release))
+    const history = allHistory.filter(item => journeyMatches(job, item.release) && JOURNEY_EVENTS[item.eventType])
+    history.sort((a, b) => b.occurredAt.localeCompare(a.occurredAt) || a.ref.nativeId.localeCompare(b.ref.nativeId))
+    const active = queue.find(item => item.state === 'downloading') ?? queue[0]
+    const progress = active ? {
+      ...(active.bytesTotal !== undefined && active.bytesRemaining !== undefined && active.bytesTotal > 0
+        ? { percent: Math.max(0, Math.min(100, Math.round((active.bytesTotal - active.bytesRemaining) / active.bytesTotal * 100))) } : {}),
+      ...(active.bytesTotal !== undefined ? { bytesTotal: active.bytesTotal } : {}),
+      ...(active.bytesRemaining !== undefined ? { bytesRemaining: active.bytesRemaining } : {}),
+      ...(active.etaSeconds !== undefined ? { etaSeconds: active.etaSeconds } : {}),
+    } : undefined
+    const outputs = history.flatMap(item => JOURNEY_EVENTS[item.eventType]?.stage === 'review' && item.output?.needlePath
+      ? [item.output.needlePath] : [])
+    return { state: 'available' as SourceState, queue, history, progress,
+      events: history.map(item => ({ kind: item.eventType, label: JOURNEY_EVENTS[item.eventType].label, occurredAt: item.occurredAt })), outputs }
+  } catch {
+    return { ...empty, state: 'unavailable' as SourceState }
+  }
+}
+
+async function journeyReviewProjection(beets: BeetsImportPort | null, outputs: readonly string[], context: OperationContext) {
+  if (!beets) return { state: 'unconfigured' as SourceState }
+  try {
+    const roots = await beets.listFolders(context)
+    const albums: BeetsInboxFolder[] = []
+    const visit = (nodes: readonly BeetsInboxFolder[]) => nodes.forEach(node => { if (node.album) albums.push(node); visit(node.children) })
+    visit(roots)
+    const normalized = new Set(outputs.map(stripTrailingSlash))
+    const matches = albums.filter(folder => normalized.has(stripTrailingSlash(folder.providerPath)))
+    return { state: 'available' as SourceState, ...(matches.length === 1 ? { folder: matches[0] } : {}) }
+  } catch { return { state: 'unavailable' as SourceState } }
+}
+
+function stripTrailingSlash(path: string): string { return path.length > 1 ? path.replace(/\/+$/, '') : path }
+
+function journeyStage(jobState: string, queue: readonly AcquisitionQueueItem[], history: readonly AcquisitionHistoryItem[], operation?: BeetsImportOperation) {
+  if (operation) return ({ 'submission-unknown': 'attention', submitting: 'importing', submitted: 'importing', 'provider-completed': 'verifying', 'library-confirmed': 'collected' } as const)[operation.state]
+  const latestHistoryStage = history[0] ? JOURNEY_EVENTS[history[0].eventType]?.stage : undefined
+  // A terminal history event is authoritative when Lidarr has not yet removed
+  // the corresponding item from its transient queue projection.
+  if (latestHistoryStage === 'attention' || latestHistoryStage === 'review') return latestHistoryStage
+  if (queue.some(item => item.state === 'failed')) return 'attention'
+  if (queue.some(item => ['post-processing', 'completed'].includes(item.state))) return 'review'
+  if (queue.some(item => item.state === 'downloading')) return 'downloading'
+  if (queue.length) return 'queued'
+  if (latestHistoryStage) return latestHistoryStage
+  return ({ searching: 'queued', queued: 'queued', transferring: 'downloading', 'selection-required': 'attention', importing: 'importing', completed: 'collected', failed: 'attention', cancelled: 'attention' } as Record<string, string>)[jobState] ?? 'requested'
 }
 
 async function readProjection<T>(
