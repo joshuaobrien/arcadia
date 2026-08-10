@@ -272,7 +272,7 @@ main { width: min(1160px, calc(100% - 48px)); min-width: 0; margin: 0 auto; padd
 .library-track-row > span { color: #555a54; font-size: 7px; text-align: right; }
 .library-footer { padding: 9px; display: flex; justify-content: center; border-top: 1px solid #e8e7df; }
 .has-player main { padding-bottom: 135px; }
-.player-bar { min-height: 76px; padding: 9px 14px; position: fixed; left: 208px; right: 0; bottom: 0; z-index: 4; display: grid; grid-template-columns: 48px minmax(160px,1fr) minmax(280px,500px) 30px; align-items: center; gap: 12px; color: #eff1ed; background: #344b5d; border-top: 1px solid #1f3545; box-shadow: inset 0 1px #75899a, 0 -4px 12px rgba(45,48,44,.2); }
+.player-bar { min-height: 76px; padding: 9px 14px; position: fixed; left: 208px; right: 0; bottom: 0; z-index: 4; display: grid; grid-template-columns: 48px minmax(160px,320px) minmax(280px,1fr) 30px; align-items: center; gap: 12px; color: #eff1ed; background: #344b5d; border-top: 1px solid #1f3545; box-shadow: inset 0 1px #75899a, 0 -4px 12px rgba(45,48,44,.2); }
 .player-art { width: 44px; height: 44px; display: grid; place-items: center; overflow: hidden; color: #dce2df; background: conic-gradient(#586f80,#9e9077,#526f67,#816d71,#586f80); border: 1px solid #1f3545; }
 .player-art img { width: 100%; height: 100%; object-fit: cover; }
 .player-copy { min-width: 0; display: flex; flex-direction: column; }
