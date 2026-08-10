@@ -96,7 +96,34 @@ export class BeetsFlaskAdapter implements BeetsImportPort {
       const normalizeCandidate = (input: unknown, kind: 'candidate' | 'as-is', index: number): BeetsPreviewCandidate => {
         const candidate = object(input, `session.tasks[${taskIndex}].${kind}[${index}]`)
         const info = object(candidate.info, `candidate.info`)
-        return { id: requiredString(candidate.id, 'candidate.id'), kind, ...optionalTextFields(info), ...(optionalNumber(info.year) === undefined ? {} : { year: optionalNumber(info.year) }), ...(optionalString(info.data_source) ? { source: optionalString(info.data_source) } : {}), distance: nonnegativeNumber(candidate.distance, 'candidate.distance'), penalties: array(candidate.penalties, 'candidate.penalties').map((p, i) => requiredString(p, `candidate.penalties[${i}]`)), trackCount: array(candidate.tracks, 'candidate.tracks').length, duplicateCount: array(candidate.duplicate_ids, 'candidate.duplicate_ids').length }
+        const tracks = array(candidate.tracks, 'candidate.tracks').map((raw, trackIndex) => {
+          const track = object(raw, `candidate.tracks[${trackIndex}]`)
+          return {
+            ...(optionalString(track.title) ? { title: optionalString(track.title) } : {}),
+            ...(optionalString(track.artist) ? { artist: optionalString(track.artist) } : {}),
+            ...(optionalNumber(track.length) === undefined ? {} : { length: optionalNumber(track.length) }),
+            ...(optionalNumber(track.index) === undefined ? {} : { index: optionalNumber(track.index) }),
+            ...(optionalNumber(track.medium) === undefined ? {} : { medium: optionalNumber(track.medium) }),
+          }
+        })
+        return {
+          id: requiredString(candidate.id, 'candidate.id'),
+          kind,
+          ...optionalTextFields(info),
+          ...(optionalNumber(info.year) === undefined ? {} : { year: optionalNumber(info.year) }),
+          ...(optionalString(info.data_source) ? { source: optionalString(info.data_source) } : {}),
+          ...(optionalString(info.country) ? { country: optionalString(info.country) } : {}),
+          ...(optionalString(info.label) ? { label: optionalString(info.label) } : {}),
+          ...(optionalString(info.catalognum) ? { catalogNumber: optionalString(info.catalognum) } : {}),
+          ...(optionalString(info.media) ? { media: optionalString(info.media) } : {}),
+          ...(optionalNumber(info.mediums) === undefined ? {} : { mediumCount: optionalNumber(info.mediums) }),
+          distance: nonnegativeNumber(candidate.distance, 'candidate.distance'),
+          penalties: array(candidate.penalties, 'candidate.penalties').map((p, i) => requiredString(p, `candidate.penalties[${i}]`)),
+          trackCount: tracks.length,
+          tracks,
+          trackMapping: numberMapping(candidate.mapping),
+          duplicateCount: array(candidate.duplicate_ids, 'candidate.duplicate_ids').length,
+        }
       }
       const candidates = array(task.candidates, 'task.candidates').map((candidate, index) => normalizeCandidate(candidate, 'candidate', index))
       candidates.push(normalizeCandidate(task.asis_candidate, 'as-is', candidates.length))
@@ -171,6 +198,14 @@ function throwProviderException(input: unknown, adapterId: string): void {
 function optionalString(value: unknown): string | undefined { return typeof value === 'string' && value ? value : undefined }
 function optionalNumber(value: unknown): number | undefined { if (value === null || value === undefined || value === '') return undefined; const number = typeof value === 'string' ? Number(value) : value; return typeof number === 'number' && Number.isFinite(number) ? number : undefined }
 function optionalTextFields(value: JsonObject): { artist?: string, album?: string } { return { ...(optionalString(value.artist) ? { artist: optionalString(value.artist) } : {}), ...(optionalString(value.album) ? { album: optionalString(value.album) } : {}) } }
+function numberMapping(value: unknown): Record<string, number> {
+  if (value === undefined || value === null) return {}
+  if (typeof value !== 'object' || Array.isArray(value)) invalid('candidate.mapping must be an object')
+  return Object.fromEntries(Object.entries(value as JsonObject).map(([key, mapped]) => {
+    if (!/^\d+$/.test(key) || !Number.isInteger(mapped) || Number(mapped) < 0) invalid('candidate.mapping must contain non-negative track indexes')
+    return [key, Number(mapped)]
+  }))
+}
 
 export function createBeetsFlaskAdapterFromEnv(env: NodeJS.ProcessEnv = process.env): BeetsFlaskAdapter | null {
   return env.BEETS_URL ? new BeetsFlaskAdapter({ baseUrl: env.BEETS_URL }) : null
