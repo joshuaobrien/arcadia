@@ -7,6 +7,8 @@ import { Readable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { createLidarrAdapterFromEnv } from './integrations/lidarr.js'
 import { MusicBrainzAdapter } from './integrations/musicbrainz.js'
+import { createSlskdAdapterFromEnv, type SlskdAdapter } from './integrations/slskd.js'
+import { DirectAcquisitionService } from './domain/direct-acquisition.js'
 import { createJellyfinAdapterFromEnv } from './integrations/jellyfin.js'
 import { createBeetsFlaskAdapterFromEnv } from './integrations/beets-flask.js'
 import { isAdapterError } from './integrations/errors.js'
@@ -71,6 +73,7 @@ interface AcquisitionRepositoryPort {
   listBeetsImportOperations?: AcquisitionRepository['listBeetsImportOperations']
   transitionBeetsImportOperation?: AcquisitionRepository['transitionBeetsImportOperation']
   abortBeetsImportOperation?: AcquisitionRepository['abortBeetsImportOperation']
+  getDirectWorkflow?: AcquisitionRepository['getDirectWorkflow']
 }
 
 interface BuildAppOptions {
@@ -84,6 +87,8 @@ interface BuildAppOptions {
   beets?: BeetsImportPort | null
   acquisitionRepository?: AcquisitionRepositoryPort | null
   staticRoot?: string | null
+  directAcquisition?: DirectAcquisitionService | null
+  slskd?: SlskdAdapter | null
 }
 
 interface PageQuery {
@@ -236,6 +241,12 @@ export function buildApp(options: BuildAppOptions = {}) {
   const acquisitionRepository = options.acquisitionRepository === undefined
     ? process.env.NEEDLE_DATABASE_PATH ? new AcquisitionRepository(process.env.NEEDLE_DATABASE_PATH) : null
     : options.acquisitionRepository
+  const slskd = options.slskd === undefined ? createSlskdAdapterFromEnv() : options.slskd
+  const directAcquisition = options.directAcquisition === undefined
+    ? slskd && acquisitionRepository instanceof AcquisitionRepository
+      ? new DirectAcquisitionService(acquisitionRepository, catalog instanceof MusicBrainzAdapter ? catalog : new MusicBrainzAdapter(), slskd, directOptions(process.env))
+      : null
+    : options.directAcquisition
   const staticRoot = options.staticRoot === undefined
     ? process.env.NODE_ENV === 'production' ? resolve(serverDirectory, '../dist') : null
     : options.staticRoot
@@ -366,6 +377,7 @@ export function buildApp(options: BuildAppOptions = {}) {
   }
 
   app.get('/api/health', async () => ({ status: 'ok' }))
+  app.get('/api/services/slskd', async (_request,reply)=>{if(!slskd)return{configured:false};try{return{configured:true,health:await slskd.probe({operationId:crypto.randomUUID()})}}catch(error){if(!isAdapterError(error))throw error;return reply.code(502).send({error:error.toJSON()})}})
   app.get<{ Querystring: { term: string } }>('/api/music/releases', {
     schema: {
       querystring: {
@@ -591,17 +603,23 @@ export function buildApp(options: BuildAppOptions = {}) {
     if (!job) return reply.code(404).send({ error: { code: 'not-found', message: 'Journey was not found' } })
 
     const operationId = crypto.randomUUID()
-    const download = await journeyDownloadProjection(lidarr, job, { operationId: `${operationId}:download` })
+    const direct = acquisitionRepository.getDirectWorkflow?.(job.id)
+    let directStatus
+    if (direct && directAcquisition) { try { directStatus = await directAcquisition.reconcile(job.id,{operationId:`${operationId}:slskd`}) } catch { directStatus={workflow:direct,summary:undefined} } }
+    const currentJob=acquisitionRepository.get(request.params.id)??job
+    const directProgress=directStatus?.summary?{percent:directStatus.summary.bytesTotal?Math.round(directStatus.summary.bytesTransferred/directStatus.summary.bytesTotal*100):0,completedFiles:directStatus.summary.completed,expectedFiles:directStatus.workflow?.expectedFileCount??0}:undefined
+    const directOutput=currentJob.state==='completed'?directStatus?.workflow?.outputNeedlePath:undefined
+    const download = directStatus?.workflow?{state:'available' as SourceState,queue:[] as AcquisitionQueueItem[],history:[] as AcquisitionHistoryItem[],events:[{kind:`direct-${currentJob.state}`,label:`Direct acquisition ${currentJob.state}`,occurredAt:directStatus.workflow.updatedAt}],outputs:directOutput?[directOutput]:[],downloadRefs:[] as string[],...(directProgress?{progress:directProgress}:{})}:await journeyDownloadProjection(lidarr, currentJob, { operationId: `${operationId}:download` })
     const review = await journeyReviewProjection(beets, download.outputs, download.downloadRefs, { operationId: `${operationId}:review` })
-    const linked = acquisitionRepository.listBeetsImportOperations?.().filter(item => item.acquisitionId === job.id) ?? []
+    const linked = acquisitionRepository.listBeetsImportOperations?.().filter(item => item.acquisitionId === currentJob.id) ?? []
     const importOperation = linked.length === 1 ? linked[0] : undefined
-    const projectedStage = journeyStage(job.state, download.queue, download.history, importOperation)
+    const projectedStage = journeyStage(currentJob.state, download.queue, download.history, importOperation)
     const stage = !importOperation && review.folder && projectedStage !== 'attention'
       ? 'review'
       : projectedStage
     const events = [
       ...download.events,
-      { kind: 'journey-created', label: 'Journey started', occurredAt: job.createdAt },
+      { kind: 'journey-created', label: 'Journey started', occurredAt: currentJob.createdAt },
       ...(importOperation ? [{
         kind: `import-${importOperation.state}`,
         label: ({
@@ -615,7 +633,7 @@ export function buildApp(options: BuildAppOptions = {}) {
       }] : []),
     ].sort((left, right) => right.occurredAt.localeCompare(left.occurredAt))
     return {
-      job,
+      job:currentJob,
       stage,
       ...(download.progress ? { progress: download.progress } : {}),
       events,
@@ -662,11 +680,11 @@ export function buildApp(options: BuildAppOptions = {}) {
         message: 'Needle acquisition state is not configured',
       },
     })
-    if (!lidarr) return reply.code(503).send({
+    if (!directAcquisition && !lidarr) return reply.code(503).send({
       error: { code: 'unavailable', adapterId: 'lidarr', message: 'Lidarr is not configured', retryable: false },
     })
     const defaults = acquisitionRepository.getDefaults()
-    if (!defaults) return reply.code(400).send({
+    if (!directAcquisition && !defaults) return reply.code(400).send({
       error: { code: 'invalid-request', message: 'Configure the Lidarr root and quality profile before starting a journey' },
     })
     const musicBrainzReleaseGroupId = request.body.release.musicBrainzReleaseGroupId?.trim().toLowerCase()
@@ -686,14 +704,18 @@ export function buildApp(options: BuildAppOptions = {}) {
     }
     const result = acquisitionRepository.wantRelease(release)
     if (!result.created && result.job.state !== 'wanted') return reply.code(200).send(result.job)
+    if(directAcquisition){try{const workflow=await directAcquisition.search(result.job.id,{operationId:crypto.randomUUID()});return reply.code(result.created?201:200).send({...acquisitionRepository.get?.(result.job.id),direct:workflow})}catch(error){return reply.code(502).send({error:{code:'unavailable',adapterId:'slskd',message:error instanceof Error?error.message:'Direct search failed',retryable:true}})}}
     const submitted = await lidarrRoute(reply, async (adapter, context) => {
-      const installed = await adapter.ensureRelease({ release, ...defaults }, context)
+      const installed = await adapter.ensureRelease({ release, ...defaults! }, context)
       await adapter.setReleaseWanted(installed.ref, true, context)
       return adapter.startSearch({ kind: 'release', release: installed.ref }, context)
     })
     if (!submitted) return
     return reply.code(result.created ? 201 : 200).send(result.job)
   })
+  app.get<{Params:{id:string}}>('/api/acquisitions/:id/candidates',async(request,reply)=>{const workflow=acquisitionRepository?.getDirectWorkflow?.(request.params.id);if(!workflow)return reply.code(404).send({error:{code:'not-found',message:'Direct acquisition was not found'}});return{workflow,candidates:workflow.candidates}})
+  app.post<{Params:{id:string,candidateId:string}}>('/api/acquisitions/:id/candidates/:candidateId/select',async(request,reply)=>{if(!directAcquisition)return reply.code(503).send({error:{code:'unavailable',message:'Direct acquisition is not configured'}});try{return await directAcquisition.select(request.params.id,request.params.candidateId,{operationId:crypto.randomUUID()})}catch(error){return reply.code(409).send({error:{code:'conflict',message:error instanceof Error?error.message:'Selection failed'}})}})
+  app.post<{Params:{id:string}}>('/api/acquisitions/:id/retry',async(request,reply)=>{if(!directAcquisition)return reply.code(503).send({error:{code:'unavailable',message:'Direct acquisition is not configured'}});try{return await directAcquisition.retry(request.params.id,{operationId:crypto.randomUUID()})}catch(error){return reply.code(409).send({error:{code:'conflict',message:error instanceof Error?error.message:'Retry failed'}})}})
   app.get('/api/acquisition-defaults', async (_request, reply) => {
     if (!acquisitionRepository) return reply.code(503).send({
       error: {
@@ -874,7 +896,8 @@ export function buildApp(options: BuildAppOptions = {}) {
     if (body.acquisitionId !== null) {
       if (!acquisitionRepository?.createBeetsImportOperation || !acquisitionRepository.get) return reply.code(503).send({ error: { code: 'unavailable', message: 'Acquisition linkage persistence is not configured' } })
       const acquisition = acquisitionRepository.get(body.acquisitionId)
-      if (!acquisition || acquisition.state !== 'wanted') return reply.code(409).send({ error: { code: 'conflict', message: 'Selected acquisition does not exist or is not wanted' } })
+      const directReady = acquisition?.state === 'completed' && acquisitionRepository.getDirectWorkflow?.(body.acquisitionId)?.submissionState === 'submitted'
+      if (!acquisition || (acquisition.state !== 'wanted' && !directReady)) return reply.code(409).send({ error: { code: 'conflict', message: 'Selected acquisition does not exist or is not ready for import' } })
     }
     if (!await validatedFolder(body.providerPath, body.hash, reply)) return
     const previewKey = JSON.stringify([body.providerPath, body.hash])
@@ -1196,6 +1219,8 @@ async function listAllMatchingAlbums(
 function normalizedSearchText(value: string | undefined): string {
   return value?.trim().replace(/\s+/g, ' ').toLocaleLowerCase() ?? ''
 }
+
+function directOptions(env:NodeJS.ProcessEnv){let pathMappings:readonly {id:string;providerPrefix:string;needlePrefix:string}[]|undefined;if(env.SLSKD_PATH_MAPPINGS?.trim()){const parsed=JSON.parse(env.SLSKD_PATH_MAPPINGS);if(!Array.isArray(parsed)||parsed.some(x=>!x||typeof x.id!=='string'||typeof x.providerPrefix!=='string'||typeof x.needlePrefix!=='string'||!x.providerPrefix.startsWith('/')||!x.needlePrefix.startsWith('/')))throw new Error('SLSKD_PATH_MAPPINGS must be a JSON array of absolute path mappings');pathMappings=parsed}return{downloadsRoot:env.SLSKD_DOWNLOADS_ROOT?.trim()||'/downloads',...(pathMappings?{pathMappings}:{})}}
 
 async function listAllAlbumTracks(adapter: LibraryCatalogPort, albumId: string, context: OperationContext, fresh = false) {
   const items = []

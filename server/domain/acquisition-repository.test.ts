@@ -125,7 +125,7 @@ test('acquisition repository migrates version 1 without changing wanted releases
 
   const migrated = new DatabaseSync(path)
   const version = migrated.prepare('PRAGMA user_version').get() as { user_version: number }
-  assert.equal(version.user_version, 6)
+  assert.equal(version.user_version, 7)
   migrated.close()
 })
 
@@ -135,12 +135,12 @@ test('acquisition repository rejects a database created by a newer schema', asyn
   t.after(() => rm(directory, { recursive: true, force: true }))
 
   const database = new DatabaseSync(path)
-  database.exec('PRAGMA user_version = 7')
+  database.exec('PRAGMA user_version = 8')
   database.close()
 
   assert.throws(
     () => new AcquisitionRepository(path),
-    /database schema 7 is newer than supported schema 6/,
+    /database schema 8 is newer than supported schema 7/,
   )
 })
 
@@ -265,6 +265,26 @@ test('schema version 4 migrates existing acquisitions and import operations to l
   assert.equal(repository.getBeetsImportOperation('operation-v4')?.acquisitionId, undefined)
   repository.close()
   const migrated = new DatabaseSync(path)
-  assert.equal((migrated.prepare('PRAGMA user_version').get() as { user_version: number }).user_version, 6)
+  assert.equal((migrated.prepare('PRAGMA user_version').get() as { user_version: number }).user_version, 7)
   migrated.close()
+})
+
+test('direct workflow persists exact selection and recovers interrupted submission without permitting duplicates', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'needle-direct-recovery-'))
+  const path = join(directory, 'needle.sqlite')
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const repository = new AcquisitionRepository(path)
+  const job = repository.wantRelease({ ...release, ref: { adapterId: 'musicbrainz', nativeId: `release-group:mbid:${release.musicBrainzReleaseGroupId}` } }).job
+  repository.beginDirectSearch(job.id, `needle/${job.id}/Broadcast - Tender Buttons`)
+  const candidate = { id: 'candidate', peer: 'peer', path: 'Artist\\Album', sourceSearchIds: ['search'], audioFiles: [{ filename: 'Artist\\Album\\01.flac', path: 'Artist\\Album\\01.flac', name: '01.flac', extension: 'flac', size: 123 }], metadataFiles: [], matches: [{ editionId: 'edition', score: 100, reasons: ['exact'], mappedTracks: 1, missingTracks: 0, extraTracks: 0, rejected: false }], score: 100, autoSelectEligible: true }
+  repository.storeDirectCandidates(job.id, [{ id: 'edition', media: [], tracks: [] }], [candidate], ['search'])
+  repository.beginDirectTransfer(job.id, candidate.id, 'edition', 'exact', 1, `/downloads/needle/${job.id}/Broadcast - Tender Buttons`, `/music_path/inbox/needle/${job.id}/Broadcast - Tender Buttons`)
+  repository.close()
+
+  const reopened = new AcquisitionRepository(path)
+  assert.equal(reopened.getDirectWorkflow(job.id)?.submissionState, 'submission-unknown')
+  assert.equal(reopened.get(job.id)?.state, 'selection-required')
+  assert.throws(() => reopened.beginDirectTransfer(job.id, candidate.id, 'edition', 'duplicate', 1, '/downloads/x', '/inbox/x'), /guard failed/)
+  assert.throws(() => reopened.beginDirectSearch(job.id, 'needle/retry'), /Cannot search after transfer submission/)
+  reopened.close()
 })
