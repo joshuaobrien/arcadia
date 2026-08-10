@@ -21,6 +21,7 @@ interface CatalogRelease {
   title: string
   releaseDate?: string
   releaseType?: string
+  trackCount?: number
   musicBrainzReleaseGroupId?: string
 }
 
@@ -1438,6 +1439,14 @@ function formatDuration(value?: number): string {
   return `${minutes}:${seconds.toString().padStart(2, '0')}`
 }
 
+function formatReleaseDate(value?: string, fallbackYear?: number): string {
+  const match = value?.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (!match) return fallbackYear?.toString() ?? 'Date unknown'
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  const month = months[Number(match[2]) - 1]
+  return month ? `${month} ${Number(match[3])}, ${match[1]}` : match[1]
+}
+
 function UnifiedReleaseCard({ item, library, acquisitions, libraryAvailable, playTrack }: {
   item: MusicRelease
   library: LibraryModel
@@ -1459,8 +1468,12 @@ function UnifiedReleaseCard({ item, library, acquisitions, libraryAvailable, pla
       <div className="album-case"><i /></div>
       <strong>{item.title}</strong>
       <small>{item.artist}</small>
+      <div className="release-details">
+        <span>{release?.releaseType ?? 'Release'}</span>
+        {release?.trackCount && <span>{release.trackCount} {release.trackCount === 1 ? 'track' : 'tracks'}</span>}
+      </div>
       <div className="album-meta">
-        <span>{item.year ?? '—'}</span>
+        <span>{formatReleaseDate(release?.releaseDate, item.year)}</span>
         {item.state === 'importing' ? <span className="release-state importing"><Radio size={9} /> Importing</span>
           : item.state === 'selection-required' ? <span className="release-state selection-required">Needs attention</span>
             : item.state === 'in-library' ? <span className="release-state present"><Check size={9} /> In library</span>

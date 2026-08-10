@@ -77,9 +77,18 @@ export function mergeMusicReleases(
   }
 
   return [...result.values()].sort((left, right) => compareTuple(
-    [left.artist, left.year?.toString() ?? '', left.title, left.key],
-    [right.artist, right.year?.toString() ?? '', right.title, right.key],
+    [left.artist, left.title, releaseTypeRank(left), left.year?.toString() ?? '', left.key],
+    [right.artist, right.title, releaseTypeRank(right), right.year?.toString() ?? '', right.key],
   ))
+}
+
+function releaseTypeRank(release: MusicRelease): string {
+  switch (release.catalogRelease?.releaseType?.trim().toLowerCase()) {
+    case 'album': return '0'
+    case 'ep': return '1'
+    case 'single': return '2'
+    default: return '3'
+  }
 }
 
 function releaseState(acquisition: AcquisitionJob | undefined, inLibrary: boolean): MusicReleaseState {

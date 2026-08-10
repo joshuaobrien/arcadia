@@ -56,6 +56,9 @@ test('Lidarr release lookup retains the artist display name', async () => {
     id: 0,
     title: 'Modal Soul',
     foreignAlbumId: 'release-group-mbid',
+    releaseDate: '2005-11-11T00:00:00Z',
+    albumType: 'Album',
+    releases: [{ trackCount: 14 }, { trackCount: 16 }],
     artist: {
       id: 0,
       artistName: 'Nujabes',
@@ -67,6 +70,9 @@ test('Lidarr release lookup retains the artist display name', async () => {
 
   assert.equal(release.artistName, 'Nujabes')
   assert.deepEqual(release.artistRef, { adapterId: 'lidarr', nativeId: 'artist:mbid:artist-mbid' })
+  assert.equal(release.releaseType, 'Album')
+  assert.equal(release.releaseDate, '2005-11-11T00:00:00Z')
+  assert.equal(release.trackCount, 14)
 })
 
 test('Lidarr reuses an installed release by exact MusicBrainz identity', async () => {
