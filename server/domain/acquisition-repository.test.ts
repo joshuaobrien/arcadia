@@ -95,7 +95,7 @@ test('acquisition repository migrates version 1 without changing wanted releases
 
   const migrated = new DatabaseSync(path)
   const version = migrated.prepare('PRAGMA user_version').get() as { user_version: number }
-  assert.equal(version.user_version, 7)
+  assert.equal(version.user_version, 8)
   migrated.close()
 })
 
@@ -105,12 +105,12 @@ test('acquisition repository rejects a database created by a newer schema', asyn
   t.after(() => rm(directory, { recursive: true, force: true }))
 
   const database = new DatabaseSync(path)
-  database.exec('PRAGMA user_version = 8')
+  database.exec('PRAGMA user_version = 9')
   database.close()
 
   assert.throws(
     () => new AcquisitionRepository(path),
-    /database schema 8 is newer than supported schema 7/,
+    /database schema 9 is newer than supported schema 8/,
   )
 })
 
@@ -235,7 +235,7 @@ test('schema version 4 migrates existing acquisitions and import operations to l
   assert.equal(repository.getBeetsImportOperation('operation-v4')?.acquisitionId, undefined)
   repository.close()
   const migrated = new DatabaseSync(path)
-  assert.equal((migrated.prepare('PRAGMA user_version').get() as { user_version: number }).user_version, 7)
+  assert.equal((migrated.prepare('PRAGMA user_version').get() as { user_version: number }).user_version, 8)
   migrated.close()
 })
 
@@ -256,6 +256,47 @@ test('direct workflow persists exact selection and recovers interrupted submissi
   assert.equal(reopened.get(job.id)?.state, 'selection-required')
   assert.throws(() => reopened.beginDirectTransfer(job.id, candidate.id, 'edition', 'duplicate', 1, '/downloads/x', '/inbox/x'), /guard failed/)
   assert.throws(() => reopened.beginDirectSearch(job.id, 'needle/retry'), /Cannot search after transfer submission/)
+  reopened.close()
+})
+
+test('confirmed direct preview reservation remains submitted across reopen and rejects duplicates', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'needle-direct-preview-confirmed-'))
+  const path = join(directory, 'needle.sqlite')
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const repository = new AcquisitionRepository(path)
+  const job = repository.wantRelease(release).job
+  repository.beginDirectSearch(job.id, `needle/${job.id}/Broadcast - Tender Buttons`)
+  repository.storeDirectCandidates(job.id, [], [{ id: 'candidate' } as never], [])
+  repository.beginDirectTransfer(job.id, 'candidate', 'edition', 'Automatic selection: exact', 1, '/downloads/album', '/inbox/album')
+  repository.confirmDirectBatches(job.id, ['batch'])
+  repository.reconcileDirect(job.id, 'completed')
+  repository.beginDirectPreview(job.id)
+  repository.confirmDirectPreview(job.id)
+  repository.close()
+
+  const reopened = new AcquisitionRepository(path)
+  assert.equal(reopened.getDirectWorkflow(job.id)?.previewSubmissionState, 'submitted')
+  assert.throws(() => reopened.beginDirectPreview(job.id), /preview transition guard failed/)
+  reopened.close()
+})
+
+test('interrupted direct preview becomes submission-unknown across reopen and cannot be resubmitted', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'needle-direct-preview-unknown-'))
+  const path = join(directory, 'needle.sqlite')
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const repository = new AcquisitionRepository(path)
+  const job = repository.wantRelease(release).job
+  repository.beginDirectSearch(job.id, `needle/${job.id}/Broadcast - Tender Buttons`)
+  repository.storeDirectCandidates(job.id, [], [{ id: 'candidate' } as never], [])
+  repository.beginDirectTransfer(job.id, 'candidate', 'edition', 'Automatic selection: exact', 1, '/downloads/album', '/inbox/album')
+  repository.confirmDirectBatches(job.id, ['batch'])
+  repository.reconcileDirect(job.id, 'completed')
+  repository.beginDirectPreview(job.id)
+  repository.close()
+
+  const reopened = new AcquisitionRepository(path)
+  assert.equal(reopened.getDirectWorkflow(job.id)?.previewSubmissionState, 'submission-unknown')
+  assert.throws(() => reopened.beginDirectPreview(job.id), /preview transition guard failed/)
   reopened.close()
 })
 
