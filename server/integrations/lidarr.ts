@@ -7,6 +7,7 @@ import type {
   AcquisitionRoot,
   AcquisitionSearchTarget,
   AddArtistRequest,
+  EnsureReleaseRequest,
   RemoteJob,
 } from './acquisition.js'
 import type {
@@ -171,6 +172,71 @@ export class LidarrAdapter implements CatalogLookupPort, AcquisitionAutomationPo
     return this.#artist(artist)
   }
 
+  async ensureRelease(request: EnsureReleaseRequest, context: OperationContext): Promise<CatalogRelease> {
+    this.#assertAdapter(request.release.ref)
+    this.#assertAdapter(request.release.artistRef)
+    const foreignAlbumId = request.release.musicBrainzReleaseGroupId?.trim().toLowerCase()
+    if (!foreignAlbumId || !isMusicBrainzId(foreignAlbumId)) {
+      throw this.#error('invalid-request', 'Release requires a MusicBrainz release-group ID', false)
+    }
+
+    const existing = await this.#findAlbumByForeignId(foreignAlbumId, context)
+    if (existing) return this.#installedAlbum(existing)
+
+    const matches = await this.#request<JsonObject[]>('album/lookup', { term: `lidarr:${foreignAlbumId}` }, context)
+    const exact = matches.filter(album => optionalString(album.foreignAlbumId)?.toLowerCase() === foreignAlbumId)
+    if (exact.length !== 1) {
+      throw this.#error('not-found', 'Lidarr did not return one exact release-group match', false)
+    }
+    const artist = object(exact[0].artist)
+    const foreignArtistId = optionalString(artist?.foreignArtistId)?.toLowerCase()
+    if (!foreignArtistId || !isMusicBrainzId(foreignArtistId)) {
+      throw this.#error('transient-provider-failure', 'Lidarr returned the release without an exact artist ID', true)
+    }
+
+    const rootId = this.#numericId(request.root, 'root')
+    const root = await this.#request<JsonObject>(`rootfolder/${rootId}`, {}, context)
+    const qualityProfileId = this.#numericId(request.qualityProfile, 'profile:quality')
+    const metadataProfileId = request.metadataProfile
+      ? this.#numericId(request.metadataProfile, 'profile:metadata')
+      : number(root.defaultMetadataProfileId)
+
+    let added: JsonObject
+    try {
+      added = await this.#request<JsonObject>('album', {
+        method: 'POST',
+        body: {
+          foreignAlbumId,
+          monitored: false,
+          anyReleaseOk: true,
+          artist: {
+            artistName: optionalString(artist?.artistName) ?? request.release.artistName,
+            foreignArtistId,
+            qualityProfileId,
+            metadataProfileId,
+            rootFolderPath: string(root.path),
+            monitored: false,
+            monitorNewItems: 'none',
+            tags: [],
+            addOptions: {
+              monitor: 'none',
+              albumsToMonitor: [foreignAlbumId],
+              monitored: false,
+              searchForMissingAlbums: false,
+            },
+          },
+          addOptions: { addType: 'manual', searchForNewAlbum: false },
+        },
+      }, context)
+    } catch (error) {
+      if (!(error instanceof AdapterError) || (error.providerStatus !== 400 && error.providerStatus !== 409)) throw error
+      const raced = await this.#findAlbumByForeignId(foreignAlbumId, context)
+      if (!raced) throw error
+      added = raced
+    }
+    return this.#installedAlbum(added)
+  }
+
   async setReleaseWanted(release: ProviderRef, wanted: boolean, context: OperationContext): Promise<void> {
     const albumId = this.#numericId(release, 'album')
     await this.#request('album/monitor', {
@@ -320,6 +386,18 @@ export class LidarrAdapter implements CatalogLookupPort, AcquisitionAutomationPo
       completedAt: optionalString(value.ended),
       message: optionalString(value.message) ?? optionalString(value.exception),
     }
+  }
+
+  async #findAlbumByForeignId(foreignAlbumId: string, context: OperationContext): Promise<JsonObject | undefined> {
+    const albums = await this.#request<JsonObject[]>('album', { foreignAlbumId }, context)
+    if (albums.length > 1) throw this.#error('transient-provider-failure', 'Lidarr returned duplicate releases for one MusicBrainz ID', true)
+    return albums[0]
+  }
+
+  #installedAlbum(value: JsonObject): CatalogRelease {
+    const release = this.#album(value)
+    this.#numericId(release.ref, 'album')
+    return release
   }
 
   #pageNumber(page: PageRequest): number {
@@ -473,6 +551,10 @@ function string(value: unknown): string {
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined
+}
+
+function isMusicBrainzId(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value)
 }
 
 function number(value: unknown): number {

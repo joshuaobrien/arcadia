@@ -53,7 +53,7 @@ interface MediaScan {
 
 type LidarrReadAdapter = CatalogLookupPort & Pick<
   AcquisitionAutomationPort,
-  'listProfiles' | 'listRoots' | 'listQueue' | 'listHistory'
+  'listProfiles' | 'listRoots' | 'listQueue' | 'listHistory' | 'ensureRelease' | 'setReleaseWanted' | 'startSearch'
 >
 
 interface AcquisitionRepositoryPort {
@@ -496,7 +496,33 @@ export function buildApp(options: BuildAppOptions = {}) {
         message: 'Needle acquisition state is not configured',
       },
     })
-    const result = acquisitionRepository.wantRelease(request.body.release)
+    if (!lidarr) return reply.code(503).send({
+      error: { code: 'unavailable', adapterId: 'lidarr', message: 'Lidarr is not configured', retryable: false },
+    })
+    const defaults = acquisitionRepository.getDefaults()
+    if (!defaults) return reply.code(400).send({
+      error: { code: 'invalid-request', message: 'Configure the Lidarr root and quality profile before starting a journey' },
+    })
+    const musicBrainzReleaseGroupId = request.body.release.musicBrainzReleaseGroupId?.trim().toLowerCase()
+    if (!musicBrainzReleaseGroupId) return reply.code(400).send({
+      error: { code: 'invalid-request', message: 'Release requires a MusicBrainz release-group ID' },
+    })
+    if (request.body.release.ref.adapterId !== lidarr.adapterId || request.body.release.artistRef.adapterId !== lidarr.adapterId) {
+      return reply.code(400).send({ error: { code: 'invalid-request', message: 'Release does not belong to the configured acquisition source' } })
+    }
+    const release = {
+      ...request.body.release,
+      musicBrainzReleaseGroupId,
+      ref: { adapterId: lidarr.adapterId, nativeId: `album:mbid:${musicBrainzReleaseGroupId}` },
+    }
+    const result = acquisitionRepository.wantRelease(release)
+    if (!result.created && result.job.state !== 'wanted') return reply.code(200).send(result.job)
+    const submitted = await lidarrRoute(reply, async (adapter, context) => {
+      const installed = await adapter.ensureRelease({ release, ...defaults }, context)
+      await adapter.setReleaseWanted(installed.ref, true, context)
+      return adapter.startSearch({ kind: 'release', release: installed.ref }, context)
+    })
+    if (!submitted) return
     return reply.code(result.created ? 201 : 200).send(result.job)
   })
   app.get('/api/acquisition-defaults', async (_request, reply) => {

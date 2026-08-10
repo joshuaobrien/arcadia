@@ -32,6 +32,13 @@ export interface AddArtistRequest {
   searchAfterAdd: boolean
 }
 
+export interface EnsureReleaseRequest {
+  release: CatalogRelease
+  qualityProfile: ProviderRef
+  metadataProfile?: ProviderRef
+  root: ProviderRef
+}
+
 export type AcquisitionSearchTarget =
   | { kind: 'artist'; artist: ProviderRef }
   | { kind: 'release'; release: ProviderRef }
@@ -88,6 +95,8 @@ export interface AcquisitionAutomationPort extends ServiceAdapter {
   listProfiles(context: OperationContext): Promise<readonly AcquisitionProfile[]>
   listRoots(context: OperationContext): Promise<readonly AcquisitionRoot[]>
   addArtist(request: AddArtistRequest, context: OperationContext): Promise<CatalogArtist>
+  /** Return the exact selected release with a provider-local reference, adding it without searching when absent. */
+  ensureRelease(request: EnsureReleaseRequest, context: OperationContext): Promise<CatalogRelease>
   setReleaseWanted(release: ProviderRef, wanted: boolean, context: OperationContext): Promise<void>
   startSearch(target: AcquisitionSearchTarget, context: OperationContext): Promise<RemoteJob>
   getCommand(job: ProviderRef, context: OperationContext): Promise<RemoteJob>
