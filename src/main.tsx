@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Activity, ArrowLeft, Bookmark, Check, Cloud, Disc3, Grid2X2, LibraryBig, ListMusic, PackageOpen, Pause, Play, Radio, RefreshCw, Search, ShieldCheck, UserRound, Volume2, VolumeX, X } from 'lucide-react'
 import './styles.css'
+
+const EcoScene = lazy(() => import('./EcoScene.js'))
 
 interface ProviderRef {
   adapterId: string
@@ -1389,7 +1391,7 @@ function LibraryView({ library, acquisitions, playTrack }: { library: LibraryMod
               />
               {library.activeTerm && <button className="button" type="button" onClick={library.clearSearch}>Clear</button>}
               <button className="button primary" disabled={library.loading}>Search</button>
-              <code>{library.activeTerm ? resultCount : currentPage?.total ?? 0}</code>
+              <code>{library.activeTerm ? resultCount : currentPage?.total ?? 0} results</code>
             </form>
             {library.activeTerm ? <>
               {searchResult && sourceWarning(searchResult.sources) && <div className="source-strip">{sourceWarning(searchResult.sources)}</div>}
@@ -2040,16 +2042,20 @@ function App() {
   }
 
   return (
-    <div className={`app-shell ${playback ? 'has-player' : ''}`}>
-      <Sidebar view={view} setView={navigate} library={library} acquisitions={acquisitions} />
-      <main className={view === 'library' ? 'library-main' : undefined}>
-        {view === 'library' && <LibraryView library={library} acquisitions={acquisitions} playTrack={track => setPlayback({ track, requestId: ++playbackRequest.current })} />}
-        {view === 'imports' && <ImportsView beets={beets} />}
-        {view === 'wanted' && <WantedView acquisitions={acquisitions} selectedJourneyId={selectedJourneyId} openJourney={openJourney} closeJourney={() => setSelectedJourneyId(null)} beets={beets} library={library} setView={navigate} />}
-        {view === 'activity' && <ActivityView acquisitions={acquisitions} imports={importOperations} openJourney={openJourney} sectionNumber={acquisitions.configured ? '04' : '03'} />}
-      </main>
-      {playback && <PlayerBar selection={playback} close={() => setPlayback(null)} />}
-    </div>
+    <>
+      <Suspense fallback={null}><EcoScene /></Suspense>
+      <div className="eco-telemetry" aria-hidden="true"><span>NEEDLE ECOLOGY / ZONE 01</span><span>CATALOG HABITAT · LIVE</span></div>
+      <div className={`app-shell ${playback ? 'has-player' : ''}`}>
+        <Sidebar view={view} setView={navigate} library={library} acquisitions={acquisitions} />
+        <main className={view === 'library' ? 'library-main' : undefined}>
+          {view === 'library' && <LibraryView library={library} acquisitions={acquisitions} playTrack={track => setPlayback({ track, requestId: ++playbackRequest.current })} />}
+          {view === 'imports' && <ImportsView beets={beets} />}
+          {view === 'wanted' && <WantedView acquisitions={acquisitions} selectedJourneyId={selectedJourneyId} openJourney={openJourney} closeJourney={() => setSelectedJourneyId(null)} beets={beets} library={library} setView={navigate} />}
+          {view === 'activity' && <ActivityView acquisitions={acquisitions} imports={importOperations} openJourney={openJourney} sectionNumber={acquisitions.configured ? '04' : '03'} />}
+        </main>
+        {playback && <PlayerBar selection={playback} close={() => setPlayback(null)} />}
+      </div>
+    </>
   )
 }
 
