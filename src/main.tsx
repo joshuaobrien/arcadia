@@ -1442,6 +1442,55 @@ function PlayerBar({ selection, close }: { selection: PlaybackSelection; close: 
   useEffect(() => {
     setFailed(false); setArtwork(Boolean(track.albumId)); setPlaying(false); setLoading(true); setCurrentTime(0); setDuration(0)
   }, [selection.requestId, track.id, track.albumId])
+  const trackArtist = track.artists?.join(', ') || track.albumArtist || ''
+  const artworkUrl = track.albumId ? new URL(`/api/library/albums/${track.albumId}/artwork`, window.location.href).href : undefined
+  useEffect(() => {
+    if (!('mediaSession' in navigator) || !('MediaMetadata' in window)) return
+    const mediaSession = navigator.mediaSession
+    mediaSession.metadata = new MediaMetadata({
+      title: track.title,
+      artist: trackArtist,
+      album: track.album || '',
+      ...(artworkUrl ? { artwork: [{ src: artworkUrl }] } : {}),
+    })
+    const setAction = (action: MediaSessionAction, handler: MediaSessionActionHandler | null) => {
+      try { mediaSession.setActionHandler(action, handler) } catch { /* unsupported by this browser */ }
+    }
+    setAction('play', () => { void audioRef.current?.play() })
+    setAction('pause', () => audioRef.current?.pause())
+    setAction('seekbackward', details => {
+      const audio = audioRef.current
+      if (audio) audio.currentTime = Math.max(0, audio.currentTime - (details.seekOffset ?? 10))
+    })
+    setAction('seekforward', details => {
+      const audio = audioRef.current
+      if (audio) audio.currentTime = Math.min(Number.isFinite(audio.duration) ? audio.duration : Infinity, audio.currentTime + (details.seekOffset ?? 10))
+    })
+    setAction('seekto', details => {
+      const audio = audioRef.current
+      if (!audio || details.seekTime === undefined) return
+      if (details.fastSeek && 'fastSeek' in audio) audio.fastSeek(details.seekTime)
+      else audio.currentTime = details.seekTime
+    })
+    setAction('stop', () => {
+      const audio = audioRef.current
+      if (!audio) return
+      audio.pause(); audio.currentTime = 0
+    })
+    return () => {
+      for (const action of ['play', 'pause', 'seekbackward', 'seekforward', 'seekto', 'stop'] as const) setAction(action, null)
+      mediaSession.metadata = null
+      mediaSession.playbackState = 'none'
+    }
+  }, [selection.requestId, track.title, trackArtist, track.album, artworkUrl])
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return
+    navigator.mediaSession.playbackState = playing ? 'playing' : 'paused'
+    if (!('setPositionState' in navigator.mediaSession) || !Number.isFinite(duration) || duration <= 0) return
+    try {
+      navigator.mediaSession.setPositionState({ duration, playbackRate: audioRef.current?.playbackRate ?? 1, position: Math.min(Math.max(0, currentTime), duration) })
+    } catch { /* transient metadata state; the next audio event will retry */ }
+  }, [playing, currentTime, duration])
 
   const formatPlaybackTime = (seconds: number) => {
     if (!Number.isFinite(seconds)) return '0:00'
