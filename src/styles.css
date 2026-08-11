@@ -545,20 +545,20 @@ body::before { opacity: 0; }
   filter: drop-shadow(0 7px 8px rgba(90,60,65,.16));
 }
 .sidebar nav { margin-top: 34px; gap: 2px; }
-.sidebar nav > small { margin-block: 20px 6px; color: #999; font-size: 7px; letter-spacing: 3px; }
+.sidebar nav > small { margin-block: 20px 6px; color: #858585; font-size: 9px; letter-spacing: 2.5px; }
 .sidebar nav button {
-  min-height: 42px;
+  min-height: 44px;
   padding-inline: 12px;
   color: #626262;
   border: 0;
   border-radius: 2px;
-  font-size: 10px;
-  letter-spacing: 2px;
+  font-size: 13px;
+  letter-spacing: 1.25px;
   text-transform: lowercase;
 }
 .sidebar nav button:hover { color: #282828; background: #fff; border-color: transparent; box-shadow: 0 12px 20px -18px #282828; }
 .sidebar nav button.active { color: #282828; background: #fff; border: 0; box-shadow: inset 3px 0 #f2a9b3, 0 10px 20px -18px #282828; }
-.sidebar nav button em, .sidebar nav button.active em { color: #777; background: #f3e3e5; border: 0; border-radius: 10px; }
+.sidebar nav button em, .sidebar nav button.active em { color: #777; background: #f3e3e5; border: 0; border-radius: 10px; font-size: 9px; }
 .connection {
   min-height: 48px;
   background: #fafafa;
