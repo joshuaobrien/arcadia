@@ -338,7 +338,10 @@ export function buildApp(options: BuildAppOptions = {}) {
     if (!workflow.selectionExplanation?.startsWith('Automatic selection:') || !selected?.autoSelectEligible || !match || match.rejected || match.missingTracks > 0 || match.extraTracks > 0) return
 
     const statuses = await beets.listFolderStatuses({ ...context, operationId: `${context.operationId}:status` })
-    const status = statuses.find(item => item.providerPath === folder.providerPath && item.hash === folder.hash)?.status
+    const pathStatuses = statuses.filter(item => item.providerPath === folder.providerPath)
+    const exactStatus = pathStatuses.find(item => item.hash === folder.hash)
+    const completedPreview = exactStatus?.status === 'previewed' ? exactStatus : pathStatuses.find(item => item.status === 'previewed')
+    const status = completedPreview?.status ?? exactStatus?.status
     const previewKey = JSON.stringify([folder.providerPath, folder.hash])
     if (!status || status === 'not-started') {
       if (workflow.previewSubmissionState !== 'none' || submittedBeetsPreviews.has(previewKey)) return
@@ -353,7 +356,8 @@ export function buildApp(options: BuildAppOptions = {}) {
     }
     if (status !== 'previewed') return
 
-    const session = await beets.getPreview(folder, { ...context, operationId: `${context.operationId}:metadata` })
+    const previewFolder = completedPreview && completedPreview.hash !== folder.hash ? { ...folder, hash: completedPreview.hash } : folder
+    const session = await beets.getPreview(previewFolder, { ...context, operationId: `${context.operationId}:metadata` })
     const choices = automaticBeetsChoices(session, job, workflow.expectedFileCount)
     if (!choices) return
     const selections: BeetsImportSelection[] = choices.map(choice => {
@@ -362,11 +366,11 @@ export function buildApp(options: BuildAppOptions = {}) {
         ...(candidate.year !== undefined ? { year: candidate.year } : {}), trackCount: candidate.trackCount }
     })
     let created
-    try { created = acquisitionRepository.createBeetsImportOperation({ sessionId: session.id, providerPath: folder.providerPath, hash: folder.hash, selections, acquisitionId: job.id }) }
+    try { created = acquisitionRepository.createBeetsImportOperation({ sessionId: session.id, providerPath: session.providerPath, hash: session.hash, selections, acquisitionId: job.id }) }
     catch (error) { if (error instanceof AcquisitionLinkConflictError) return; throw error }
     if (!created.created) return
     try {
-      const acknowledgement = await beets.enqueueImport({ providerPath: folder.providerPath, hash: folder.hash, sessionId: session.id, choices }, { ...context, operationId: `${context.operationId}:import` })
+      const acknowledgement = await beets.enqueueImport({ providerPath: session.providerPath, hash: session.hash, sessionId: session.id, choices }, { ...context, operationId: `${context.operationId}:import` })
       const persisted = acquisitionRepository.transitionBeetsImportOperation(created.operation.id, 'submitting', 'submitted', { providerJobId: acknowledgement.jobId })
       if (!persisted || persisted.state !== 'submitted') acquisitionRepository.transitionBeetsImportOperation(created.operation.id, 'submitting', 'submission-unknown')
     } catch (error) {
@@ -981,6 +985,7 @@ function journeyStage(jobState: string, hasDirectWorkflow: boolean, operation?: 
 function automaticBeetsChoices(session: BeetsPreviewSession, job: AcquisitionJob, expectedFileCount: number): BeetsImportChoice[] | undefined {
   if (session.progress !== 20 || !session.tasks.length || !job.artist || !job.release) return undefined
   const allowedPenalties = new Set(['year', 'media', 'mediums', 'track_title', 'track_artist', 'track_index', 'track_length'])
+  const requestedYear = /^\d{4}/.test(job.releaseDate ?? '') ? Number(job.releaseDate!.slice(0, 4)) : undefined
   const choices: BeetsImportChoice[] = []
   let trackCount = 0
   for (const task of session.tasks) {
@@ -991,14 +996,22 @@ function automaticBeetsChoices(session: BeetsPreviewSession, job: AcquisitionJob
       const mapped = task.items.map((_, index) => candidate.trackMapping[String(index)])
       return mapped.every(index => Number.isSafeInteger(index) && index >= 0 && index < candidate.tracks.length)
         && new Set(mapped).size === task.items.length
-    }).sort((left, right) => left.distance - right.distance || left.id.localeCompare(right.id))
+    }).sort((left, right) => left.distance - right.distance || automaticCandidateYearRank(left.year, requestedYear) - automaticCandidateYearRank(right.year, requestedYear) || left.id.localeCompare(right.id))
     const selected = eligible[0]
-    if (!selected || eligible.slice(1).some(candidate => !equivalentAutomaticCandidates(selected, candidate))) return undefined
+    if (!selected) return undefined
+    const selectedYearRank = automaticCandidateYearRank(selected.year, requestedYear)
+    const competing = eligible.filter(candidate => candidate.distance === selected.distance && automaticCandidateYearRank(candidate.year, requestedYear) === selectedYearRank)
+    if (competing.slice(1).some(candidate => !equivalentAutomaticCandidates(selected, candidate))) return undefined
     choices.push({ taskId: task.id, candidateId: selected.id, duplicateAction: 'skip' })
     trackCount += task.items.length
   }
   if (trackCount !== expectedFileCount || (job.trackCount !== undefined && trackCount !== job.trackCount)) return undefined
   return choices
+}
+
+function automaticCandidateYearRank(candidateYear?: number, requestedYear?: number): number {
+  if (requestedYear === undefined || candidateYear === requestedYear) return 0
+  return candidateYear === undefined ? 1 : 2
 }
 
 function equivalentAutomaticCandidates(left: BeetsPreviewSession['tasks'][number]['candidates'][number], right: BeetsPreviewSession['tasks'][number]['candidates'][number]): boolean {

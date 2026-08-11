@@ -267,7 +267,8 @@ async function automaticImportFixture(t, candidateUpdate = candidate => [candida
     id: 'automatic-session', providerPath: '', hash: 'automatic-hash', progress: 20,
     tasks: [{ id: 'automatic-task', currentMetadata: { artist: 'Broadcast', album: 'Tender Buttons' }, items: [{ title: 'Song 1' }, { title: 'Song 2' }], candidates: candidateUpdate(structuredClone(baseCandidate)) }],
   }
-  const folder = () => ({ name: 'Tender Buttons', providerPath: repository.getDirectWorkflow(journeyId)?.outputNeedlePath, hash: session.hash, album: true, type: 'directory', children: [] })
+  let folderHash = session.hash
+  const folder = () => ({ name: 'Tender Buttons', providerPath: repository.getDirectWorkflow(journeyId)?.outputNeedlePath, hash: folderHash, album: true, type: 'directory', children: [] })
   const beets = {
     listFolders: async () => [folder()], listFolderStatuses: async () => [{ providerPath: folder().providerPath, hash: session.hash, status }],
     enqueuePreview: async target => { previewCalls.push(target); return { jobId: 'preview-job' } },
@@ -279,7 +280,7 @@ async function automaticImportFixture(t, candidateUpdate = candidate => [candida
   const created = await app.inject({ method: 'POST', url: '/api/acquisitions', payload: { release: {
     ref: { adapterId: 'musicbrainz', nativeId: 'release-group:mbid:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' },
     artistRef: { adapterId: 'musicbrainz', nativeId: 'artist:mbid:bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee' },
-    artistName: 'Broadcast', title: 'Tender Buttons', trackCount: 2,
+    artistName: 'Broadcast', title: 'Tender Buttons', releaseDate: '2005-09-19', trackCount: 2,
     musicBrainzReleaseGroupId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
   } } })
   assert.equal(created.statusCode, 201)
@@ -287,6 +288,7 @@ async function automaticImportFixture(t, candidateUpdate = candidate => [candida
   return {
     app, repository, journeyId, previewCalls, importCalls,
     setStatus: value => { status = value },
+    setFolderHash: value => { folderHash = value },
     markDirectSelectionManual: () => {
       const database = new DatabaseSync(databasePath)
       database.prepare("UPDATE direct_acquisitions SET selection_explanation = 'Manually selected; exact match' WHERE acquisition_id = ?").run(journeyId)
@@ -312,6 +314,21 @@ test('completed direct journey automatically previews and durably imports one co
   assert.equal(fixture.repository.get(fixture.journeyId).state, 'importing')
   await fixture.journey(); await fixture.journey()
   assert.equal(fixture.importCalls.length, 1); assert.equal(fixture.repository.listBeetsImportOperations().length, 1)
+})
+
+test('automatic beets import prefers an equally confident candidate from the requested release year', async t => {
+  const fixture = await automaticImportFixture(t, candidate => [
+    { ...candidate, id: 'digital-reissue', year: 2018 },
+    { ...candidate, id: 'original-release', year: 2005 },
+    { ...candidate, id: 'vinyl-reissue', year: 2008 },
+  ])
+  fixture.setFolderHash('stale-inbox-tree-hash')
+  fixture.setStatus('previewed')
+  const imported = await fixture.journey()
+  assert.equal(imported.json().stage, 'importing'); assert.equal(fixture.importCalls.length, 1)
+  const operation = fixture.repository.listBeetsImportOperations()[0]
+  assert.equal(operation.hash, 'automatic-hash'); assert.equal(operation.selections[0].candidateId, 'original-release')
+  assert.equal(fixture.importCalls[0].hash, 'automatic-hash')
 })
 
 const automaticImportRejections = [
