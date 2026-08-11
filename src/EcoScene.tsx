@@ -3,9 +3,30 @@ import * as THREE from 'three'
 
 const MAX_PIXEL_RATIO = 1.75
 
-/** Decorative, self-contained ambient habitat scene for page backgrounds. */
-export default function EcoScene() {
+export type HabitatZone = 'library' | 'wanted' | 'imports' | 'activity'
+
+interface EcoSceneProps {
+  zone: HabitatZone
+  section: 'albums' | 'artists' | 'songs'
+  activity: number
+  playing: boolean
+}
+
+const ZONE_POSITION: Record<HabitatZone, [number, number, number]> = {
+  library: [1.8, 1.15, -2.2],
+  wanted: [-2.5, 0.65, -1.2],
+  imports: [0.2, 2, -2.8],
+  activity: [3.5, 0.25, -1.4],
+}
+
+/** A responsive habitat whose camera and structures follow Needle's current flow. */
+export default function EcoScene({ zone, section, activity, playing }: EcoSceneProps) {
   const hostRef = useRef<HTMLDivElement>(null)
+  const stateRef = useRef({ zone, section, activity, playing })
+
+  useEffect(() => {
+    stateRef.current = { zone, section, activity, playing }
+  }, [zone, section, activity, playing])
 
   useEffect(() => {
     const host = hostRef.current
@@ -108,6 +129,28 @@ export default function EcoScene() {
     const core = new THREE.Mesh(coreGeometry, coreMaterial)
     orbitalGroup.add(core)
 
+    const routeGroup = new THREE.Group()
+    routeGroup.position.set(0, -0.35, -0.4)
+    scene.add(routeGroup)
+    const routePositions = [
+      new THREE.Vector3(-4.2, 0, 0),
+      new THREE.Vector3(-1.4, 0.45, -0.4),
+      new THREE.Vector3(1.3, 0.1, 0.15),
+      new THREE.Vector3(4.2, 0.65, -0.5),
+    ]
+    const routeGeometry = new THREE.BufferGeometry().setFromPoints(routePositions)
+    const routeMaterial = new THREE.LineBasicMaterial({ color: 0x83cdb7, transparent: true, opacity: 0.3 })
+    const route = new THREE.Line(routeGeometry, routeMaterial)
+    routeGroup.add(route)
+    const nodeGeometry = new THREE.OctahedronGeometry(0.16, 0)
+    const nodeMaterials = (['library', 'wanted', 'imports', 'activity'] as HabitatZone[]).map(() => new THREE.MeshStandardMaterial({ color: 0x83cdb7, emissive: 0x183d34, emissiveIntensity: 0.4, flatShading: true }))
+    const routeNodes = nodeMaterials.map((material, index) => {
+      const node = new THREE.Mesh(nodeGeometry, material)
+      node.position.copy(routePositions[index])
+      routeGroup.add(node)
+      return node
+    })
+
     const particleGeometry = new THREE.BufferGeometry()
     const particlePositions = new Float32Array(90 * 3)
     for (let index = 0; index < 90; index += 1) {
@@ -142,10 +185,28 @@ export default function EcoScene() {
       orbits.forEach((orbit, index) => { orbit.rotation.z += delta * (index % 2 ? -0.08 : 0.06) })
       core.rotation.x += delta * 0.09
       core.rotation.y -= delta * 0.12
+      const habitat = stateRef.current
+      const zonePosition = ZONE_POSITION[habitat.zone]
+      orbitalGroup.position.x += (zonePosition[0] - orbitalGroup.position.x) * 0.025
+      orbitalGroup.position.y += (zonePosition[1] - orbitalGroup.position.y) * 0.025
+      orbitalGroup.position.z += (zonePosition[2] - orbitalGroup.position.z) * 0.025
+      const zoneIndex = ['library', 'wanted', 'imports', 'activity'].indexOf(habitat.zone)
+      routeNodes.forEach((node, index) => {
+        const active = index === zoneIndex
+        const targetScale = active ? 2.1 : 1
+        const nextScale = node.scale.x + (targetScale - node.scale.x) * 0.08
+        node.scale.setScalar(nextScale)
+        node.rotation.y += delta * (active ? 1.2 : 0.25)
+        nodeMaterials[index].emissiveIntensity = active ? 1.8 : 0.35
+      })
+      const pulse = habitat.playing || habitat.activity > 0 ? 1 + Math.sin(time * 0.004) * 0.09 : 1
+      core.scale.setScalar(pulse)
+      coreMaterial.emissiveIntensity = habitat.playing ? 1.8 : habitat.activity > 0 ? 1.15 : 0.7
       particles.rotation.y += delta * 0.012
-      camera.position.x += (cameraTargetX - camera.position.x) * 0.018
+      const sectionOffset = habitat.section === 'artists' ? -0.45 : habitat.section === 'songs' ? 0.45 : 0
+      camera.position.x += (cameraTargetX + sectionOffset - camera.position.x) * 0.018
       camera.position.y += (cameraTargetY - camera.position.y) * 0.018
-      camera.lookAt(0, -0.7, 0)
+      camera.lookAt(zonePosition[0] * 0.12, -0.7, 0)
       draw()
       animationFrame = window.requestAnimationFrame(animate)
     }
@@ -202,6 +263,10 @@ export default function EcoScene() {
       orbitMaterial.dispose()
       coreGeometry.dispose()
       coreMaterial.dispose()
+      routeGeometry.dispose()
+      routeMaterial.dispose()
+      nodeGeometry.dispose()
+      nodeMaterials.forEach(material => material.dispose())
       ;(terrain.material as THREE.Material).dispose()
       particleGeometry.dispose()
       particleMaterial.dispose()
