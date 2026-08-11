@@ -13,10 +13,10 @@ export default function EcoScene() {
 
     const scene = new THREE.Scene()
     scene.background = new THREE.Color(0x071d22)
-    scene.fog = new THREE.FogExp2(0x071d22, 0.075)
+    scene.fog = new THREE.FogExp2(0x071d22, 0.055)
 
-    const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 80)
-    camera.position.set(0, 4.8, 11)
+    const camera = new THREE.PerspectiveCamera(48, 1, 0.1, 80)
+    camera.position.set(0, 4.2, 8.8)
     camera.lookAt(0, -0.7, 0)
 
     let renderer: THREE.WebGLRenderer
@@ -55,8 +55,13 @@ export default function EcoScene() {
       new THREE.MeshStandardMaterial({ color: 0x164f53, roughness: 0.92, metalness: 0.04, flatShading: true }),
     )
     terrain.rotation.x = -Math.PI / 2
-    terrain.position.y = -2.35
+    terrain.position.y = -1.9
     scene.add(terrain)
+    const terrainWireMaterial = new THREE.MeshBasicMaterial({ color: 0x5cae9c, wireframe: true, transparent: true, opacity: 0.14 })
+    const terrainWire = new THREE.Mesh(terrainGeometry, terrainWireMaterial)
+    terrainWire.rotation.copy(terrain.rotation)
+    terrainWire.position.set(0, terrain.position.y + 0.015, 0)
+    scene.add(terrainWire)
 
     const forms = new THREE.Group()
     scene.add(forms)
@@ -74,16 +79,34 @@ export default function EcoScene() {
       new THREE.IcosahedronGeometry(0.48, 0),
     ]
     const placements = [
-      [-3.8, -0.8, -0.7], [-1.5, 0.45, -1.8], [1.1, -0.55, 0.3], [3.5, 0.6, -1.3], [4.7, -1.1, 1.2],
+      [-4.1, -0.2, 0.4], [-2.1, 1.2, -1.5], [0.6, 0.1, 0.7], [3.1, 1.25, -1.1], [4.8, -0.35, 1.1],
     ]
     const rotatingForms = formGeometries.map((geometry, index) => {
       const form = new THREE.Mesh(geometry, formMaterials[index % formMaterials.length])
       form.position.set(...(placements[index] as [number, number, number]))
       form.rotation.set(index * 0.4, index * 0.75, index * 0.2)
-      form.scale.y = index % 2 ? 1.35 : 1
+      form.scale.setScalar(index === 2 ? 1.65 : index % 2 ? 1.35 : 1.2)
+      form.scale.y *= index % 2 ? 1.35 : 1
+      form.userData.baseY = form.position.y
       forms.add(form)
       return form
     })
+
+    const orbitalGroup = new THREE.Group()
+    orbitalGroup.position.set(1.8, 1.15, -2.2)
+    scene.add(orbitalGroup)
+    const orbitMaterial = new THREE.MeshBasicMaterial({ color: 0x9fe4ca, wireframe: true, transparent: true, opacity: 0.34 })
+    const orbitGeometries = [new THREE.TorusGeometry(2.15, 0.025, 4, 96), new THREE.TorusGeometry(1.65, 0.018, 4, 80), new THREE.TorusKnotGeometry(0.82, 0.12, 80, 6)]
+    const orbits = orbitGeometries.map((geometry, index) => {
+      const orbit = new THREE.Mesh(geometry, orbitMaterial)
+      orbit.rotation.set(Math.PI / (2.8 + index), index * 0.7, index * 0.4)
+      orbitalGroup.add(orbit)
+      return orbit
+    })
+    const coreGeometry = new THREE.IcosahedronGeometry(0.58, 2)
+    const coreMaterial = new THREE.MeshStandardMaterial({ color: 0x9bcf68, emissive: 0x254c36, emissiveIntensity: 0.7, roughness: 0.28, metalness: 0.32, flatShading: true })
+    const core = new THREE.Mesh(coreGeometry, coreMaterial)
+    orbitalGroup.add(core)
 
     const particleGeometry = new THREE.BufferGeometry()
     const particlePositions = new Float32Array(90 * 3)
@@ -113,7 +136,12 @@ export default function EcoScene() {
       rotatingForms.forEach((form, index) => {
         form.rotation.y += delta * (0.08 + index * 0.012)
         form.rotation.x += delta * 0.025
+        form.position.y = Number(form.userData.baseY) + Math.sin(time * 0.00028 + index * 1.7) * 0.2
       })
+      orbitalGroup.rotation.y += delta * 0.055
+      orbits.forEach((orbit, index) => { orbit.rotation.z += delta * (index % 2 ? -0.08 : 0.06) })
+      core.rotation.x += delta * 0.09
+      core.rotation.y -= delta * 0.12
       particles.rotation.y += delta * 0.012
       camera.position.x += (cameraTargetX - camera.position.x) * 0.018
       camera.position.y += (cameraTargetY - camera.position.y) * 0.018
@@ -142,8 +170,8 @@ export default function EcoScene() {
     const onVisibilityChange = () => document.hidden ? stopAnimation() : startAnimation()
     const onPointerMove = (event: PointerEvent) => {
       if (reducedMotion) return
-      cameraTargetX = ((event.clientX / window.innerWidth) - 0.5) * 0.9
-      cameraTargetY = 4.8 - ((event.clientY / window.innerHeight) - 0.5) * 0.35
+      cameraTargetX = ((event.clientX / window.innerWidth) - 0.5) * 2.4
+      cameraTargetY = 4.2 - ((event.clientY / window.innerHeight) - 0.5) * 0.9
     }
     const onMotionChange = (event: MediaQueryListEvent) => {
       reducedMotion = event.matches
@@ -167,8 +195,13 @@ export default function EcoScene() {
       document.removeEventListener('visibilitychange', onVisibilityChange)
       motionQuery.removeEventListener('change', onMotionChange)
       terrainGeometry.dispose()
+      terrainWireMaterial.dispose()
       formGeometries.forEach(geometry => geometry.dispose())
       formMaterials.forEach(material => material.dispose())
+      orbitGeometries.forEach(geometry => geometry.dispose())
+      orbitMaterial.dispose()
+      coreGeometry.dispose()
+      coreMaterial.dispose()
       ;(terrain.material as THREE.Material).dispose()
       particleGeometry.dispose()
       particleMaterial.dispose()

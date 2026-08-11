@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import type { FormEvent } from 'react'
+import type { FormEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Activity, ArrowLeft, Bookmark, Check, Cloud, Disc3, Grid2X2, LibraryBig, ListMusic, PackageOpen, Pause, Play, Radio, RefreshCw, Search, ShieldCheck, UserRound, Volume2, VolumeX, X } from 'lucide-react'
 import './styles.css'
@@ -920,6 +920,24 @@ function AlbumArtwork({ album }: { album: LibraryAlbum }) {
   )
 }
 
+function tiltAlbumCard(event: ReactPointerEvent<HTMLElement>) {
+  if (event.pointerType !== 'mouse') return
+  const bounds = event.currentTarget.getBoundingClientRect()
+  const x = (event.clientX - bounds.left) / bounds.width
+  const y = (event.clientY - bounds.top) / bounds.height
+  event.currentTarget.style.setProperty('--tilt-x', `${(0.5 - y) * 13}deg`)
+  event.currentTarget.style.setProperty('--tilt-y', `${(x - 0.5) * 15}deg`)
+  event.currentTarget.style.setProperty('--glow-x', `${x * 100}%`)
+  event.currentTarget.style.setProperty('--glow-y', `${y * 100}%`)
+}
+
+function resetAlbumCardTilt(event: ReactPointerEvent<HTMLElement>) {
+  event.currentTarget.style.removeProperty('--tilt-x')
+  event.currentTarget.style.removeProperty('--tilt-y')
+  event.currentTarget.style.removeProperty('--glow-x')
+  event.currentTarget.style.removeProperty('--glow-y')
+}
+
 function OwnedAlbumCard({ album, library, playTrack, title = album.title, inLibrary = false }: {
   album: LibraryAlbum
   library: LibraryModel
@@ -952,7 +970,7 @@ function OwnedAlbumCard({ album, library, playTrack, title = album.title, inLibr
     }
   }
 
-  return <article className={`album-card owned-album-card${inLibrary ? ' release-card' : ''}`}>
+  return <article className={`album-card owned-album-card${inLibrary ? ' release-card' : ''}`} onPointerMove={tiltAlbumCard} onPointerLeave={resetAlbumCardTilt}>
     <button
       className="album-open"
       onClick={() => library.openAlbum(album)}
@@ -1240,7 +1258,7 @@ function UnifiedReleaseCard({ item, library, acquisitions, libraryAvailable, pla
   }
 
   return (
-    <article className="album-card release-card missing">
+    <article className="album-card release-card missing" onPointerMove={tiltAlbumCard} onPointerLeave={resetAlbumCardTilt}>
       <div className="album-case"><i /></div>
       <strong>{item.title}</strong>
       <small>{item.artist}</small>
