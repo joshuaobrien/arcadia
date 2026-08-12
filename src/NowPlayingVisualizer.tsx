@@ -221,18 +221,18 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
     let trebleEnvelope = 0
     let sparkEnvelope = 0
     let delightEnvelope = 0
+    let stageFlowEnvelope = 0
     let delightStartedAt = -Infinity
     let delightFlashStartedAt = -Infinity
-    let stageBeatStartedAt = -Infinity
     let lastStageBeatAt = -Infinity
-    let nextDelightAt = 7000
+    let nextDelightAt = 9000
     let delightEvent = -1
-    let stageBeatIndex = 0
     let stageBeatLatched = false
     let overburnEnvelope = 0
     let overburnRelease = 0
     let overburnWasActive = false
     let lastRenderTime = 0
+    let stageRotationOffset = 0
     let rhythmicBaseline = 0
     let spectrumReady = false
     const jamBands = Array.from({ length: 6 }, () => 0)
@@ -288,7 +288,7 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       barMeshes.forEach((bar, index) => {
         const value = frequencies[index % frequencies.length] / 255
         const height = 0.18 + value * 3.8
-        bar.scale.y += (height - bar.scale.y) * 0.24
+        bar.scale.y += (height - bar.scale.y) * 0.14
         bar.position.y = (bar.scale.y - 1) * 0.5
       })
       energy /= audibleBins || 1
@@ -313,38 +313,36 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       const sparkDrive = Math.min(1, highFlux * 11)
       sparkEnvelope += (sparkDrive - sparkEnvelope) * (sparkDrive > sparkEnvelope ? 0.62 : 0.11)
       if (time >= nextDelightAt && beatDrive > 0.42 && bassSignal > 0.12) {
-        delightEnvelope = 1
+        delightEnvelope = 0.65
         delightStartedAt = time
         delightFlashStartedAt = time
-        stageBeatStartedAt = time
         lastStageBeatAt = time
-        stageBeatIndex = 0
         stageBeatLatched = true
         delightEvent = (delightEvent + 1) % 3
         signalTargetRef.current?.setAttribute('data-delight-event', ['shockwave', 'prism', 'surge'][delightEvent])
-        nextDelightAt = time + 9000 + Math.random() * 8000
+        nextDelightAt = time + 15000 + Math.random() * 12000
       } else {
-        delightEnvelope *= 0.965
+        delightEnvelope *= 0.97
       }
       const stageAge = time - delightStartedAt
-      const stageActive = stageAge < 4600
+      const stageActive = stageAge < 7200
       if (beatDrive < 0.16) stageBeatLatched = false
       if (stageActive && beatDrive > 0.3 && !stageBeatLatched && time - lastStageBeatAt > 180) {
-        stageBeatStartedAt = time
         lastStageBeatAt = time
         delightFlashStartedAt = time
-        delightEnvelope = Math.max(delightEnvelope, 0.62)
-        stageBeatIndex += 1
+        delightEnvelope = Math.max(delightEnvelope, 0.32)
         stageBeatLatched = true
       }
-      const stageFade = stageActive ? Math.min(1, (4600 - stageAge) / 900) : 0
-      const stageLevel = stageFade * Math.min(1, 0.08 + beatEnvelope * 0.72 + bassEnvelope * 0.3 + sparkEnvelope * 0.18)
+      const stageFade = stageActive ? Math.min(1, (7200 - stageAge) / 1500) : 0
+      const stageTarget = stageFade * Math.min(1, 0.08 + bassEnvelope * 0.34 + midEnvelope * 0.2 + beatEnvelope * 0.16 + sparkEnvelope * 0.08)
+      stageFlowEnvelope += (stageTarget - stageFlowEnvelope) * (1 - Math.pow(stageTarget > stageFlowEnvelope ? 0.94 : 0.975, frameFactor))
+      const stageLevel = stageFlowEnvelope
       jamBands.forEach((value, index) => {
         const bandSignal = axisSignal(jamBandEnergy[index] / (jamBandBins[index] || 1), index < 2 ? 0.2 : 0.12, index < 2 ? 2.2 : 2.8)
         jamBands[index] = value + (bandSignal - value) * (bandSignal > value ? 0.34 : 0.09)
       })
       const rhythmicSignal = Math.min(1, energyEnvelope * 0.24 + beatEnvelope * 0.76)
-      displayedSignal += (rhythmicSignal - displayedSignal) * (rhythmicSignal > displayedSignal ? 0.42 : 0.14)
+      displayedSignal += (rhythmicSignal - displayedSignal) * (rhythmicSignal > displayedSignal ? 0.16 : 0.08)
       const signalTarget = signalTargetRef.current
       const overburnActive = signalTarget?.hasAttribute('data-overburn') ?? false
       if (overburnActive) {
@@ -358,18 +356,18 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       overburnWasActive = overburnActive
       const overburnLevel = Math.max(overburnEnvelope, overburnRelease)
       signalTarget?.style.setProperty('--climate-year', String(1979 + displayedSignal * 71))
-      signalTarget?.style.setProperty('--climate-pulse', String(1 + energyEnvelope * 0.025 + beatEnvelope * 0.055))
-      signalTarget?.style.setProperty('--climate-beat', String(beatEnvelope))
-      signalTarget?.style.setProperty('--jam-bang', String(2.5 + energyEnvelope * 4 + beatEnvelope * 3.5))
-      signalTarget?.style.setProperty('--jam-punch', String(beatEnvelope * 10))
+      signalTarget?.style.setProperty('--climate-pulse', String(1 + energyEnvelope * 0.025 + displayedSignal * 0.055))
+      signalTarget?.style.setProperty('--climate-beat', String(displayedSignal))
+      signalTarget?.style.setProperty('--jam-bang', String(2.5 + energyEnvelope * 4 + displayedSignal * 3.5))
+      signalTarget?.style.setProperty('--jam-punch', String(displayedSignal * 10))
       signalTarget?.style.setProperty('--jam-crumble', String(midEnvelope * 5))
       signalTarget?.style.setProperty('--jam-splatter', String(sparkEnvelope * 5))
-      signalTarget?.style.setProperty('--jam-beat', String(beatEnvelope))
+      signalTarget?.style.setProperty('--jam-beat', String(displayedSignal))
       signalTarget?.style.setProperty('--jam-mid', String(midEnvelope))
       signalTarget?.style.setProperty('--jam-spark', String(sparkEnvelope))
-      const delightProgress = Math.min(1, Math.max(0, (time - stageBeatStartedAt) / 620))
-      const delightDirection = (delightEvent + stageBeatIndex) % 2 ? -1 : 1
-      signalTarget?.style.setProperty('--delight-level', String(Math.max(delightEnvelope, stageLevel)))
+      const delightProgress = Math.min(1, Math.max(0, stageAge / 7200))
+      const delightDirection = delightEvent % 2 ? -1 : 1
+      signalTarget?.style.setProperty('--delight-level', String(Math.min(1, stageLevel * 0.72 + delightEnvelope * 0.22)))
       signalTarget?.style.setProperty('--delight-progress', String(delightProgress))
       signalTarget?.style.setProperty('--delight-offset', `${(delightProgress * 180 - 90) * delightDirection}%`)
       signalTarget?.style.setProperty('--delight-angle', delightDirection < 0 ? '54deg' : '90deg')
@@ -379,14 +377,14 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       signalTarget?.style.setProperty('--overburn-scale', String(overburnActive ? 1 : 1 + (1 - overburnRelease) * 1.8))
       jamBands.forEach((value, index) => signalTarget?.style.setProperty(`--jam-band-${index}`, String(value)))
       signalTarget?.style.setProperty('--lab-bevel', String(sparkEnvelope * 1000))
-      signalTarget?.style.setProperty('--lab-roundness', String(beatEnvelope * 1000))
-      signalTarget?.style.setProperty('--lab-quad', String(beatEnvelope * 1000))
+      signalTarget?.style.setProperty('--lab-roundness', String(displayedSignal * 1000))
+      signalTarget?.style.setProperty('--lab-quad', String(displayedSignal * 1000))
       signalTarget?.style.setProperty('--lab-scale', String(180 + bassEnvelope * 820))
-      const pulse = 1 + energy * 0.48 + Math.sin(time * 0.0014) * 0.025
+      const pulse = 1 + energyEnvelope * 0.12 + bassEnvelope * 0.18 + Math.sin(time * 0.0007) * 0.02
       barMaterials.forEach((material, index) => {
         material.color.lerp(barTargetColors[index], 0.045)
         material.emissive.copy(material.color).multiplyScalar(hdrOutput ? 1 : 0.28)
-        const reflection = Math.max(0, beatEnvelope - Math.abs((index / BAR_COUNT) - ((time * 0.00035) % 1)) * 2.8)
+        const reflection = Math.max(0, beatEnvelope - Math.abs((index / BAR_COUNT) - ((time * 0.00018) % 1)) * 2.8)
         const delightPosition = Math.min(1, Math.max(0, (time - delightFlashStartedAt) / 520))
         const delightReflection = Math.max(0, delightEnvelope - Math.abs(index / BAR_COUNT - delightPosition) * 5.5)
         material.emissiveIntensity = hdrOutput ? 0.65 + bassEnvelope * 0.35 + reflection * 2.5 + delightReflection * 4.2 + overburnLevel * 7 : 0.8 + delightReflection * 0.45 + overburnLevel
@@ -406,10 +404,11 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       core.scale.setScalar(pulse)
       core.rotation.x = time * 0.00008
       core.rotation.y = time * 0.00013
-      shell.scale.setScalar(1 + energy * 0.18 + stageLevel * (0.12 + bassEnvelope * 0.14))
+      shell.scale.setScalar(1 + energyEnvelope * 0.12 + stageLevel * (0.1 + bassEnvelope * 0.1))
       shell.rotation.x = -time * 0.0001
       shell.rotation.y = time * 0.00016
-      bars.rotation.y = time * 0.000035 + stageLevel * 0.08 * delightDirection
+      stageRotationOffset += stageLevel * 0.00045 * frameFactor * delightDirection
+      bars.rotation.y = time * 0.000025 + stageRotationOffset
       bars.scale.setScalar(1 + stageLevel * (0.035 + bassEnvelope * 0.045))
       ring.rotation.z = time * 0.000025
       glints.forEach((glint, index) => {
@@ -422,7 +421,7 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
         material.opacity = flash * (hdrOutput ? 0.95 : 0.45)
         glint.scale.setScalar(0.65 + flash * 1.6)
       })
-      camera.position.x = Math.sin(time * 0.00008) * 0.65 + Math.sin((time - stageBeatStartedAt) * 0.035) * stageLevel * 0.09
+      camera.position.x = Math.sin(time * 0.00006) * 0.65 + Math.sin(time * 0.0012) * stageLevel * 0.06
       camera.position.z = 9.6 - stageLevel * (0.22 + bassEnvelope * 0.28) - overburnLevel * 0.28
       camera.lookAt(0, 0.2, 0)
       renderer.render(scene, camera)
