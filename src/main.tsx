@@ -1493,6 +1493,7 @@ function NowPlayingView({ selection, audioRef, open, close }: { selection: Playb
   return <section ref={viewRef} className={`now-playing-view ${open ? 'open' : ''}`} aria-hidden={!open} aria-label="Now playing visualizer">
     <Suspense fallback={null}><NowPlayingVisualizer audioRef={audioRef} signalTargetRef={viewRef} selectionKey={selection.requestId} artworkUrl={track.albumId ? `/api/library/albums/${track.albumId}/artwork` : undefined} /></Suspense>
     <div className="now-playing-shade" />
+    <div className="now-playing-event-field" aria-hidden="true"><i /><b /></div>
     <button className="now-playing-close" type="button" onClick={close}><X size={16} /> Back to library</button>
     <div className="now-playing-specimen">
       <div className="now-playing-cover">
