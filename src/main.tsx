@@ -5,6 +5,7 @@ import { Activity, ArrowLeft, Bookmark, Check, Cloud, Disc3, Grid2X2, LibraryBig
 import './styles.css'
 
 const EcoScene = lazy(() => import('./EcoScene.js'))
+const NowPlayingVisualizer = lazy(() => import('./NowPlayingVisualizer.js'))
 
 interface ProviderRef {
   adapterId: string
@@ -1448,9 +1449,31 @@ function LibraryView({ library, acquisitions, playTrack }: { library: LibraryMod
   )
 }
 
-function PlayerBar({ selection, close, playNext }: { selection: PlaybackSelection; close: () => void; playNext: () => void }) {
+function NowPlayingView({ selection, audioRef, open, close }: { selection: PlaybackSelection; audioRef: React.RefObject<HTMLAudioElement | null>; open: boolean; close: () => void }) {
   const { track } = selection
-  const audioRef = useRef<HTMLAudioElement>(null)
+  const [artwork, setArtwork] = useState(Boolean(track.albumId))
+  useEffect(() => setArtwork(Boolean(track.albumId)), [track.albumId])
+  return <section className={`now-playing-view ${open ? 'open' : ''}`} aria-hidden={!open} aria-label="Now playing visualizer">
+    <Suspense fallback={null}><NowPlayingVisualizer audioRef={audioRef} selectionKey={selection.requestId} /></Suspense>
+    <div className="now-playing-shade" />
+    <button className="now-playing-close" type="button" onClick={close}><X size={16} /> Back to library</button>
+    <div className="now-playing-specimen">
+      <div className="now-playing-cover">
+        {artwork && track.albumId ? <img src={`/api/library/albums/${track.albumId}/artwork`} alt="" onError={() => setArtwork(false)} /> : <Disc3 size={56} />}
+      </div>
+      <div className="now-playing-copy">
+        <small>NOW PLAYING / AUDIO HABITAT</small>
+        <h1>{track.title}</h1>
+        <p>{track.artists?.join(', ') || track.albumArtist || 'Unknown artist'}</p>
+        <span>{track.album}</span>
+      </div>
+    </div>
+    <div className="now-playing-telemetry" aria-hidden="true"><span>LIVE SIGNAL</span><span>FREQUENCY ECOLOGY</span></div>
+  </section>
+}
+
+function PlayerBar({ selection, audioRef, close, playNext, openNowPlaying }: { selection: PlaybackSelection; audioRef: React.RefObject<HTMLAudioElement | null>; close: () => void; playNext: () => void; openNowPlaying: () => void }) {
+  const { track } = selection
   const [failed, setFailed] = useState(false)
   const [artwork, setArtwork] = useState(Boolean(track.albumId))
   const [playing, setPlaying] = useState(false)
@@ -1546,10 +1569,10 @@ function PlayerBar({ selection, close, playNext }: { selection: PlaybackSelectio
   }
   return <section className={`player-bar ${artwork ? 'has-artwork' : ''}`} aria-label="Now playing">
     {artwork && track.albumId && <img className="player-backdrop" src={`/api/library/albums/${track.albumId}/artwork`} alt="" aria-hidden="true" onError={() => setArtwork(false)} />}
-    <div className="player-art">
+    <button className="player-art" type="button" onClick={openNowPlaying} aria-label="Open Now Playing visualizer">
       {artwork && track.albumId ? <img src={`/api/library/albums/${track.albumId}/artwork`} alt="" onError={() => setArtwork(false)} /> : <Disc3 size={19} />}
-    </div>
-    <div className="player-copy"><small aria-live="polite">{failed ? 'PLAYBACK UNAVAILABLE' : loading ? 'LOADING AUDIO' : playing ? 'NOW PLAYING' : 'PLAYBACK PAUSED'}</small><strong>{track.title}</strong><span>{[track.artists?.join(', '), track.album].filter(Boolean).join(' · ')}</span></div>
+    </button>
+    <button className="player-copy" type="button" onClick={openNowPlaying}><small aria-live="polite">{failed ? 'PLAYBACK UNAVAILABLE' : loading ? 'LOADING AUDIO' : playing ? 'NOW PLAYING' : 'PLAYBACK PAUSED'}</small><strong>{track.title}</strong><span>{[track.artists?.join(', '), track.album].filter(Boolean).join(' · ')}</span></button>
     <div className="player-controls">
       <button className="player-control player-play" type="button" aria-label={playing ? 'Pause' : 'Play'} disabled={failed} onClick={togglePlayback}>{playing ? <Pause size={14} /> : <Play size={14} />}</button>
       <time>{formatPlaybackTime(currentTime)}</time>
@@ -2045,7 +2068,9 @@ function App() {
   const [view, setView] = useState<View>('library')
   const [selectedJourneyId, setSelectedJourneyId] = useState<string | null>(null)
   const [playback, setPlayback] = useState<PlaybackSelection | null>(null)
+  const [nowPlayingOpen, setNowPlayingOpen] = useState(false)
   const playbackRequest = useRef(0)
+  const audioRef = useRef<HTMLAudioElement>(null)
   const albumQueues = useRef(new Map<string, Promise<PlayerTrack[]>>())
   const acquisitions = useAcquisitions()
   const importOperations = useBeetsImportOperations(acquisitions.refresh)
@@ -2106,7 +2131,8 @@ function App() {
   return (
     <>
       <Suspense fallback={null}><EcoScene zone={view} section={library.section} activity={activeActivity} playing={Boolean(playback)} /></Suspense>
-      <div className={`app-shell ${playback ? 'has-player' : ''}`}>
+      {playback && <NowPlayingView selection={playback} audioRef={audioRef} open={nowPlayingOpen} close={() => setNowPlayingOpen(false)} />}
+      <div className={`app-shell ${playback ? 'has-player' : ''}${nowPlayingOpen ? ' now-playing-active' : ''}`}>
         <Sidebar view={view} setView={navigate} library={library} acquisitions={acquisitions} />
         <main className={view === 'library' ? 'library-main' : undefined}>
           {view === 'library' && <LibraryView library={library} acquisitions={acquisitions} playTrack={playTrack} />}
@@ -2114,7 +2140,7 @@ function App() {
           {view === 'wanted' && <WantedView acquisitions={acquisitions} selectedJourneyId={selectedJourneyId} openJourney={openJourney} closeJourney={() => setSelectedJourneyId(null)} beets={beets} library={library} setView={navigate} />}
           {view === 'activity' && <ActivityView acquisitions={acquisitions} imports={importOperations} openJourney={openJourney} sectionNumber={acquisitions.configured ? '04' : '03'} />}
         </main>
-        {playback && <PlayerBar selection={playback} playNext={() => { void playNext() }} close={() => setPlayback(null)} />}
+        {playback && <PlayerBar selection={playback} audioRef={audioRef} openNowPlaying={() => setNowPlayingOpen(true)} playNext={() => { void playNext() }} close={() => { setNowPlayingOpen(false); setPlayback(null) }} />}
       </div>
     </>
   )
