@@ -867,7 +867,8 @@ main > section { animation: habitat-enter 260ms ease-out; }
 .player-copy small { color: #8fd3bc; }
 .player-copy span, .player-controls time { color: #91aca3; }
 .player-control, .player-close { color: #cfe5dd; background: rgba(23,59,61,.88); }
-.player-play { color: #082128; }
+.player-control.player-play { color: #062129; background: #9be0c6; border: 1px solid #c5f4e1; box-shadow: 0 0 0 3px rgba(103,211,175,.1),0 0 22px rgba(103,211,175,.32); }
+.player-control.player-play:hover { color: #031519; background: #b8edd9; box-shadow: 0 0 0 3px rgba(140,230,198,.16),0 0 28px rgba(103,211,175,.45); }
 .player-controls input[type='range'] { accent-color: #8bd3b8; }
 .now-playing-active .player-bar, .now-playing-active .player-bar::before { background: #05181e; }
 .now-playing-copy span { color: #b3cec5; font-size: 12px; }
@@ -886,6 +887,7 @@ main > section { animation: habitat-enter 260ms ease-out; }
 }
 @media (max-width: 650px) {
   .now-playing-view { bottom: 116px; }
+  .player-control.player-play { width: 34px; height: 34px; margin-left: -2px; }
 }
 @media (max-width: 460px) {
   .now-playing-view { bottom: 140px; }
