@@ -237,7 +237,9 @@ interface PlaybackSelection {
 
 interface TrackPlaybackControls {
   activeTrackId?: string
+  activeAlbumId?: string
   playing: boolean
+  toggleCurrent: () => void
   toggleTrack: (track: PlayerTrack) => void
 }
 
@@ -945,17 +947,25 @@ function resetAlbumCardTilt(event: ReactPointerEvent<HTMLElement>) {
   event.currentTarget.style.removeProperty('--glow-y')
 }
 
-function OwnedAlbumCard({ album, library, playTrack, title = album.title, inLibrary = false }: {
+function OwnedAlbumCard({ album, library, playTrack, playback, title = album.title, inLibrary = false }: {
   album: LibraryAlbum
   library: LibraryModel
   playTrack: (track: PlayerTrack) => void
+  playback: TrackPlaybackControls
   title?: string
   inLibrary?: boolean
 }) {
   const [loadingTrack, setLoadingTrack] = useState(false)
   const [playError, setPlayError] = useState<string | null>(null)
+  const active = playback.activeAlbumId === album.id
+  const playing = active && playback.playing
+  const action = playing ? 'Pause' : active ? 'Resume' : 'Play'
 
   async function playAlbum() {
+    if (active) {
+      playback.toggleCurrent()
+      return
+    }
     setLoadingTrack(true)
     setPlayError(null)
     try {
@@ -990,27 +1000,35 @@ function OwnedAlbumCard({ album, library, playTrack, title = album.title, inLibr
       <div className="album-meta"><span>{album.year ?? '—'}</span>{inLibrary ? <span className="release-state present">In library</span> : <span>{album.trackCount ? `${album.trackCount} tracks` : 'Album'}</span>}</div>
     </button>
     <button
-      className="album-play"
+      className={`album-play${active ? ' active' : ''}`}
       onClick={playAlbum}
       disabled={loadingTrack}
-      aria-label={`Play ${title} by ${album.albumArtist}`}
-      title={playError ?? `Play ${title}`}
+      aria-label={`${action} ${title} by ${album.albumArtist}`}
+      title={playError ?? `${action} ${title}`}
     >
-      {loadingTrack ? <RefreshCw size={16} className="spinning" /> : <Play size={16} fill="currentColor" />}
+      {loadingTrack ? <RefreshCw size={16} className="spinning" /> : playing ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}
     </button>
     {playError && <span className="album-play-error" role="status">Playback unavailable</span>}
   </article>
 }
 
-function AlbumDetailHero({ album, tracks, close, playTrack }: {
+function AlbumDetailHero({ album, tracks, close, playTrack, playback }: {
   album: LibraryAlbum
   tracks: LibraryTrack[]
   close: () => void
   playTrack: (track: PlayerTrack) => void
+  playback: TrackPlaybackControls
 }) {
   const [artwork, setArtwork] = useState(album.hasArtwork)
   const firstPlayable = tracks.find(track => track.id)
   const artworkUrl = `/api/library/albums/${album.id}/artwork`
+  const active = playback.activeAlbumId === album.id
+  const playing = active && playback.playing
+  const action = playing ? 'Pause album' : active ? 'Resume album' : 'Play album'
+  const toggleAlbum = () => {
+    if (active) playback.toggleCurrent()
+    else if (firstPlayable?.id) playTrack({ ...firstPlayable, id: firstPlayable.id, title: firstPlayable.title ?? 'Untitled track', albumId: album.id, album: album.title, albumArtist: album.albumArtist })
+  }
 
   return <section className={`album-detail-hero ${artwork ? 'has-artwork' : ''}`}>
     {artwork && <img className="album-detail-backdrop" src={artworkUrl} alt="" aria-hidden="true" onError={() => setArtwork(false)} />}
@@ -1023,8 +1041,8 @@ function AlbumDetailHero({ album, tracks, close, playTrack }: {
       <strong>{album.albumArtist}</strong>
       <span>{[album.year, `${tracks.length} ${tracks.length === 1 ? 'track' : 'tracks'}`].filter(Boolean).join(' · ')}</span>
       <div className="album-detail-actions">
-        {firstPlayable?.id && <button className="button primary" onClick={() => playTrack({ ...firstPlayable, id: firstPlayable.id!, title: firstPlayable.title ?? 'Untitled track', albumId: album.id, album: album.title, albumArtist: album.albumArtist })}>
-          <Play size={12} fill="currentColor" /> Play album
+        {firstPlayable?.id && <button className={`button primary${active ? ' active-playback' : ''}`} onClick={toggleAlbum}>
+          {playing ? <Pause size={12} fill="currentColor" /> : <Play size={12} fill="currentColor" />} {action}
         </button>}
         <button className="button" onClick={close}><ArrowLeft size={13} /> Collection</button>
       </div>
@@ -1248,12 +1266,13 @@ function formatReleaseDate(value?: string, fallbackYear?: number): string {
   return month ? `${month} ${Number(match[3])}, ${match[1]}` : match[1]
 }
 
-function UnifiedReleaseCard({ item, library, acquisitions, libraryAvailable, playTrack }: {
+function UnifiedReleaseCard({ item, library, acquisitions, libraryAvailable, playTrack, playback }: {
   item: MusicRelease
   library: LibraryModel
   acquisitions: AcquisitionsModel
   libraryAvailable: boolean
   playTrack: (track: PlayerTrack) => void
+  playback: TrackPlaybackControls
 }) {
   const album = item.libraryAlbum
   const release = item.catalogRelease
@@ -1261,7 +1280,7 @@ function UnifiedReleaseCard({ item, library, acquisitions, libraryAvailable, pla
   const wanted = item.state === 'wanted' || acquisition?.state === 'wanted'
 
   if (album) {
-    return <OwnedAlbumCard album={album} library={library} playTrack={playTrack} title={item.title} inLibrary />
+    return <OwnedAlbumCard album={album} library={library} playTrack={playTrack} playback={playback} title={item.title} inLibrary />
   }
 
   return (
@@ -1316,10 +1335,10 @@ function ArtistCard({ artist, library }: { artist: LibraryArtist; library: Libra
 
 function SongPlayButton({ track, playback, className, size }: { track: PlayerTrack; playback: TrackPlaybackControls; className: string; size: number }) {
   const active = playback.activeTrackId === track.id
-  const paused = active && playback.playing
-  const label = `${paused ? 'Pause' : active ? 'Resume' : 'Play'} ${track.title}`
+  const playing = active && playback.playing
+  const label = `${playing ? 'Pause' : active ? 'Resume' : 'Play'} ${track.title}`
   return <button className={`${className}${active ? ' active' : ''}`} title={label} aria-label={label} onClick={() => playback.toggleTrack(track)}>
-    {paused ? <Pause size={size} fill="currentColor" /> : <Play size={size} fill="currentColor" />}
+    {playing ? <Pause size={size} fill="currentColor" /> : <Play size={size} fill="currentColor" />}
   </button>
 }
 
@@ -1374,7 +1393,7 @@ function LibraryView({ library, acquisitions, playTrack, playback }: { library: 
 
   return (
     <section>
-      {album ? <AlbumDetailHero album={album} tracks={library.tracks} close={library.closeAlbum} playTrack={playTrack} /> : <div className={`page-heading ${browsingCollection ? 'library-heading' : ''}`}>
+      {album ? <AlbumDetailHero album={album} tracks={library.tracks} close={library.closeAlbum} playTrack={playTrack} playback={playback} /> : <div className={`page-heading ${browsingCollection ? 'library-heading' : ''}`}>
         {browsingCollection ? <>
           <div className="library-heading-lead">
             <span className="library-heading-icon">{sectionDetails.icon}</span>
@@ -1434,7 +1453,7 @@ function LibraryView({ library, acquisitions, playTrack, playback }: { library: 
                 : <div className="search-groups">
                   {releaseGroups.map(group => <section key={group.type}>
                     <header className="collection-heading"><h2>{group.label}</h2><span>{group.items.length}</span></header>
-                    <div className="album-grid">{group.items.map(item => <UnifiedReleaseCard item={item} library={library} acquisitions={acquisitions} libraryAvailable={searchResult?.sources.library === 'available'} playTrack={playTrack} key={item.key} />)}</div>
+                    <div className="album-grid">{group.items.map(item => <UnifiedReleaseCard item={item} library={library} acquisitions={acquisitions} libraryAvailable={searchResult?.sources.library === 'available'} playTrack={playTrack} playback={playback} key={item.key} />)}</div>
                   </section>)}
                   {!!searchResult?.artists.length && <section><header className="collection-heading"><h2>Artists</h2><span>{searchResult.artists.length}</span></header><div className="artist-grid compact">{searchResult.artists.map(artist => <ArtistCard artist={artist} library={library} key={artist.name.toLowerCase()} />)}</div></section>}
                   {!!searchResult?.tracks.length && <section><header className="collection-heading"><h2>Songs</h2><span>{searchResult.tracks.length}</span></header><div className="panel song-list">{searchResult.tracks.map(track => <SongRow track={track} library={library} playback={playback} key={track.id ?? `${track.title}:${track.album}`} />)}</div></section>}
@@ -1448,7 +1467,7 @@ function LibraryView({ library, acquisitions, playTrack, playback }: { library: 
             </div> : library.loading ? <div className="idle-state compact"><Disc3 size={28} className="spinning" /><span>Reading {library.section}</span></div> : <>
               {library.section === 'albums' && <div className="album-grid">
                 {page?.items.map(item => (
-                  <OwnedAlbumCard album={item} library={library} playTrack={playTrack} key={item.id} />
+                  <OwnedAlbumCard album={item} library={library} playTrack={playTrack} playback={playback} key={item.id} />
                 ))}
               </div>}
               {library.section === 'artists' && <div className="artist-grid">{library.artistPage?.items.map(artist => <ArtistCard artist={artist} library={library} key={artist.name.toLowerCase()} />)}</div>}
@@ -2114,12 +2133,15 @@ function App() {
       playTrack(track)
       return
     }
+    toggleCurrent()
+  }
+  const toggleCurrent = () => {
     const audio = audioRef.current
     if (!audio) return
     if (audio.paused) void audio.play()
     else audio.pause()
   }
-  const trackPlayback: TrackPlaybackControls = { activeTrackId: playback?.track.id, playing: playbackPlaying, toggleTrack }
+  const trackPlayback: TrackPlaybackControls = { activeTrackId: playback?.track.id, activeAlbumId: playback?.track.albumId, playing: playbackPlaying, toggleCurrent, toggleTrack }
   const albumQueue = (albumId: string, seed: PlayerTrack) => {
     const existing = albumQueues.current.get(albumId)
     if (existing) return existing

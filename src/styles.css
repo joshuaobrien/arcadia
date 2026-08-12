@@ -848,6 +848,8 @@ main > section { animation: habitat-enter 260ms ease-out; }
 .album-meta, .release-details { transform: translateZ(17px); }
 .album-play { background: #87d2b7; color: #082128; box-shadow: 0 0 24px rgba(101,211,174,.3); transform: translateX(24px) translateZ(58px); }
 .album-play:hover, .album-play:focus-visible { background: #a7e5cc; transform: translateX(24px) translateZ(62px) scale(1.08); }
+.album-play.active { background: #b5ead6; box-shadow: 0 0 0 4px rgba(117,221,186,.12),0 0 30px rgba(101,211,174,.42); }
+.button.primary.active-playback { box-shadow: 0 0 0 3px rgba(117,221,186,.12),0 0 24px rgba(101,211,174,.3); }
 .library-heading-icon svg { color: #effff9; stroke-width: 2; }
 
 .artist-card { color: #dbece6; background: rgba(10,36,41,.66); border: 1px solid rgba(144,207,188,.12); }
