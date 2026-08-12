@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react'
 import type { RefObject } from 'react'
 import * as THREE from 'three'
+import { HalfFloatType, WebGPURenderer } from 'three/webgpu'
+import { ExtendedSRGBColorSpace, ExtendedSRGBColorSpaceImpl } from 'three/addons/math/ColorSpaces.js'
 
 const BAR_COUNT = 48
 
@@ -73,22 +75,46 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
     const audio = audioRef.current
     if (!host || !audio) return
 
+    let cancelled = false
+    let disposeScene: (() => void) | undefined
+    void (async () => {
     const scene = new THREE.Scene()
     const camera = new THREE.PerspectiveCamera(48, 1, 0.1, 60)
     camera.position.set(0, 4.2, 9.6)
     camera.lookAt(0, 0, 0)
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'low-power' })
+    const hdrCapable = 'gpu' in navigator && window.matchMedia('(dynamic-range: high)').matches
+    let hdrOutput = false
+    let renderer: THREE.WebGLRenderer | WebGPURenderer
+    if (hdrCapable) {
+      try {
+        THREE.ColorManagement.define({ [ExtendedSRGBColorSpace]: ExtendedSRGBColorSpaceImpl })
+        const webgpuRenderer = new WebGPURenderer({ antialias: true, alpha: true, outputType: HalfFloatType })
+        webgpuRenderer.outputColorSpace = ExtendedSRGBColorSpace
+        await webgpuRenderer.init()
+        renderer = webgpuRenderer
+        hdrOutput = true
+      } catch {
+        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'low-power' })
+      }
+    } else {
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'low-power' })
+    }
+    if (cancelled) {
+      renderer.dispose()
+      return
+    }
     renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.6))
-    renderer.outputColorSpace = THREE.SRGBColorSpace
+    if (!hdrOutput) renderer.outputColorSpace = THREE.SRGBColorSpace
     renderer.domElement.setAttribute('aria-hidden', 'true')
+    renderer.domElement.dataset.outputRange = hdrOutput ? 'hdr' : 'sdr'
     host.appendChild(renderer.domElement)
 
-    const hemisphereLight = new THREE.HemisphereLight(0xa9ffe0, 0x111327, 2.2)
+    const hemisphereLight = new THREE.HemisphereLight(0xa9ffe0, 0x111327, hdrOutput ? 0.65 : 2.2)
     scene.add(hemisphereLight)
-    const roseLight = new THREE.PointLight(0xff7f8f, 18, 18)
+    const roseLight = new THREE.PointLight(0xff7f8f, hdrOutput ? 8 : 18, 18)
     roseLight.position.set(-4, 4, 4)
     scene.add(roseLight)
-    const violetLight = new THREE.PointLight(0x8c70d6, 18, 18)
+    const violetLight = new THREE.PointLight(0x8c70d6, hdrOutput ? 8 : 18, 18)
     violetLight.position.set(4, 1, 2)
     scene.add(violetLight)
 
@@ -118,6 +144,17 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
     const ring = new THREE.Mesh(ringGeometry, ringMaterial)
     ring.rotation.x = Math.PI / 2
     scene.add(ring)
+
+    const glintGeometry = new THREE.OctahedronGeometry(0.055, 0)
+    const glintMaterials = Array.from({ length: 12 }, () => new THREE.MeshStandardMaterial({ color: 0x101716, emissive: 0xd8fff2, emissiveIntensity: 0, roughness: 0.08, metalness: 0.15, transparent: true, opacity: 0 }))
+    const glints = glintMaterials.map((material, index) => {
+      const angle = index / glintMaterials.length * Math.PI * 2
+      const glint = new THREE.Mesh(glintGeometry, material)
+      const radius = index % 2 ? 2.15 : 2.65
+      glint.position.set(Math.cos(angle) * radius, 0.35 + Math.sin(index * 1.9) * 0.8, Math.sin(angle) * radius)
+      scene.add(glint)
+      return glint
+    })
 
     const targetPalette: VisualizerPalette = {
       primary: new THREE.Color(0x8fd8bf),
@@ -183,11 +220,26 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
     let midEnvelope = 0
     let trebleEnvelope = 0
     let sparkEnvelope = 0
+    let delightEnvelope = 0
+    let delightStartedAt = -Infinity
+    let delightFlashStartedAt = -Infinity
+    let stageBeatStartedAt = -Infinity
+    let lastStageBeatAt = -Infinity
+    let nextDelightAt = 7000
+    let delightEvent = -1
+    let stageBeatIndex = 0
+    let stageBeatLatched = false
+    let overburnEnvelope = 0
+    let overburnRelease = 0
+    let overburnWasActive = false
+    let lastRenderTime = 0
     let rhythmicBaseline = 0
     let spectrumReady = false
     const jamBands = Array.from({ length: 6 }, () => 0)
     const previousFrequencies = new Uint8Array(frequencies.length)
     const render = (time: number) => {
+      const frameFactor = lastRenderTime ? Math.min(4, (time - lastRenderTime) / 16.667) : 1
+      lastRenderTime = time
       analyser?.getByteFrequencyData(frequencies)
       let energy = 0
       let audibleBins = 0
@@ -260,6 +312,33 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       beatEnvelope += (beatDrive - beatEnvelope) * (beatDrive > beatEnvelope ? 0.5 : 0.12)
       const sparkDrive = Math.min(1, highFlux * 11)
       sparkEnvelope += (sparkDrive - sparkEnvelope) * (sparkDrive > sparkEnvelope ? 0.62 : 0.11)
+      if (time >= nextDelightAt && beatDrive > 0.42 && bassSignal > 0.12) {
+        delightEnvelope = 1
+        delightStartedAt = time
+        delightFlashStartedAt = time
+        stageBeatStartedAt = time
+        lastStageBeatAt = time
+        stageBeatIndex = 0
+        stageBeatLatched = true
+        delightEvent = (delightEvent + 1) % 3
+        signalTargetRef.current?.setAttribute('data-delight-event', ['shockwave', 'prism', 'surge'][delightEvent])
+        nextDelightAt = time + 9000 + Math.random() * 8000
+      } else {
+        delightEnvelope *= 0.965
+      }
+      const stageAge = time - delightStartedAt
+      const stageActive = stageAge < 4600
+      if (beatDrive < 0.16) stageBeatLatched = false
+      if (stageActive && beatDrive > 0.3 && !stageBeatLatched && time - lastStageBeatAt > 180) {
+        stageBeatStartedAt = time
+        lastStageBeatAt = time
+        delightFlashStartedAt = time
+        delightEnvelope = Math.max(delightEnvelope, 0.62)
+        stageBeatIndex += 1
+        stageBeatLatched = true
+      }
+      const stageFade = stageActive ? Math.min(1, (4600 - stageAge) / 900) : 0
+      const stageLevel = stageFade * Math.min(1, 0.08 + beatEnvelope * 0.72 + bassEnvelope * 0.3 + sparkEnvelope * 0.18)
       jamBands.forEach((value, index) => {
         const bandSignal = axisSignal(jamBandEnergy[index] / (jamBandBins[index] || 1), index < 2 ? 0.2 : 0.12, index < 2 ? 2.2 : 2.8)
         jamBands[index] = value + (bandSignal - value) * (bandSignal > value ? 0.34 : 0.09)
@@ -267,6 +346,17 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       const rhythmicSignal = Math.min(1, energyEnvelope * 0.24 + beatEnvelope * 0.76)
       displayedSignal += (rhythmicSignal - displayedSignal) * (rhythmicSignal > displayedSignal ? 0.42 : 0.14)
       const signalTarget = signalTargetRef.current
+      const overburnActive = signalTarget?.hasAttribute('data-overburn') ?? false
+      if (overburnActive) {
+        overburnEnvelope += (1 - overburnEnvelope) * (1 - Math.pow(0.91, frameFactor))
+        overburnRelease = 0
+      } else {
+        if (overburnWasActive) overburnRelease = 1
+        overburnEnvelope *= Math.pow(0.72, frameFactor)
+        overburnRelease *= Math.pow(0.82, frameFactor)
+      }
+      overburnWasActive = overburnActive
+      const overburnLevel = Math.max(overburnEnvelope, overburnRelease)
       signalTarget?.style.setProperty('--climate-year', String(1979 + displayedSignal * 71))
       signalTarget?.style.setProperty('--climate-pulse', String(1 + energyEnvelope * 0.025 + beatEnvelope * 0.055))
       signalTarget?.style.setProperty('--climate-beat', String(beatEnvelope))
@@ -277,6 +367,16 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       signalTarget?.style.setProperty('--jam-beat', String(beatEnvelope))
       signalTarget?.style.setProperty('--jam-mid', String(midEnvelope))
       signalTarget?.style.setProperty('--jam-spark', String(sparkEnvelope))
+      const delightProgress = Math.min(1, Math.max(0, (time - stageBeatStartedAt) / 620))
+      const delightDirection = (delightEvent + stageBeatIndex) % 2 ? -1 : 1
+      signalTarget?.style.setProperty('--delight-level', String(Math.max(delightEnvelope, stageLevel)))
+      signalTarget?.style.setProperty('--delight-progress', String(delightProgress))
+      signalTarget?.style.setProperty('--delight-offset', `${(delightProgress * 180 - 90) * delightDirection}%`)
+      signalTarget?.style.setProperty('--delight-angle', delightDirection < 0 ? '54deg' : '90deg')
+      signalTarget?.style.setProperty('--delight-scale', String(0.5 + delightProgress * 7))
+      signalTarget?.style.setProperty('--delight-stripe-offset', `${delightProgress * 7.5}vh`)
+      signalTarget?.style.setProperty('--overburn-opacity', String(Math.min(0.82, overburnEnvelope * 0.26 + overburnRelease * 0.72)))
+      signalTarget?.style.setProperty('--overburn-scale', String(overburnActive ? 1 : 1 + (1 - overburnRelease) * 1.8))
       jamBands.forEach((value, index) => signalTarget?.style.setProperty(`--jam-band-${index}`, String(value)))
       signalTarget?.style.setProperty('--lab-bevel', String(sparkEnvelope * 1000))
       signalTarget?.style.setProperty('--lab-roundness', String(beatEnvelope * 1000))
@@ -285,35 +385,58 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       const pulse = 1 + energy * 0.48 + Math.sin(time * 0.0014) * 0.025
       barMaterials.forEach((material, index) => {
         material.color.lerp(barTargetColors[index], 0.045)
-        material.emissive.copy(material.color).multiplyScalar(0.28)
+        material.emissive.copy(material.color).multiplyScalar(hdrOutput ? 1 : 0.28)
+        const reflection = Math.max(0, beatEnvelope - Math.abs((index / BAR_COUNT) - ((time * 0.00035) % 1)) * 2.8)
+        const delightPosition = Math.min(1, Math.max(0, (time - delightFlashStartedAt) / 520))
+        const delightReflection = Math.max(0, delightEnvelope - Math.abs(index / BAR_COUNT - delightPosition) * 5.5)
+        material.emissiveIntensity = hdrOutput ? 0.65 + bassEnvelope * 0.35 + reflection * 2.5 + delightReflection * 4.2 + overburnLevel * 7 : 0.8 + delightReflection * 0.45 + overburnLevel
+        material.roughness = 0.34 - midEnvelope * 0.16
       })
       coreMaterial.color.lerp(targetPalette.secondary, 0.045)
-      coreMaterial.emissive.copy(coreMaterial.color).multiplyScalar(0.48)
+      coreMaterial.emissive.copy(coreMaterial.color).multiplyScalar(hdrOutput ? 1 : 0.48)
+      coreMaterial.emissiveIntensity = hdrOutput ? 1.35 + bassEnvelope * 0.65 + overburnLevel * 6 : 1.3 + overburnLevel
       shellMaterial.color.lerp(targetPalette.accent, 0.045)
       ringMaterial.color.lerp(targetPalette.primary, 0.045)
       hemisphereLight.color.lerp(targetPalette.primary, 0.045)
       roseLight.color.lerp(targetPalette.accent, 0.045)
       violetLight.color.lerp(targetPalette.secondary, 0.045)
+      hemisphereLight.intensity = (hdrOutput ? 0.65 : 2.2) + overburnLevel * (hdrOutput ? 1.4 : 0.4)
+      roseLight.intensity = (hdrOutput ? 8 : 18) + overburnLevel * (hdrOutput ? 18 : 4)
+      violetLight.intensity = (hdrOutput ? 8 : 18) + overburnLevel * (hdrOutput ? 18 : 4)
       core.scale.setScalar(pulse)
       core.rotation.x = time * 0.00008
       core.rotation.y = time * 0.00013
-      shell.scale.setScalar(1 + energy * 0.18)
+      shell.scale.setScalar(1 + energy * 0.18 + stageLevel * (0.12 + bassEnvelope * 0.14))
       shell.rotation.x = -time * 0.0001
       shell.rotation.y = time * 0.00016
-      bars.rotation.y = time * 0.000035
+      bars.rotation.y = time * 0.000035 + stageLevel * 0.08 * delightDirection
+      bars.scale.setScalar(1 + stageLevel * (0.035 + bassEnvelope * 0.045))
       ring.rotation.z = time * 0.000025
-      camera.position.x = Math.sin(time * 0.00008) * 0.65
+      glints.forEach((glint, index) => {
+        const phase = (index * 0.37 + time * 0.00016) % 1
+        const delightPhase = Math.max(0, 1 - Math.abs((time - delightFlashStartedAt) / 520 - index / glints.length) * 7)
+        const flash = Math.max(0, sparkEnvelope - phase * 1.8, delightEnvelope * delightPhase, overburnLevel * 0.92)
+        const material = glintMaterials[index]
+        material.emissive.copy(index % 3 === 0 ? targetPalette.accent : index % 3 === 1 ? targetPalette.primary : targetPalette.secondary)
+        material.emissiveIntensity = hdrOutput ? flash * (overburnLevel > 0.01 ? 8 : delightPhase > 0 ? 6.5 : 4.5) : flash * 0.9
+        material.opacity = flash * (hdrOutput ? 0.95 : 0.45)
+        glint.scale.setScalar(0.65 + flash * 1.6)
+      })
+      camera.position.x = Math.sin(time * 0.00008) * 0.65 + Math.sin((time - stageBeatStartedAt) * 0.035) * stageLevel * 0.09
+      camera.position.z = 9.6 - stageLevel * (0.22 + bassEnvelope * 0.28) - overburnLevel * 0.28
       camera.lookAt(0, 0.2, 0)
       renderer.render(scene, camera)
       frame = requestAnimationFrame(render)
     }
     frame = requestAnimationFrame(render)
 
-    return () => {
+    disposeScene = () => {
       active = false
       cancelAnimationFrame(frame)
       observer.disconnect()
-      for (const property of ['climate-year', 'climate-pulse', 'climate-beat', 'jam-bang', 'jam-punch', 'jam-crumble', 'jam-splatter', 'jam-beat', 'jam-mid', 'jam-spark', 'jam-band-0', 'jam-band-1', 'jam-band-2', 'jam-band-3', 'jam-band-4', 'jam-band-5', 'lab-bevel', 'lab-roundness', 'lab-quad', 'lab-scale']) signalTargetRef.current?.style.removeProperty(`--${property}`)
+      for (const property of ['climate-year', 'climate-pulse', 'climate-beat', 'jam-bang', 'jam-punch', 'jam-crumble', 'jam-splatter', 'jam-beat', 'jam-mid', 'jam-spark', 'jam-band-0', 'jam-band-1', 'jam-band-2', 'jam-band-3', 'jam-band-4', 'jam-band-5', 'lab-bevel', 'lab-roundness', 'lab-quad', 'lab-scale', 'delight-level', 'delight-progress', 'delight-offset', 'delight-angle', 'delight-scale', 'delight-stripe-offset', 'overburn-opacity', 'overburn-scale']) signalTargetRef.current?.style.removeProperty(`--${property}`)
+      signalTargetRef.current?.removeAttribute('data-delight-event')
+      signalTargetRef.current?.removeAttribute('data-overburn')
       source?.disconnect()
       analyser?.disconnect()
       void context?.close()
@@ -325,10 +448,18 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       shellMaterial.dispose()
       ringGeometry.dispose()
       ringMaterial.dispose()
+      glintGeometry.dispose()
+      glintMaterials.forEach(material => material.dispose())
       renderer.dispose()
-      renderer.forceContextLoss()
+      if (renderer instanceof THREE.WebGLRenderer) renderer.forceContextLoss()
       renderer.domElement.remove()
       scene.clear()
+    }
+    })()
+
+    return () => {
+      cancelled = true
+      disposeScene?.()
     }
   }, [artworkUrl, audioRef, selectionKey, signalTargetRef])
 

@@ -1490,10 +1490,20 @@ function NowPlayingView({ selection, audioRef, open, close }: { selection: Playb
   const [typeface, setTypeface] = useState<'jam' | 'lab' | 'climate'>('jam')
   const [artwork, setArtwork] = useState(Boolean(track.albumId))
   useEffect(() => setArtwork(Boolean(track.albumId)), [track.albumId])
+  const setOverburn = (active: boolean) => active ? viewRef.current?.setAttribute('data-overburn', '') : viewRef.current?.removeAttribute('data-overburn')
   return <section ref={viewRef} className={`now-playing-view ${open ? 'open' : ''}`} aria-hidden={!open} aria-label="Now playing visualizer">
     <Suspense fallback={null}><NowPlayingVisualizer audioRef={audioRef} signalTargetRef={viewRef} selectionKey={selection.requestId} artworkUrl={track.albumId ? `/api/library/albums/${track.albumId}/artwork` : undefined} /></Suspense>
     <div className="now-playing-shade" />
+    <div className="now-playing-event-field" aria-hidden="true"><i /><b /></div>
+    <div className="now-playing-overburn-field" aria-hidden="true" />
     <button className="now-playing-close" type="button" onClick={close}><X size={16} /> Back to library</button>
+    <button className="now-playing-overburn" type="button" aria-label="Hold to activate Overburn HDR override"
+      onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); setOverburn(true) }}
+      onPointerUp={() => setOverburn(false)} onPointerCancel={() => setOverburn(false)} onLostPointerCapture={() => setOverburn(false)}
+      onKeyDown={event => { if (!event.repeat && (event.key === ' ' || event.key === 'Enter')) setOverburn(true) }}
+      onKeyUp={event => { if (event.key === ' ' || event.key === 'Enter') setOverburn(false) }} onBlur={() => setOverburn(false)}>
+      <small>HOLD</small> OVERBURN
+    </button>
     <div className="now-playing-specimen">
       <div className="now-playing-cover">
         {artwork && track.albumId ? <img src={`/api/library/albums/${track.albumId}/artwork`} alt="" onError={() => setArtwork(false)} /> : <Disc3 size={56} />}
