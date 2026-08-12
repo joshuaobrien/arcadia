@@ -156,6 +156,54 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       return glint
     })
 
+    const jet = new THREE.Group()
+    jet.visible = false
+    const jetBodyMaterial = new THREE.MeshStandardMaterial({ color: 0x9ca9a8, emissive: 0x263d3b, emissiveIntensity: 0.5, roughness: 0.28, metalness: 0.72, transparent: true, side: THREE.DoubleSide })
+    const jetDarkMaterial = new THREE.MeshStandardMaterial({ color: 0x243638, emissive: 0x102526, emissiveIntensity: 0.4, roughness: 0.18, metalness: 0.65, transparent: true })
+    const jetLightMaterial = new THREE.MeshStandardMaterial({ color: 0xe6fff7, emissive: 0xbaffea, emissiveIntensity: 3, roughness: 0.1, transparent: true })
+    const jetGeometries = new Set<THREE.BufferGeometry>()
+    const addJetMesh = (geometry: THREE.BufferGeometry, material: THREE.Material, position: [number, number, number], rotation: [number, number, number] = [0, 0, 0]) => {
+      jetGeometries.add(geometry)
+      const mesh = new THREE.Mesh(geometry, material)
+      mesh.position.set(...position)
+      mesh.rotation.set(...rotation)
+      jet.add(mesh)
+      return mesh
+    }
+    addJetMesh(new THREE.CylinderGeometry(0.13, 0.2, 1.35, 8), jetBodyMaterial, [0, 0, 0], [Math.PI / 2, 0, 0])
+    addJetMesh(new THREE.ConeGeometry(0.14, 0.58, 8), jetBodyMaterial, [0, 0, 0.96], [Math.PI / 2, 0, 0])
+    const cockpit = addJetMesh(new THREE.SphereGeometry(0.17, 10, 6), jetDarkMaterial, [0, 0.13, 0.42])
+    cockpit.scale.set(0.72, 0.58, 1.5)
+    addJetMesh(new THREE.CylinderGeometry(0.115, 0.14, 0.88, 8), jetDarkMaterial, [-0.23, -0.02, -0.34], [Math.PI / 2, 0, 0])
+    addJetMesh(new THREE.CylinderGeometry(0.115, 0.14, 0.88, 8), jetDarkMaterial, [0.23, -0.02, -0.34], [Math.PI / 2, 0, 0])
+    const wingShape = new THREE.Shape().moveTo(0, 0).lineTo(0.88, -0.18).lineTo(0.72, -0.48).lineTo(0.02, -0.2).closePath()
+    const wingGeometry = new THREE.ShapeGeometry(wingShape)
+    jetGeometries.add(wingGeometry)
+    const leftWing = new THREE.Mesh(wingGeometry, jetBodyMaterial)
+    leftWing.rotation.x = -Math.PI / 2
+    leftWing.position.set(-0.07, 0, 0.28)
+    jet.add(leftWing)
+    const rightWing = new THREE.Mesh(wingGeometry, jetBodyMaterial)
+    rightWing.rotation.x = -Math.PI / 2
+    rightWing.scale.x = -1
+    rightWing.position.set(0.07, 0, 0.28)
+    jet.add(rightWing)
+    const tailGeometry = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0.43, -0.26), new THREE.Vector3(0, 0, -0.5),
+    ])
+    tailGeometry.setIndex([0, 1, 2])
+    tailGeometry.computeVertexNormals()
+    addJetMesh(tailGeometry, jetBodyMaterial, [-0.23, 0.05, -0.42])
+    addJetMesh(tailGeometry, jetBodyMaterial, [0.23, 0.05, -0.42])
+    const stabilizerGeometry = new THREE.BoxGeometry(0.72, 0.025, 0.25)
+    addJetMesh(stabilizerGeometry, jetBodyMaterial, [-0.34, -0.01, -0.73], [0, -0.2, 0])
+    addJetMesh(stabilizerGeometry, jetBodyMaterial, [0.34, -0.01, -0.73], [0, 0.2, 0])
+    addJetMesh(new THREE.SphereGeometry(0.035, 6, 4), jetLightMaterial, [-0.72, 0, -0.02])
+    addJetMesh(new THREE.SphereGeometry(0.035, 6, 4), jetLightMaterial, [0.72, 0, -0.02])
+    jet.scale.setScalar(0.72)
+    scene.add(jet)
+    const jetLookTarget = new THREE.Vector3()
+
     const targetPalette: VisualizerPalette = {
       primary: new THREE.Color(0x8fd8bf),
       secondary: new THREE.Color(0x695da3),
@@ -231,6 +279,7 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
     let overburnEnvelope = 0
     let overburnRelease = 0
     let overburnWasActive = false
+    let overburnStartedAt = -Infinity
     let lastRenderTime = 0
     let stageRotationOffset = 0
     let rhythmicBaseline = 0
@@ -346,6 +395,7 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       const signalTarget = signalTargetRef.current
       const overburnActive = signalTarget?.hasAttribute('data-overburn') ?? false
       if (overburnActive) {
+        if (!overburnWasActive) overburnStartedAt = time
         overburnEnvelope += (1 - overburnEnvelope) * (1 - Math.pow(0.91, frameFactor))
         overburnRelease = 0
       } else {
@@ -413,6 +463,30 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       hemisphereLight.intensity = (hdrOutput ? 0.65 : 2.2) + overburnLevel * (hdrOutput ? 1.4 : 0.4)
       roseLight.intensity = (hdrOutput ? 8 : 18) + overburnLevel * (hdrOutput ? 18 : 4)
       violetLight.intensity = (hdrOutput ? 8 : 18) + overburnLevel * (hdrOutput ? 18 : 4)
+      const jetFlightAge = time - overburnStartedAt
+      const jetAngle = jetFlightAge * 0.00072 - Math.PI / 2
+      const setJetPosition = (target: THREE.Vector3, age: number) => target.set(
+        Math.sin(age * 0.00072 - Math.PI / 2) * 5.1,
+        0.8 + Math.sin(age * 0.00115) * 1.65,
+        Math.cos(age * 0.00072 - Math.PI / 2) * 2.7,
+      )
+      jet.visible = overburnLevel > 0.015
+      if (jet.visible) {
+        const jetOpacity = Math.min(1, overburnLevel * 1.7)
+        jetBodyMaterial.opacity = jetOpacity
+        jetDarkMaterial.opacity = jetOpacity
+        jetLightMaterial.opacity = jetOpacity
+        jetBodyMaterial.emissiveIntensity = (hdrOutput ? 0.65 : 0.4) + overburnLevel * (hdrOutput ? 2.5 : 0.6)
+        jetLightMaterial.emissiveIntensity = (hdrOutput ? 3 : 1) + overburnLevel * (hdrOutput ? 5 : 1)
+        setJetPosition(jet.position, jetFlightAge)
+        setJetPosition(jetLookTarget, jetFlightAge + 36)
+        jet.lookAt(jetLookTarget)
+        jet.rotateZ(Math.sin(jetAngle) * 0.42)
+        const wingSweep = 0.1 + bassEnvelope * 0.34 + overburnEnvelope * 0.18
+        leftWing.rotation.y = -wingSweep
+        rightWing.rotation.y = wingSweep
+        jet.scale.setScalar(0.72 + beatEnvelope * 0.025)
+      }
       core.scale.setScalar(pulse)
       core.rotation.x = time * 0.00008
       core.rotation.y = time * 0.00013
@@ -461,6 +535,10 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       ringMaterial.dispose()
       glintGeometry.dispose()
       glintMaterials.forEach(material => material.dispose())
+      jetGeometries.forEach(geometry => geometry.dispose())
+      jetBodyMaterial.dispose()
+      jetDarkMaterial.dispose()
+      jetLightMaterial.dispose()
       renderer.dispose()
       if (renderer instanceof THREE.WebGLRenderer) renderer.forceContextLoss()
       renderer.domElement.remove()
