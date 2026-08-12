@@ -1,6 +1,8 @@
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
 
 @font-face { font-family: 'Climate Crisis'; src: url('./assets/fonts/ClimateCrisis-YEAR.woff2') format('woff2-variations'); font-display: swap; }
+@font-face { font-family: 'Jam'; src: url('./assets/fonts/JamRegular.ttf') format('truetype-variations'); font-display: swap; }
+@font-face { font-family: 'Lab DJR'; src: url('./assets/fonts/Lab-DJR.ttf') format('truetype-variations'); font-display: swap; }
 
 :root {
   font-family: 'IBM Plex Mono', monospace;
@@ -360,7 +362,7 @@ main.library-main { width: min(1380px, calc(100% - 32px)); }
 .player-controls input[type='range']:disabled { cursor: not-allowed; opacity: .5; }
 .player-control:focus-visible, .player-close:focus-visible, .player-controls input:focus-visible { outline: 2px solid #f2d695; outline-offset: 2px; }
 .player-close { width: 28px; height: 28px; padding: 0; display: grid; place-items: center; color: #e6e9e5; background: transparent; border: 1px solid #718594; }
-.now-playing-view { --climate-year: 1979; --climate-pulse: 1; position: fixed; z-index: 3; inset: 0 0 76px 224px; overflow: hidden; visibility: hidden; opacity: 0; color: #ecfff7; background: #061a20; transform: translateY(12px) scale(.99); transition: opacity 240ms ease, transform 300ms ease, visibility 300ms; }
+.now-playing-view { --climate-year: 1979; --climate-pulse: 1; --climate-beat: 0; --jam-bang: 5; --jam-punch: 0; --jam-crumble: 0; --jam-splatter: 0; --lab-bevel: 0; --lab-roundness: 0; --lab-quad: 0; --lab-scale: 100; position: fixed; z-index: 3; inset: 0 0 76px 224px; overflow: hidden; visibility: hidden; opacity: 0; color: #ecfff7; background: #061a20; transform: translateY(12px) scale(.99); transition: opacity 240ms ease, transform 300ms ease, visibility 300ms; }
 .now-playing-view.open { visibility: visible; opacity: 1; transform: none; }
 .now-playing-visualizer, .now-playing-visualizer canvas { width: 100%; height: 100%; position: absolute; inset: 0; display: block; }
 .now-playing-shade { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(circle at 50% 42%,transparent 0 16%,rgba(4,18,23,.08) 38%,rgba(4,15,20,.78) 100%),linear-gradient(to top,rgba(3,14,18,.9),transparent 48%); }
@@ -371,9 +373,15 @@ main.library-main { width: min(1380px, calc(100% - 32px)); }
 .now-playing-copy { min-width: 0; max-width: 720px; padding-bottom: 8px; text-shadow: 0 3px 24px rgba(0,0,0,.7); }
 .now-playing-copy small { color: #8ed0ba; font-size: 9px; letter-spacing: .24em; }
 .now-playing-copy h1 { margin: 14px 0 8px; font-family: var(--music-font); font-size: clamp(30px,5vw,72px); font-weight: 500; line-height: .94; letter-spacing: -.045em; overflow-wrap: anywhere; }
-.now-playing-copy .climate-title { font-family: 'Climate Crisis', var(--music-font); font-variation-settings: 'YEAR' var(--climate-year); font-synthesis: none; transform: scale(var(--climate-pulse)); transform-origin: left center; }
+.now-playing-copy .reactive-title { padding-left: 14px; font-synthesis: none; filter: drop-shadow(0 0 calc(var(--climate-beat) * 14px) rgba(210,255,240,.2)); transform: scale(var(--climate-pulse)); transform-origin: left center; }
+.now-playing-copy .jam-title { font-family: 'Jam', var(--music-font); font-variation-settings: 'wght' var(--jam-bang), 'punc' var(--jam-punch), 'crum' var(--jam-crumble), 'spla' var(--jam-splatter); }
+.now-playing-copy .lab-title { font-family: 'Lab DJR', var(--music-font); font-size: clamp(36px,5.8vw,82px); font-variation-settings: 'bevl' var(--lab-bevel), 'oval' var(--lab-roundness), 'quad' var(--lab-quad), 'size' var(--lab-scale); }
+.now-playing-copy .climate-title { font-family: 'Climate Crisis', var(--music-font); font-variation-settings: 'YEAR' var(--climate-year); }
 .now-playing-copy p { margin: 0; color: #d4ebe3; font-family: var(--music-font); font-size: clamp(14px,1.8vw,24px); }
 .now-playing-copy > span { margin-top: 8px; display: block; color: #8faea4; font-size: 10px; }
+.now-playing-font-picker { position: absolute; z-index: 3; top: 51px; right: 28px; display: flex; gap: 5px; }
+.now-playing-font-picker button { padding: 5px 8px; color: #8fb3a7; background: rgba(6,26,31,.62); border: 1px solid rgba(151,221,198,.2); font-family: var(--music-font); font-size: 8px; text-transform: uppercase; backdrop-filter: blur(10px); }
+.now-playing-font-picker button.active { color: #062129; background: #9be0c6; border-color: #c5f4e1; }
 .now-playing-telemetry { position: absolute; top: 28px; right: 28px; display: flex; gap: 28px; color: rgba(159,213,195,.55); font-size: 8px; letter-spacing: .18em; }
 .spinning { animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }

@@ -1487,6 +1487,7 @@ function LibraryView({ library, acquisitions, playTrack, playback }: { library: 
 function NowPlayingView({ selection, audioRef, open, close }: { selection: PlaybackSelection; audioRef: React.RefObject<HTMLAudioElement | null>; open: boolean; close: () => void }) {
   const { track } = selection
   const viewRef = useRef<HTMLElement>(null)
+  const [typeface, setTypeface] = useState<'jam' | 'lab' | 'climate'>('jam')
   const [artwork, setArtwork] = useState(Boolean(track.albumId))
   useEffect(() => setArtwork(Boolean(track.albumId)), [track.albumId])
   return <section ref={viewRef} className={`now-playing-view ${open ? 'open' : ''}`} aria-hidden={!open} aria-label="Now playing visualizer">
@@ -1499,12 +1500,15 @@ function NowPlayingView({ selection, audioRef, open, close }: { selection: Playb
       </div>
       <div className="now-playing-copy">
         <small>NOW PLAYING / AUDIO HABITAT</small>
-        <h1 className="climate-title">{track.title}</h1>
+        <h1 className={`reactive-title ${typeface}-title`}>{track.title}</h1>
         <p>{track.artists?.join(', ') || track.albumArtist || 'Unknown artist'}</p>
         <span>{track.album}</span>
       </div>
     </div>
-    <div className="now-playing-telemetry" aria-hidden="true"><span>LIVE SIGNAL</span><span>CLIMATE YEAR / 1979—2050</span></div>
+    <div className="now-playing-font-picker" aria-label="Reactive typeface">
+      {(['jam', 'lab', 'climate'] as const).map(font => <button type="button" className={typeface === font ? 'active' : ''} aria-pressed={typeface === font} onClick={() => setTypeface(font)} key={font}>{font}</button>)}
+    </div>
+    <div className="now-playing-telemetry" aria-hidden="true"><span>LIVE SIGNAL</span><span>BEAT / BODY / TEXTURE / TRANSIENT</span></div>
   </section>
 }
 
