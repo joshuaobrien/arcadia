@@ -362,7 +362,7 @@ main.library-main { width: min(1380px, calc(100% - 32px)); }
 .player-controls input[type='range']:disabled { cursor: not-allowed; opacity: .5; }
 .player-control:focus-visible, .player-close:focus-visible, .player-controls input:focus-visible { outline: 2px solid #f2d695; outline-offset: 2px; }
 .player-close { width: 28px; height: 28px; padding: 0; display: grid; place-items: center; color: #e6e9e5; background: transparent; border: 1px solid #718594; }
-.now-playing-view { --climate-year: 1979; --climate-pulse: 1; --climate-beat: 0; --jam-bang: 5; --jam-punch: 0; --jam-crumble: 0; --jam-splatter: 0; --lab-bevel: 0; --lab-roundness: 0; --lab-quad: 0; --lab-scale: 100; position: fixed; z-index: 3; inset: 0 0 76px 224px; overflow: hidden; visibility: hidden; opacity: 0; color: #ecfff7; background: #061a20; transform: translateY(12px) scale(.99); transition: opacity 240ms ease, transform 300ms ease, visibility 300ms; }
+.now-playing-view { --climate-year: 1979; --climate-pulse: 1; --climate-beat: 0; --jam-bang: 5; --jam-punch: 0; --jam-crumble: 0; --jam-splatter: 0; --jam-beat: 0; --jam-mid: 0; --jam-spark: 0; --jam-band-0: 0; --jam-band-1: 0; --jam-band-2: 0; --jam-band-3: 0; --jam-band-4: 0; --jam-band-5: 0; --lab-bevel: 0; --lab-roundness: 0; --lab-quad: 0; --lab-scale: 100; position: fixed; z-index: 3; inset: 0 0 76px 224px; overflow: hidden; visibility: hidden; opacity: 0; color: #ecfff7; background: #061a20; transform: translateY(12px) scale(.99); transition: opacity 240ms ease, transform 300ms ease, visibility 300ms; }
 .now-playing-view.open { visibility: visible; opacity: 1; transform: none; }
 .now-playing-visualizer, .now-playing-visualizer canvas { width: 100%; height: 100%; position: absolute; inset: 0; display: block; }
 .now-playing-shade { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(circle at 50% 42%,transparent 0 16%,rgba(4,18,23,.08) 38%,rgba(4,15,20,.78) 100%),linear-gradient(to top,rgba(3,14,18,.9),transparent 48%); }
@@ -375,6 +375,14 @@ main.library-main { width: min(1380px, calc(100% - 32px)); }
 .now-playing-copy h1 { margin: 14px 0 8px; font-family: var(--music-font); font-size: clamp(30px,5vw,72px); font-weight: 500; line-height: .94; letter-spacing: -.045em; overflow-wrap: anywhere; }
 .now-playing-copy .reactive-title { padding-left: 14px; font-synthesis: none; filter: drop-shadow(0 0 calc(var(--climate-beat) * 14px) rgba(210,255,240,.2)); transform: scale(var(--climate-pulse)); transform-origin: left center; }
 .now-playing-copy .jam-title { font-family: 'Jam', var(--music-font); font-variation-settings: 'wght' var(--jam-bang), 'punc' var(--jam-punch), 'crum' var(--jam-crumble), 'spla' var(--jam-splatter); }
+.jam-glyph { display: inline-block; transform-origin: center bottom; }
+.jam-band-0 { --jam-local: var(--jam-band-0); }
+.jam-band-1 { --jam-local: var(--jam-band-1); }
+.jam-band-2 { --jam-local: var(--jam-band-2); }
+.jam-band-3 { --jam-local: var(--jam-band-3); }
+.jam-band-4 { --jam-local: var(--jam-band-4); }
+.jam-band-5 { --jam-local: var(--jam-band-5); }
+.jam-title .jam-glyph { font-variation-settings: 'wght' calc(1 + var(--jam-local) * 9), 'punc' calc(var(--jam-beat) * 10), 'crum' calc(var(--jam-mid) * 2 + var(--jam-local) * 3), 'spla' calc(var(--jam-spark) * 4 + var(--jam-local)); transform: translateY(calc((var(--jam-local) - .35) * -10px)) rotate(calc((var(--jam-local) - .5) * 4deg)); }
 .now-playing-copy .lab-title { font-family: 'Lab DJR', var(--music-font); font-size: clamp(36px,5.8vw,82px); font-variation-settings: 'bevl' var(--lab-bevel), 'oval' var(--lab-roundness), 'quad' var(--lab-quad), 'size' var(--lab-scale); }
 .now-playing-copy .climate-title { font-family: 'Climate Crisis', var(--music-font); font-variation-settings: 'YEAR' var(--climate-year); }
 .now-playing-copy p { margin: 0; color: #d4ebe3; font-family: var(--music-font); font-size: clamp(14px,1.8vw,24px); }

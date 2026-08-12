@@ -1500,7 +1500,9 @@ function NowPlayingView({ selection, audioRef, open, close }: { selection: Playb
       </div>
       <div className="now-playing-copy">
         <small>NOW PLAYING / AUDIO HABITAT</small>
-        <h1 className={`reactive-title ${typeface}-title`}>{track.title}</h1>
+        <h1 className={`reactive-title ${typeface}-title`} aria-label={track.title}>
+          {typeface === 'jam' ? Array.from(track.title).map((character, index) => <span className={`jam-glyph jam-band-${index % 6}`} aria-hidden="true" key={`${character}-${index}`}>{character === ' ' ? '\u00a0' : character}</span>) : track.title}
+        </h1>
         <p>{track.artists?.join(', ') || track.albumArtist || 'Unknown artist'}</p>
         <span>{track.album}</span>
       </div>
