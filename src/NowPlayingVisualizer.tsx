@@ -223,13 +223,14 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
     }).catch(() => { /* OVERBURN remains functional if the decorative model cannot load. */ })
 
     const overburnCreatures = [
-      { url: '/models/overburn/frog.glb', size: 1.05, rotation: new THREE.Euler(0, Math.PI / 2, 0) },
-      { url: '/models/overburn/wizard-hat.glb', size: 0.9, rotation: new THREE.Euler(-0.18, 0, 0.12) },
-      { url: '/models/overburn/fish.glb', size: 1.45, rotation: new THREE.Euler(0, Math.PI / 2, 0) },
-    ].map(config => ({ ...config, group: new THREE.Group(), model: undefined as THREE.Group | undefined, materials: new Set<THREE.Material>() }))
+      { url: '/models/overburn/frog.glb', size: 1.05, rotation: new THREE.Euler(0, Math.PI / 2, 0), lightColor: 0xc9ffdc },
+      { url: '/models/overburn/wizard-hat.glb', size: 0.9, rotation: new THREE.Euler(-0.18, 0, 0.12), lightColor: 0xbcc4ff },
+      { url: '/models/overburn/fish.glb', size: 1.45, rotation: new THREE.Euler(0, Math.PI / 2, 0), lightColor: 0x8eeeff },
+    ].map(config => ({ ...config, group: new THREE.Group(), model: undefined as THREE.Group | undefined, materials: new Set<THREE.Material>(), light: new THREE.PointLight(config.lightColor, 0, 4.5) }))
     overburnCreatures.forEach((creature, index) => {
       creature.group.visible = false
       scene.add(creature.group)
+      scene.add(creature.light)
       void new GLTFLoader().loadAsync(creature.url).then(({ scene: model }) => {
         if (!active) return
         model.rotation.copy(creature.rotation)
@@ -247,6 +248,9 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
             const clone = material.clone()
             clone.transparent = true
             clone.opacity = 0
+            if (clone instanceof THREE.MeshStandardMaterial) {
+              if (index === 1) clone.color.lerp(creature.light.color, 0.28)
+            }
             creature.materials.add(clone)
             return clone
           })
@@ -333,9 +337,10 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
     let overburnEnvelope = 0
     let overburnRelease = 0
     let overburnWasActive = false
-    let overburnStartedAt = -Infinity
     let lastRenderTime = 0
     let stageRotationOffset = 0
+    let modelFlowPhase = 0
+    let modelTempoEnvelope = 0
     let rhythmicBaseline = 0
     let spectrumReady = false
     const jamBands = Array.from({ length: 6 }, () => 0)
@@ -440,6 +445,9 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       const stageTarget = stageFade * Math.min(1, 0.08 + bassEnvelope * 0.34 + midEnvelope * 0.2 + beatEnvelope * 0.16 + sparkEnvelope * 0.08)
       stageFlowEnvelope += (stageTarget - stageFlowEnvelope) * (1 - Math.pow(stageTarget > stageFlowEnvelope ? 0.94 : 0.975, frameFactor))
       const stageLevel = stageFlowEnvelope
+      const modelTempoTarget = Math.min(1, energyEnvelope * 0.36 + bassEnvelope * 0.42 + midEnvelope * 0.17 + trebleEnvelope * 0.05)
+      modelTempoEnvelope += (modelTempoTarget - modelTempoEnvelope) * (1 - Math.pow(modelTempoTarget > modelTempoEnvelope ? 0.95 : 0.975, frameFactor))
+      modelFlowPhase += (0.004 + modelTempoEnvelope * 0.008) * frameFactor
       jamBands.forEach((value, index) => {
         const bandSignal = axisSignal(jamBandEnergy[index] / (jamBandBins[index] || 1), index < 2 ? 0.2 : 0.12, index < 2 ? 2.2 : 2.8)
         jamBands[index] = value + (bandSignal - value) * (bandSignal > value ? 0.34 : 0.09)
@@ -449,7 +457,6 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       const signalTarget = signalTargetRef.current
       const overburnActive = signalTarget?.hasAttribute('data-overburn') ?? false
       if (overburnActive) {
-        if (!overburnWasActive) overburnStartedAt = time
         overburnEnvelope += (1 - overburnEnvelope) * (1 - Math.pow(0.91, frameFactor))
         overburnRelease = 0
       } else {
@@ -517,49 +524,57 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       hemisphereLight.intensity = (hdrOutput ? 0.65 : 2.2) + overburnLevel * (hdrOutput ? 1.4 : 0.4)
       roseLight.intensity = (hdrOutput ? 8 : 18) + overburnLevel * (hdrOutput ? 18 : 4)
       violetLight.intensity = (hdrOutput ? 8 : 18) + overburnLevel * (hdrOutput ? 18 : 4)
-      const jetFlightAge = time - overburnStartedAt
-      const jetAngle = jetFlightAge * 0.00072 - Math.PI / 2
-      const setJetPosition = (target: THREE.Vector3, age: number) => target.set(
-        Math.sin(age * 0.00072 - Math.PI / 2) * 3.6,
-        0.8 + Math.sin(age * 0.00115) * 1.65,
-        1.4 + Math.cos(age * 0.00072 - Math.PI / 2) * 0.9,
+      const jetAngle = modelFlowPhase - Math.PI / 2
+      const setJetPosition = (target: THREE.Vector3, angle: number) => target.set(
+        Math.sin(angle - Math.PI / 2) * 3.6,
+        0.8 + Math.sin(angle * 1.6) * (1.15 + bassEnvelope * 0.5),
+        1.4 + Math.cos(angle - Math.PI / 2) * 0.9,
       )
       jet.visible = overburnLevel > 0.015
       if (jet.visible) {
         const jetOpacity = Math.min(1, overburnLevel * 1.7)
         jetMaterials.forEach(material => {
           material.opacity = jetOpacity
-          material.emissive.copy(material.color).multiplyScalar(hdrOutput ? 0.035 : 0.015)
-          material.emissiveIntensity = (hdrOutput ? 0.5 : 0.25) + overburnLevel * (hdrOutput ? 1.1 : 0.25)
+          material.emissive.copy(material.color).multiplyScalar(hdrOutput ? 0.12 : 0.07)
+          material.emissiveIntensity = (hdrOutput ? 1.15 : 0.65) + overburnLevel * (hdrOutput ? 1.7 : 0.7)
         })
-        setJetPosition(jet.position, jetFlightAge)
+        setJetPosition(jet.position, modelFlowPhase)
         jetFillLight.position.copy(jet.position).add(jetLightOffset)
-        jetFillLight.intensity = (hdrOutput ? 13 : 8) * overburnLevel
-        setJetPosition(jetLookTarget, jetFlightAge + 36)
+        jetFillLight.intensity = (hdrOutput ? 22 : 14) * overburnLevel
+        setJetPosition(jetLookTarget, modelFlowPhase + 0.03)
         jet.lookAt(jetLookTarget)
-        jet.rotateZ(Math.sin(jetAngle) * 0.42)
-        jet.scale.setScalar(1 + beatEnvelope * 0.025)
+        jet.rotateZ(Math.sin(jetAngle) * (0.24 + midEnvelope * 0.22))
+        jet.scale.setScalar(1 + bassEnvelope * 0.035)
       }
       overburnCreatures.forEach((creature, index) => {
-        const orbitAge = jetFlightAge + index * 1900
-        const speed = index === 2 ? 0.00042 : 0.00028 + index * 0.000035
-        const angle = orbitAge * speed + index * Math.PI * 0.72
+        const flowMultiplier = index === 0 ? 0.48 : index === 1 ? 0.34 : 0.72
+        const angle = modelFlowPhase * flowMultiplier + index * Math.PI * 0.72
         creature.group.visible = overburnLevel > 0.025 && Boolean(creature.model)
+        creature.light.visible = creature.group.visible
         if (!creature.group.visible) return
         const opacity = Math.min(1, overburnLevel * 1.65)
-        creature.materials.forEach(material => { material.opacity = opacity })
+        creature.materials.forEach(material => {
+          material.opacity = opacity
+          if (material instanceof THREE.MeshStandardMaterial) {
+            material.emissive.copy(creature.light.color).multiplyScalar(hdrOutput ? (index === 1 ? 1.15 : 0.72) : (index === 1 ? 0.72 : 0.42))
+            material.emissiveIntensity = (hdrOutput ? (index === 1 ? 3.4 : 2.4) : (index === 1 ? 2.1 : 1.25)) + overburnLevel * (hdrOutput ? 2.2 : 0.85) + trebleEnvelope * 0.55
+            material.roughness = Math.min(material.roughness, 0.48)
+          }
+        })
         creature.group.position.set(
           Math.cos(angle) * (index === 0 ? 2.8 : index === 1 ? 2.15 : 3.35),
-          index === 0 ? -0.35 + Math.sin(angle * 1.4) * 0.5 : index === 1 ? 1.4 + Math.sin(angle) * 0.75 : 0.35 + Math.sin(angle * 1.8) * 1.05,
-          index === 0 ? 2.7 + Math.sin(angle) * 0.45 : index === 1 ? 1.9 + Math.cos(angle) * 0.55 : 1.1 + Math.cos(angle) * 0.8,
+          index === 0 ? -0.35 + Math.sin(angle * 1.4) * (0.35 + bassEnvelope * 0.45) : index === 1 ? 1.4 + Math.sin(angle) * (0.55 + midEnvelope * 0.35) : 0.35 + Math.sin(angle * 1.8) * (0.8 + energyEnvelope * 0.4),
+          index === 0 ? 3.4 + Math.sin(angle) * 0.35 : index === 1 ? 3.1 + Math.cos(angle) * 0.4 : 4.6 + Math.cos(angle) * 0.35,
         )
+        creature.light.position.copy(creature.group.position).add(jetLightOffset)
+        creature.light.intensity = (hdrOutput ? 18 : 11) * (index === 1 ? 1.45 : 1) * overburnLevel * (0.8 + trebleEnvelope * 0.4)
         if (index === 0) {
-          creature.group.rotation.set(0.08 * Math.sin(angle), -angle + Math.PI / 2, -0.08 * Math.cos(angle))
+          creature.group.rotation.set(0.08 * Math.sin(angle), -angle + Math.PI / 2, -Math.cos(angle) * (0.06 + bassEnvelope * 0.08))
         } else if (index === 1) {
-          creature.group.rotation.set(-0.14 + Math.sin(angle) * 0.08, angle * 0.38, 0.16 * Math.sin(angle * 1.3))
+          creature.group.rotation.set(-0.14 + Math.sin(angle) * (0.06 + midEnvelope * 0.11), angle * (0.28 + midEnvelope * 0.22), Math.sin(angle * 1.3) * (0.1 + midEnvelope * 0.18))
         } else {
-          creature.group.rotation.set(Math.sin(angle * 1.8) * 0.08, -angle, Math.sin(angle) * 0.18)
-          creature.group.scale.set(1, 1, 1 + Math.sin(time * 0.004) * 0.06)
+          creature.group.rotation.set(Math.sin(angle * 1.8) * (0.06 + bassEnvelope * 0.06), -angle, Math.sin(angle) * (0.12 + energyEnvelope * 0.12))
+          creature.group.scale.set(1, 1, 1 + Math.sin(modelFlowPhase * 9) * (0.035 + bassEnvelope * 0.045))
         }
       })
       core.scale.setScalar(pulse)
@@ -622,6 +637,7 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
         const materials = Array.isArray(child.material) ? child.material : [child.material]
         materials.forEach(material => material.dispose())
       }))
+      overburnCreatures.forEach(creature => creature.light.dispose())
       jetFillLight.dispose()
       renderer.dispose()
       if (renderer instanceof THREE.WebGLRenderer) renderer.forceContextLoss()
