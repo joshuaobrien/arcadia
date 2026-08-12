@@ -692,6 +692,7 @@ main { padding-top: 48px; }
 .artist-image { border: 0; box-shadow: 0 10px 22px -16px #444; }
 .artist-open { color: #d65e4a; border-color: #ddd; }
 .song-play, .track-play, .player-play { color: white; background: #f06449; border: 0; box-shadow: 0 7px 14px -10px #71382c; }
+.song-play.active, .track-play.active { color: #071d22; background: #a8e4cd; box-shadow: 0 0 0 3px rgba(103,211,175,.1),0 0 18px rgba(103,211,175,.25); }
 
 .album-detail-hero {
   color: #282828;
