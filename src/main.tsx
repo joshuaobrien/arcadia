@@ -1486,10 +1486,11 @@ function LibraryView({ library, acquisitions, playTrack, playback }: { library: 
 
 function NowPlayingView({ selection, audioRef, open, close }: { selection: PlaybackSelection; audioRef: React.RefObject<HTMLAudioElement | null>; open: boolean; close: () => void }) {
   const { track } = selection
+  const viewRef = useRef<HTMLElement>(null)
   const [artwork, setArtwork] = useState(Boolean(track.albumId))
   useEffect(() => setArtwork(Boolean(track.albumId)), [track.albumId])
-  return <section className={`now-playing-view ${open ? 'open' : ''}`} aria-hidden={!open} aria-label="Now playing visualizer">
-    <Suspense fallback={null}><NowPlayingVisualizer audioRef={audioRef} selectionKey={selection.requestId} /></Suspense>
+  return <section ref={viewRef} className={`now-playing-view ${open ? 'open' : ''}`} aria-hidden={!open} aria-label="Now playing visualizer">
+    <Suspense fallback={null}><NowPlayingVisualizer audioRef={audioRef} signalTargetRef={viewRef} selectionKey={selection.requestId} /></Suspense>
     <div className="now-playing-shade" />
     <button className="now-playing-close" type="button" onClick={close}><X size={16} /> Back to library</button>
     <div className="now-playing-specimen">
@@ -1498,12 +1499,12 @@ function NowPlayingView({ selection, audioRef, open, close }: { selection: Playb
       </div>
       <div className="now-playing-copy">
         <small>NOW PLAYING / AUDIO HABITAT</small>
-        <h1>{track.title}</h1>
+        <h1 className="climate-title">{track.title}</h1>
         <p>{track.artists?.join(', ') || track.albumArtist || 'Unknown artist'}</p>
         <span>{track.album}</span>
       </div>
     </div>
-    <div className="now-playing-telemetry" aria-hidden="true"><span>LIVE SIGNAL</span><span>FREQUENCY ECOLOGY</span></div>
+    <div className="now-playing-telemetry" aria-hidden="true"><span>LIVE SIGNAL</span><span>CLIMATE YEAR / 1979—2050</span></div>
   </section>
 }
 

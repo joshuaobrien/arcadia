@@ -4,7 +4,7 @@ import * as THREE from 'three'
 
 const BAR_COUNT = 48
 
-export default function NowPlayingVisualizer({ audioRef, selectionKey }: { audioRef: RefObject<HTMLAudioElement | null>; selectionKey: number }) {
+export default function NowPlayingVisualizer({ audioRef, signalTargetRef, selectionKey }: { audioRef: RefObject<HTMLAudioElement | null>; signalTargetRef: RefObject<HTMLElement | null>; selectionKey: number }) {
   const hostRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -64,14 +64,15 @@ export default function NowPlayingVisualizer({ audioRef, selectionKey }: { audio
     try {
       context = new AudioContext()
       analyser = context.createAnalyser()
-      analyser.fftSize = 128
-      analyser.smoothingTimeConstant = 0.82
+      analyser.fftSize = 512
+      analyser.smoothingTimeConstant = 0.72
       frequencies = new Uint8Array(analyser.frequencyBinCount)
       source = context.createMediaElementSource(audio)
       source.connect(analyser)
       analyser.connect(context.destination)
       void context.resume()
     } catch { /* The scene keeps its idle motion if Web Audio is unavailable. */ }
+    const hzPerBin = (context?.sampleRate ?? 48000) / (frequencies.length * 2)
 
     const resize = () => {
       const width = Math.max(host.clientWidth, 1)
@@ -85,17 +86,30 @@ export default function NowPlayingVisualizer({ audioRef, selectionKey }: { audio
     resize()
 
     let frame = 0
+    let displayedSignal = 0
     const render = (time: number) => {
       analyser?.getByteFrequencyData(frequencies)
       let energy = 0
+      let audibleBins = 0
+      frequencies.forEach((frequency, index) => {
+        const hz = index * hzPerBin
+        if (hz >= 8000) return
+        energy += frequency / 255
+        audibleBins += 1
+      })
       barMeshes.forEach((bar, index) => {
         const value = frequencies[index % frequencies.length] / 255
-        energy += value
         const height = 0.18 + value * 3.8
         bar.scale.y += (height - bar.scale.y) * 0.24
         bar.position.y = (bar.scale.y - 1) * 0.5
       })
-      energy /= BAR_COUNT
+      energy /= audibleBins || 1
+      const axisSignal = (value: number, floor: number, gain: number) => Math.min(1, Math.max(0, (value - floor) * gain))
+      const fullSignal = axisSignal(energy, 0.35, 3)
+      displayedSignal += (fullSignal - displayedSignal) * 0.045
+      const signalTarget = signalTargetRef.current
+      signalTarget?.style.setProperty('--climate-year', String(1979 + displayedSignal * 71))
+      signalTarget?.style.setProperty('--climate-pulse', String(1 + displayedSignal * 0.075))
       const pulse = 1 + energy * 0.48 + Math.sin(time * 0.0014) * 0.025
       core.scale.setScalar(pulse)
       core.rotation.x = time * 0.00008
@@ -115,6 +129,7 @@ export default function NowPlayingVisualizer({ audioRef, selectionKey }: { audio
     return () => {
       cancelAnimationFrame(frame)
       observer.disconnect()
+      for (const axis of ['year', 'pulse']) signalTargetRef.current?.style.removeProperty(`--climate-${axis}`)
       source?.disconnect()
       analyser?.disconnect()
       void context?.close()
@@ -131,7 +146,7 @@ export default function NowPlayingVisualizer({ audioRef, selectionKey }: { audio
       renderer.domElement.remove()
       scene.clear()
     }
-  }, [audioRef, selectionKey])
+  }, [audioRef, selectionKey, signalTargetRef])
 
   return <div ref={hostRef} className="now-playing-visualizer" />
 }
