@@ -185,6 +185,7 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
     let sparkEnvelope = 0
     let rhythmicBaseline = 0
     let spectrumReady = false
+    const jamBands = Array.from({ length: 6 }, () => 0)
     const previousFrequencies = new Uint8Array(frequencies.length)
     const render = (time: number) => {
       analyser?.getByteFrequencyData(frequencies)
@@ -200,10 +201,15 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       let fluxBins = 0
       let highFlux = 0
       let highFluxBins = 0
+      const jamBandEnergy = [0, 0, 0, 0, 0, 0]
+      const jamBandBins = [0, 0, 0, 0, 0, 0]
       frequencies.forEach((frequency, index) => {
         const hz = index * hzPerBin
         if (hz >= 8000) return
         const value = frequency / 255
+        const jamBand = hz < 140 ? 0 : hz < 300 ? 1 : hz < 700 ? 2 : hz < 1500 ? 3 : hz < 3500 ? 4 : 5
+        jamBandEnergy[jamBand] += value
+        jamBandBins[jamBand] += 1
         energy += value
         audibleBins += 1
         if (hz < 350) {
@@ -254,6 +260,10 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       beatEnvelope += (beatDrive - beatEnvelope) * (beatDrive > beatEnvelope ? 0.5 : 0.12)
       const sparkDrive = Math.min(1, highFlux * 11)
       sparkEnvelope += (sparkDrive - sparkEnvelope) * (sparkDrive > sparkEnvelope ? 0.62 : 0.11)
+      jamBands.forEach((value, index) => {
+        const bandSignal = axisSignal(jamBandEnergy[index] / (jamBandBins[index] || 1), index < 2 ? 0.2 : 0.12, index < 2 ? 2.2 : 2.8)
+        jamBands[index] = value + (bandSignal - value) * (bandSignal > value ? 0.34 : 0.09)
+      })
       const rhythmicSignal = Math.min(1, energyEnvelope * 0.24 + beatEnvelope * 0.76)
       displayedSignal += (rhythmicSignal - displayedSignal) * (rhythmicSignal > displayedSignal ? 0.42 : 0.14)
       const signalTarget = signalTargetRef.current
@@ -264,6 +274,10 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       signalTarget?.style.setProperty('--jam-punch', String(beatEnvelope * 10))
       signalTarget?.style.setProperty('--jam-crumble', String(midEnvelope * 5))
       signalTarget?.style.setProperty('--jam-splatter', String(sparkEnvelope * 5))
+      signalTarget?.style.setProperty('--jam-beat', String(beatEnvelope))
+      signalTarget?.style.setProperty('--jam-mid', String(midEnvelope))
+      signalTarget?.style.setProperty('--jam-spark', String(sparkEnvelope))
+      jamBands.forEach((value, index) => signalTarget?.style.setProperty(`--jam-band-${index}`, String(value)))
       signalTarget?.style.setProperty('--lab-bevel', String(sparkEnvelope * 1000))
       signalTarget?.style.setProperty('--lab-roundness', String(beatEnvelope * 1000))
       signalTarget?.style.setProperty('--lab-quad', String(beatEnvelope * 1000))
@@ -299,7 +313,7 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       active = false
       cancelAnimationFrame(frame)
       observer.disconnect()
-      for (const property of ['climate-year', 'climate-pulse', 'climate-beat', 'jam-bang', 'jam-punch', 'jam-crumble', 'jam-splatter', 'lab-bevel', 'lab-roundness', 'lab-quad', 'lab-scale']) signalTargetRef.current?.style.removeProperty(`--${property}`)
+      for (const property of ['climate-year', 'climate-pulse', 'climate-beat', 'jam-bang', 'jam-punch', 'jam-crumble', 'jam-splatter', 'jam-beat', 'jam-mid', 'jam-spark', 'jam-band-0', 'jam-band-1', 'jam-band-2', 'jam-band-3', 'jam-band-4', 'jam-band-5', 'lab-bevel', 'lab-roundness', 'lab-quad', 'lab-scale']) signalTargetRef.current?.style.removeProperty(`--${property}`)
       source?.disconnect()
       analyser?.disconnect()
       void context?.close()
