@@ -155,7 +155,7 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       context = new AudioContext()
       analyser = context.createAnalyser()
       analyser.fftSize = 512
-      analyser.smoothingTimeConstant = 0.72
+      analyser.smoothingTimeConstant = 0.5
       frequencies = new Uint8Array(analyser.frequencyBinCount)
       source = context.createMediaElementSource(audio)
       source.connect(analyser)
@@ -177,16 +177,56 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
 
     let frame = 0
     let displayedSignal = 0
+    let energyEnvelope = 0
+    let beatEnvelope = 0
+    let bassEnvelope = 0
+    let midEnvelope = 0
+    let trebleEnvelope = 0
+    let sparkEnvelope = 0
+    let rhythmicBaseline = 0
+    let spectrumReady = false
+    const previousFrequencies = new Uint8Array(frequencies.length)
     const render = (time: number) => {
       analyser?.getByteFrequencyData(frequencies)
       let energy = 0
       let audibleBins = 0
+      let rhythmicEnergy = 0
+      let rhythmicBins = 0
+      let midEnergy = 0
+      let midBins = 0
+      let trebleEnergy = 0
+      let trebleBins = 0
+      let spectralFlux = 0
+      let fluxBins = 0
+      let highFlux = 0
+      let highFluxBins = 0
       frequencies.forEach((frequency, index) => {
         const hz = index * hzPerBin
         if (hz >= 8000) return
-        energy += frequency / 255
+        const value = frequency / 255
+        energy += value
         audibleBins += 1
+        if (hz < 350) {
+          rhythmicEnergy += value
+          rhythmicBins += 1
+        } else if (hz < 2000) {
+          midEnergy += value
+          midBins += 1
+        } else {
+          trebleEnergy += value
+          trebleBins += 1
+        }
+        if (spectrumReady && hz >= 45 && hz < 2000) {
+          spectralFlux += Math.max(0, frequency - previousFrequencies[index]) / 255
+          fluxBins += 1
+        }
+        if (spectrumReady && hz >= 2000) {
+          highFlux += Math.max(0, frequency - previousFrequencies[index]) / 255
+          highFluxBins += 1
+        }
+        previousFrequencies[index] = frequency
       })
+      spectrumReady = true
       barMeshes.forEach((bar, index) => {
         const value = frequencies[index % frequencies.length] / 255
         const height = 0.18 + value * 3.8
@@ -194,12 +234,40 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
         bar.position.y = (bar.scale.y - 1) * 0.5
       })
       energy /= audibleBins || 1
+      rhythmicEnergy /= rhythmicBins || 1
+      midEnergy /= midBins || 1
+      trebleEnergy /= trebleBins || 1
+      spectralFlux /= fluxBins || 1
+      highFlux /= highFluxBins || 1
       const axisSignal = (value: number, floor: number, gain: number) => Math.min(1, Math.max(0, (value - floor) * gain))
       const fullSignal = axisSignal(energy, 0.35, 3)
-      displayedSignal += (fullSignal - displayedSignal) * 0.045
+      energyEnvelope += (fullSignal - energyEnvelope) * 0.025
+      const bassSignal = axisSignal(rhythmicEnergy, 0.28, 1.7)
+      const midSignal = axisSignal(midEnergy, 0.3, 1.8)
+      const trebleSignal = axisSignal(trebleEnergy, 0.22, 2.1)
+      bassEnvelope += (bassSignal - bassEnvelope) * 0.08
+      midEnvelope += (midSignal - midEnvelope) * 0.055
+      trebleEnvelope += (trebleSignal - trebleEnvelope) * 0.09
+      if (!rhythmicBaseline) rhythmicBaseline = rhythmicEnergy
+      rhythmicBaseline += (rhythmicEnergy - rhythmicBaseline) * (rhythmicEnergy > rhythmicBaseline ? 0.008 : 0.04)
+      const beatDrive = Math.min(1, Math.max(0, (rhythmicEnergy - rhythmicBaseline - 0.02) * 3 + spectralFlux * 5.5))
+      beatEnvelope += (beatDrive - beatEnvelope) * (beatDrive > beatEnvelope ? 0.5 : 0.12)
+      const sparkDrive = Math.min(1, highFlux * 11)
+      sparkEnvelope += (sparkDrive - sparkEnvelope) * (sparkDrive > sparkEnvelope ? 0.62 : 0.11)
+      const rhythmicSignal = Math.min(1, energyEnvelope * 0.24 + beatEnvelope * 0.76)
+      displayedSignal += (rhythmicSignal - displayedSignal) * (rhythmicSignal > displayedSignal ? 0.42 : 0.14)
       const signalTarget = signalTargetRef.current
       signalTarget?.style.setProperty('--climate-year', String(1979 + displayedSignal * 71))
-      signalTarget?.style.setProperty('--climate-pulse', String(1 + displayedSignal * 0.075))
+      signalTarget?.style.setProperty('--climate-pulse', String(1 + energyEnvelope * 0.025 + beatEnvelope * 0.055))
+      signalTarget?.style.setProperty('--climate-beat', String(beatEnvelope))
+      signalTarget?.style.setProperty('--jam-bang', String(2.5 + energyEnvelope * 4 + beatEnvelope * 3.5))
+      signalTarget?.style.setProperty('--jam-punch', String(beatEnvelope * 10))
+      signalTarget?.style.setProperty('--jam-crumble', String(midEnvelope * 5))
+      signalTarget?.style.setProperty('--jam-splatter', String(sparkEnvelope * 5))
+      signalTarget?.style.setProperty('--lab-bevel', String(sparkEnvelope * 1000))
+      signalTarget?.style.setProperty('--lab-roundness', String(beatEnvelope * 1000))
+      signalTarget?.style.setProperty('--lab-quad', String(beatEnvelope * 1000))
+      signalTarget?.style.setProperty('--lab-scale', String(180 + bassEnvelope * 820))
       const pulse = 1 + energy * 0.48 + Math.sin(time * 0.0014) * 0.025
       barMaterials.forEach((material, index) => {
         material.color.lerp(barTargetColors[index], 0.045)
@@ -231,7 +299,7 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       active = false
       cancelAnimationFrame(frame)
       observer.disconnect()
-      for (const axis of ['year', 'pulse']) signalTargetRef.current?.style.removeProperty(`--climate-${axis}`)
+      for (const property of ['climate-year', 'climate-pulse', 'climate-beat', 'jam-bang', 'jam-punch', 'jam-crumble', 'jam-splatter', 'lab-bevel', 'lab-roundness', 'lab-quad', 'lab-scale']) signalTargetRef.current?.style.removeProperty(`--${property}`)
       source?.disconnect()
       analyser?.disconnect()
       void context?.close()
