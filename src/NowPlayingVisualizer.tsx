@@ -337,6 +337,7 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
     let overburnEnvelope = 0
     let overburnRelease = 0
     let overburnWasActive = false
+    let summonEnvelope = 0
     let lastRenderTime = 0
     let stageRotationOffset = 0
     let modelFlowPhase = 0
@@ -466,6 +467,11 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       }
       overburnWasActive = overburnActive
       const overburnLevel = Math.max(overburnEnvelope, overburnRelease)
+      const summonActive = signalTarget?.hasAttribute('data-summoned') ?? false
+      summonEnvelope = summonActive
+        ? summonEnvelope + (1 - summonEnvelope) * (1 - Math.pow(0.9, frameFactor))
+        : summonEnvelope * Math.pow(0.78, frameFactor)
+      const summonLevel = summonEnvelope
       signalTarget?.style.setProperty('--climate-year', String(1979 + displayedSignal * 71))
       signalTarget?.style.setProperty('--climate-pulse', String(1 + energyEnvelope * 0.025 + displayedSignal * 0.055))
       signalTarget?.style.setProperty('--climate-beat', String(displayedSignal))
@@ -530,17 +536,18 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
         0.8 + Math.sin(angle * 1.6) * (1.15 + bassEnvelope * 0.5),
         1.4 + Math.cos(angle - Math.PI / 2) * 0.9,
       )
-      jet.visible = overburnLevel > 0.015
+      jet.visible = summonLevel > 0.015
+      jetFillLight.visible = jet.visible
       if (jet.visible) {
-        const jetOpacity = Math.min(1, overburnLevel * 1.7)
+        const jetOpacity = Math.min(1, summonLevel * 1.7)
         jetMaterials.forEach(material => {
           material.opacity = jetOpacity
           material.emissive.copy(material.color).multiplyScalar(hdrOutput ? 0.12 : 0.07)
-          material.emissiveIntensity = (hdrOutput ? 1.15 : 0.65) + overburnLevel * (hdrOutput ? 1.7 : 0.7)
+          material.emissiveIntensity = (hdrOutput ? 1.15 : 0.65) + summonLevel * (hdrOutput ? 1.7 : 0.7)
         })
         setJetPosition(jet.position, modelFlowPhase)
         jetFillLight.position.copy(jet.position).add(jetLightOffset)
-        jetFillLight.intensity = (hdrOutput ? 22 : 14) * overburnLevel
+        jetFillLight.intensity = (hdrOutput ? 22 : 14) * summonLevel
         setJetPosition(jetLookTarget, modelFlowPhase + 0.03)
         jet.lookAt(jetLookTarget)
         jet.rotateZ(Math.sin(jetAngle) * (0.24 + midEnvelope * 0.22))
@@ -549,15 +556,15 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       overburnCreatures.forEach((creature, index) => {
         const flowMultiplier = index === 0 ? 0.48 : index === 1 ? 0.34 : 0.72
         const angle = modelFlowPhase * flowMultiplier + index * Math.PI * 0.72
-        creature.group.visible = overburnLevel > 0.025 && Boolean(creature.model)
+        creature.group.visible = summonLevel > 0.025 && Boolean(creature.model)
         creature.light.visible = creature.group.visible
         if (!creature.group.visible) return
-        const opacity = Math.min(1, overburnLevel * 1.65)
+        const opacity = Math.min(1, summonLevel * 1.65)
         creature.materials.forEach(material => {
           material.opacity = opacity
           if (material instanceof THREE.MeshStandardMaterial) {
             material.emissive.copy(creature.light.color).multiplyScalar(hdrOutput ? (index === 1 ? 1.15 : 0.72) : (index === 1 ? 0.72 : 0.42))
-            material.emissiveIntensity = (hdrOutput ? (index === 1 ? 3.4 : 2.4) : (index === 1 ? 2.1 : 1.25)) + overburnLevel * (hdrOutput ? 2.2 : 0.85) + trebleEnvelope * 0.55
+            material.emissiveIntensity = (hdrOutput ? (index === 1 ? 3.4 : 2.4) : (index === 1 ? 2.1 : 1.25)) + summonLevel * (hdrOutput ? 2.2 : 0.85) + trebleEnvelope * 0.55
             material.roughness = Math.min(material.roughness, 0.48)
           }
         })
@@ -567,7 +574,7 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
           index === 0 ? 3.4 + Math.sin(angle) * 0.35 : index === 1 ? 3.1 + Math.cos(angle) * 0.4 : 4.6 + Math.cos(angle) * 0.35,
         )
         creature.light.position.copy(creature.group.position).add(jetLightOffset)
-        creature.light.intensity = (hdrOutput ? 18 : 11) * (index === 1 ? 1.45 : 1) * overburnLevel * (0.8 + trebleEnvelope * 0.4)
+        creature.light.intensity = (hdrOutput ? 18 : 11) * (index === 1 ? 1.45 : 1) * summonLevel * (0.8 + trebleEnvelope * 0.4)
         if (index === 0) {
           creature.group.rotation.set(0.08 * Math.sin(angle), -angle + Math.PI / 2, -Math.cos(angle) * (0.06 + bassEnvelope * 0.08))
         } else if (index === 1) {
