@@ -1486,7 +1486,7 @@ function LibraryView({ library, acquisitions, playTrack }: { library: LibraryMod
   )
 }
 
-function PlayerBar({ selection, close }: { selection: PlaybackSelection; close: () => void }) {
+function PlayerBar({ selection, close, playNext }: { selection: PlaybackSelection; close: () => void; playNext: () => void }) {
   const { track } = selection
   const audioRef = useRef<HTMLAudioElement>(null)
   const [failed, setFailed] = useState(false)
@@ -1535,12 +1535,13 @@ function PlayerBar({ selection, close }: { selection: PlaybackSelection; close: 
       if (!audio) return
       audio.pause(); audio.currentTime = 0
     })
+    setAction('nexttrack', playNext)
     return () => {
-      for (const action of ['play', 'pause', 'seekbackward', 'seekforward', 'seekto', 'stop'] as const) setAction(action, null)
+      for (const action of ['play', 'pause', 'seekbackward', 'seekforward', 'seekto', 'stop', 'nexttrack'] as const) setAction(action, null)
       mediaSession.metadata = null
       mediaSession.playbackState = 'none'
     }
-  }, [selection.requestId, track.title, trackArtist, track.album, artworkUrl])
+  }, [selection.requestId, track.title, trackArtist, track.album, artworkUrl, playNext])
   useEffect(() => {
     if (!('mediaSession' in navigator)) return
     navigator.mediaSession.playbackState = playing ? 'playing' : 'paused'
@@ -1595,7 +1596,7 @@ function PlayerBar({ selection, close }: { selection: PlaybackSelection; close: 
       <button className="player-control" type="button" aria-label={muted ? 'Unmute' : 'Mute'} onClick={toggleMute}>{muted || volume === 0 ? <VolumeX size={14} /> : <Volume2 size={14} />}</button>
       <input className="player-volume" type="range" min="0" max="1" step="0.05" value={muted ? 0 : volume} aria-label="Volume" onChange={event => changeVolume(Number(event.currentTarget.value))} />
     </div>
-    <audio ref={audioRef} key={selection.requestId} autoPlay preload="metadata" src={`/api/library/songs/${track.id}/stream`} onLoadStart={() => setLoading(true)} onLoadedMetadata={event => { event.currentTarget.volume = volume; event.currentTarget.muted = muted }} onWaiting={() => setLoading(true)} onCanPlay={() => setLoading(false)} onPlaying={() => { setPlaying(true); setLoading(false) }} onPause={() => setPlaying(false)} onTimeUpdate={event => setCurrentTime(event.currentTarget.currentTime)} onDurationChange={event => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)} onVolumeChange={event => { setVolume(event.currentTarget.volume); setMuted(event.currentTarget.muted) }} onError={() => { setFailed(true); setLoading(false); setPlaying(false) }} />
+    <audio ref={audioRef} key={selection.requestId} autoPlay preload="metadata" src={`/api/library/songs/${track.id}/stream`} onLoadStart={() => setLoading(true)} onLoadedMetadata={event => { event.currentTarget.volume = volume; event.currentTarget.muted = muted }} onWaiting={() => setLoading(true)} onCanPlay={() => setLoading(false)} onPlaying={() => { setPlaying(true); setLoading(false) }} onPause={() => setPlaying(false)} onTimeUpdate={event => setCurrentTime(event.currentTarget.currentTime)} onDurationChange={event => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)} onVolumeChange={event => { setVolume(event.currentTarget.volume); setMuted(event.currentTarget.muted) }} onEnded={playNext} onError={() => { setFailed(true); setLoading(false); setPlaying(false) }} />
     <button className="player-close" type="button" aria-label="Close player" title="Close player" onClick={close}><X size={14} /></button>
   </section>
 }
@@ -2084,6 +2085,7 @@ function App() {
   const [selectedJourneyId, setSelectedJourneyId] = useState<string | null>(null)
   const [playback, setPlayback] = useState<PlaybackSelection | null>(null)
   const playbackRequest = useRef(0)
+  const albumQueues = useRef(new Map<string, Promise<PlayerTrack[]>>())
   const acquisitions = useAcquisitions()
   const importOperations = useBeetsImportOperations(acquisitions.refresh)
   const beets = useBeetsReadModel(acquisitions.items, acquisitions.refresh)
@@ -2104,6 +2106,47 @@ function App() {
     return state !== 'imported' && state !== 'deleted'
   }).length
   const activeActivity = acquisitions.items.filter(item => !['completed', 'failed', 'cancelled'].includes(item.state)).length
+  const playTrack = (track: PlayerTrack) => {
+    setPlayback({ track, requestId: ++playbackRequest.current })
+    if (track.albumId) void albumQueue(track.albumId, track)
+  }
+  const albumQueue = (albumId: string, seed: PlayerTrack) => {
+    const existing = albumQueues.current.get(albumId)
+    if (existing) return existing
+    const pending = (async () => {
+      const tracks: PlayerTrack[] = []
+      let cursor: string | undefined
+      do {
+        const query = new URLSearchParams({ limit: '100' })
+        if (cursor) query.set('cursor', cursor)
+        const page = await getJson<LibraryPage<LibraryTrack>>(`/api/library/albums/${albumId}/tracks?${query}`)
+        tracks.push(...page.items.flatMap(item => item.id ? [{
+          ...item,
+          id: item.id,
+          title: item.title ?? 'Untitled track',
+          albumId,
+          album: item.album ?? seed.album,
+          albumArtist: item.albumArtist ?? seed.albumArtist,
+        }] : []))
+        cursor = page.nextCursor
+      } while (cursor)
+      return tracks
+    })()
+    albumQueues.current.set(albumId, pending)
+    void pending.catch(() => albumQueues.current.delete(albumId))
+    return pending
+  }
+  const playNext = async () => {
+    const current = playback
+    if (!current?.track.albumId) return
+    try {
+      const queue = await albumQueue(current.track.albumId, current.track)
+      const currentIndex = queue.findIndex(track => track.id === current.track.id)
+      const next = queue[currentIndex + 1]
+      if (!next) return
+      setPlayback(latest => latest?.requestId === current.requestId ? { track: next, requestId: ++playbackRequest.current } : latest)
+    } catch { /* Leave the completed track visible when its album queue is unavailable. */ }
+  }
 
   return (
     <>
@@ -2113,12 +2156,12 @@ function App() {
         <Sidebar view={view} setView={navigate} library={library} acquisitions={acquisitions} />
         <main className={view === 'library' ? 'library-main' : undefined}>
           <HabitatNavigator view={view} preview={sceneZone} setPreview={setSceneZone} navigate={navigate} library={library} acquisitions={acquisitions} inboxCount={inboxCount} />
-          {view === 'library' && <LibraryView library={library} acquisitions={acquisitions} playTrack={track => setPlayback({ track, requestId: ++playbackRequest.current })} />}
+          {view === 'library' && <LibraryView library={library} acquisitions={acquisitions} playTrack={playTrack} />}
           {view === 'imports' && <ImportsView beets={beets} />}
           {view === 'wanted' && <WantedView acquisitions={acquisitions} selectedJourneyId={selectedJourneyId} openJourney={openJourney} closeJourney={() => setSelectedJourneyId(null)} beets={beets} library={library} setView={navigate} />}
           {view === 'activity' && <ActivityView acquisitions={acquisitions} imports={importOperations} openJourney={openJourney} sectionNumber={acquisitions.configured ? '04' : '03'} />}
         </main>
-        {playback && <PlayerBar selection={playback} close={() => setPlayback(null)} />}
+        {playback && <PlayerBar selection={playback} playNext={() => { void playNext() }} close={() => setPlayback(null)} />}
       </div>
     </>
   )
