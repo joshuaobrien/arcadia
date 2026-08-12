@@ -2,7 +2,6 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Activity, ArrowLeft, Bookmark, Check, Cloud, Disc3, Grid2X2, LibraryBig, ListMusic, PackageOpen, Pause, Play, Radio, RefreshCw, Search, ShieldCheck, UserRound, Volume2, VolumeX, X } from 'lucide-react'
-import type { HabitatZone } from './EcoScene.js'
 import './styles.css'
 
 const EcoScene = lazy(() => import('./EcoScene.js'))
@@ -297,43 +296,6 @@ interface MusicSearchResponse {
 type LibrarySection = 'albums' | 'artists' | 'songs'
 
 type View = 'library' | 'imports' | 'wanted' | 'activity'
-
-function HabitatNavigator({ view, preview, setPreview, navigate, library, acquisitions, inboxCount }: {
-  view: View
-  preview: HabitatZone
-  setPreview: (zone: HabitatZone) => void
-  navigate: (view: View) => void
-  library: LibraryModel
-  acquisitions: AcquisitionsModel
-  inboxCount: number
-}) {
-  const incoming = acquisitions.items.filter(item => !['completed', 'failed', 'cancelled'].includes(item.state)).length
-  const nodes: { id: HabitatZone; label: string; detail: string; count: number | string }[] = [
-    { id: 'library', label: 'Collection', detail: library.section, count: library.page?.total ?? '—' },
-    { id: 'wanted', label: 'Incoming', detail: 'acquiring', count: incoming },
-    { id: 'imports', label: 'Inbox', detail: 'matching', count: inboxCount },
-    { id: 'activity', label: 'History', detail: 'archive', count: acquisitions.items.length },
-  ]
-
-  return <nav className="habitat-nav" aria-label="Collection habitat" onPointerLeave={() => setPreview(view)}>
-    <header><span>COLLECTION HABITAT</span><small>navigate the living archive</small></header>
-    <div className="habitat-route">
-      {nodes.map((node, index) => <button
-        key={node.id}
-        className={`${view === node.id ? 'active ' : ''}${preview === node.id ? 'focused' : ''}`}
-        onPointerEnter={() => setPreview(node.id)}
-        onFocus={() => setPreview(node.id)}
-        onClick={() => navigate(node.id)}
-        aria-current={view === node.id ? 'page' : undefined}
-      >
-        <i><span>{String(index + 1).padStart(2, '0')}</span></i>
-        <strong>{node.label}</strong>
-        <small>{node.detail}</small>
-        <em>{node.count}</em>
-      </button>)}
-    </div>
-  </nav>
-}
 
 async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   const response = await fetch(path, { signal })
@@ -1443,7 +1405,7 @@ function LibraryView({ library, acquisitions, playTrack }: { library: LibraryMod
                 aria-label="Search albums, artists, and songs"
                 value={library.term}
                 onChange={event => library.setTerm(event.target.value)}
-                placeholder="search your library or find any album"
+                placeholder="search music"
               />
               {library.activeTerm && <button className="button" type="button" onClick={library.clearSearch}>Clear</button>}
               <button className="button primary" disabled={library.loading}>Search</button>
@@ -2081,7 +2043,6 @@ function WantedView({ acquisitions, selectedJourneyId, openJourney, closeJourney
 
 function App() {
   const [view, setView] = useState<View>('library')
-  const [sceneZone, setSceneZone] = useState<HabitatZone>('library')
   const [selectedJourneyId, setSelectedJourneyId] = useState<string | null>(null)
   const [playback, setPlayback] = useState<PlaybackSelection | null>(null)
   const playbackRequest = useRef(0)
@@ -2094,17 +2055,11 @@ function App() {
     if (next !== 'library') library.cancelPending()
     setSelectedJourneyId(null)
     setView(next)
-    setSceneZone(next)
   }
   const openJourney = (id: string) => {
     setSelectedJourneyId(id)
     setView('wanted')
-    setSceneZone('wanted')
   }
-  const inboxCount = beets.folders.flatMap(root => collectStagedAlbums(root)).filter(folder => {
-    const state = currentFolderStatus(folder, beets.folderStatuses)
-    return state !== 'imported' && state !== 'deleted'
-  }).length
   const activeActivity = acquisitions.items.filter(item => !['completed', 'failed', 'cancelled'].includes(item.state)).length
   const playTrack = (track: PlayerTrack) => {
     setPlayback({ track, requestId: ++playbackRequest.current })
@@ -2150,12 +2105,10 @@ function App() {
 
   return (
     <>
-      <Suspense fallback={null}><EcoScene zone={sceneZone} section={library.section} activity={activeActivity} playing={Boolean(playback)} /></Suspense>
-      <div className="eco-telemetry" aria-hidden="true"><span>NEEDLE ECOLOGY / ZONE 01</span><span>CATALOG HABITAT · LIVE</span></div>
+      <Suspense fallback={null}><EcoScene zone={view} section={library.section} activity={activeActivity} playing={Boolean(playback)} /></Suspense>
       <div className={`app-shell ${playback ? 'has-player' : ''}`}>
         <Sidebar view={view} setView={navigate} library={library} acquisitions={acquisitions} />
         <main className={view === 'library' ? 'library-main' : undefined}>
-          <HabitatNavigator view={view} preview={sceneZone} setPreview={setSceneZone} navigate={navigate} library={library} acquisitions={acquisitions} inboxCount={inboxCount} />
           {view === 'library' && <LibraryView library={library} acquisitions={acquisitions} playTrack={playTrack} />}
           {view === 'imports' && <ImportsView beets={beets} />}
           {view === 'wanted' && <WantedView acquisitions={acquisitions} selectedJourneyId={selectedJourneyId} openJourney={openJourney} closeJourney={() => setSelectedJourneyId(null)} beets={beets} library={library} setView={navigate} />}

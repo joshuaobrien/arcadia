@@ -129,28 +129,6 @@ export default function EcoScene({ zone, section, activity, playing }: EcoSceneP
     const core = new THREE.Mesh(coreGeometry, coreMaterial)
     orbitalGroup.add(core)
 
-    const routeGroup = new THREE.Group()
-    routeGroup.position.set(0, -0.35, -0.4)
-    scene.add(routeGroup)
-    const routePositions = [
-      new THREE.Vector3(-4.2, 0, 0),
-      new THREE.Vector3(-1.4, 0.45, -0.4),
-      new THREE.Vector3(1.3, 0.1, 0.15),
-      new THREE.Vector3(4.2, 0.65, -0.5),
-    ]
-    const routeGeometry = new THREE.BufferGeometry().setFromPoints(routePositions)
-    const routeMaterial = new THREE.LineBasicMaterial({ color: 0x83cdb7, transparent: true, opacity: 0.3 })
-    const route = new THREE.Line(routeGeometry, routeMaterial)
-    routeGroup.add(route)
-    const nodeGeometry = new THREE.OctahedronGeometry(0.16, 0)
-    const nodeMaterials = (['library', 'wanted', 'imports', 'activity'] as HabitatZone[]).map(() => new THREE.MeshStandardMaterial({ color: 0x83cdb7, emissive: 0x183d34, emissiveIntensity: 0.4, flatShading: true }))
-    const routeNodes = nodeMaterials.map((material, index) => {
-      const node = new THREE.Mesh(nodeGeometry, material)
-      node.position.copy(routePositions[index])
-      routeGroup.add(node)
-      return node
-    })
-
     const particleGeometry = new THREE.BufferGeometry()
     const particlePositions = new Float32Array(90 * 3)
     for (let index = 0; index < 90; index += 1) {
@@ -190,15 +168,6 @@ export default function EcoScene({ zone, section, activity, playing }: EcoSceneP
       orbitalGroup.position.x += (zonePosition[0] - orbitalGroup.position.x) * 0.025
       orbitalGroup.position.y += (zonePosition[1] - orbitalGroup.position.y) * 0.025
       orbitalGroup.position.z += (zonePosition[2] - orbitalGroup.position.z) * 0.025
-      const zoneIndex = ['library', 'wanted', 'imports', 'activity'].indexOf(habitat.zone)
-      routeNodes.forEach((node, index) => {
-        const active = index === zoneIndex
-        const targetScale = active ? 2.1 : 1
-        const nextScale = node.scale.x + (targetScale - node.scale.x) * 0.08
-        node.scale.setScalar(nextScale)
-        node.rotation.y += delta * (active ? 1.2 : 0.25)
-        nodeMaterials[index].emissiveIntensity = active ? 1.8 : 0.35
-      })
       const pulse = habitat.playing || habitat.activity > 0 ? 1 + Math.sin(time * 0.004) * 0.09 : 1
       core.scale.setScalar(pulse)
       coreMaterial.emissiveIntensity = habitat.playing ? 1.8 : habitat.activity > 0 ? 1.15 : 0.7
@@ -263,10 +232,6 @@ export default function EcoScene({ zone, section, activity, playing }: EcoSceneP
       orbitMaterial.dispose()
       coreGeometry.dispose()
       coreMaterial.dispose()
-      routeGeometry.dispose()
-      routeMaterial.dispose()
-      nodeGeometry.dispose()
-      nodeMaterials.forEach(material => material.dispose())
       ;(terrain.material as THREE.Material).dispose()
       particleGeometry.dispose()
       particleMaterial.dispose()
