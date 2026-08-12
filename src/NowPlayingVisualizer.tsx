@@ -222,6 +222,42 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       jetModel = aircraft
     }).catch(() => { /* OVERBURN remains functional if the decorative model cannot load. */ })
 
+    const overburnCreatures = [
+      { url: '/models/overburn/frog.glb', size: 1.05, rotation: new THREE.Euler(0, Math.PI / 2, 0) },
+      { url: '/models/overburn/wizard-hat.glb', size: 0.9, rotation: new THREE.Euler(-0.18, 0, 0.12) },
+      { url: '/models/overburn/fish.glb', size: 1.45, rotation: new THREE.Euler(0, Math.PI / 2, 0) },
+    ].map(config => ({ ...config, group: new THREE.Group(), model: undefined as THREE.Group | undefined, materials: new Set<THREE.Material>() }))
+    overburnCreatures.forEach((creature, index) => {
+      creature.group.visible = false
+      scene.add(creature.group)
+      void new GLTFLoader().loadAsync(creature.url).then(({ scene: model }) => {
+        if (!active) return
+        model.rotation.copy(creature.rotation)
+        model.updateMatrixWorld(true)
+        const bounds = new THREE.Box3().setFromObject(model)
+        const size = bounds.getSize(new THREE.Vector3())
+        model.scale.setScalar(creature.size / Math.max(size.x, size.y, size.z))
+        model.updateMatrixWorld(true)
+        bounds.setFromObject(model)
+        model.position.sub(bounds.getCenter(new THREE.Vector3()))
+        model.traverse(child => {
+          if (!(child instanceof THREE.Mesh)) return
+          const materials = Array.isArray(child.material) ? child.material : [child.material]
+          const clones = materials.map(material => {
+            const clone = material.clone()
+            clone.transparent = true
+            clone.opacity = 0
+            creature.materials.add(clone)
+            return clone
+          })
+          child.material = Array.isArray(child.material) ? clones : clones[0]
+        })
+        creature.group.add(model)
+        creature.model = model
+      }).catch(() => { /* Missing decorative models do not affect playback or OVERBURN. */ })
+      creature.group.renderOrder = index + 1
+    })
+
     const targetPalette: VisualizerPalette = {
       primary: new THREE.Color(0x8fd8bf),
       secondary: new THREE.Color(0x695da3),
@@ -504,6 +540,28 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
         jet.rotateZ(Math.sin(jetAngle) * 0.42)
         jet.scale.setScalar(1 + beatEnvelope * 0.025)
       }
+      overburnCreatures.forEach((creature, index) => {
+        const orbitAge = jetFlightAge + index * 1900
+        const speed = index === 2 ? 0.00042 : 0.00028 + index * 0.000035
+        const angle = orbitAge * speed + index * Math.PI * 0.72
+        creature.group.visible = overburnLevel > 0.025 && Boolean(creature.model)
+        if (!creature.group.visible) return
+        const opacity = Math.min(1, overburnLevel * 1.65)
+        creature.materials.forEach(material => { material.opacity = opacity })
+        creature.group.position.set(
+          Math.cos(angle) * (index === 0 ? 2.8 : index === 1 ? 2.15 : 3.35),
+          index === 0 ? -0.35 + Math.sin(angle * 1.4) * 0.5 : index === 1 ? 1.4 + Math.sin(angle) * 0.75 : 0.35 + Math.sin(angle * 1.8) * 1.05,
+          index === 0 ? 2.7 + Math.sin(angle) * 0.45 : index === 1 ? 1.9 + Math.cos(angle) * 0.55 : 1.1 + Math.cos(angle) * 0.8,
+        )
+        if (index === 0) {
+          creature.group.rotation.set(0.08 * Math.sin(angle), -angle + Math.PI / 2, -0.08 * Math.cos(angle))
+        } else if (index === 1) {
+          creature.group.rotation.set(-0.14 + Math.sin(angle) * 0.08, angle * 0.38, 0.16 * Math.sin(angle * 1.3))
+        } else {
+          creature.group.rotation.set(Math.sin(angle * 1.8) * 0.08, -angle, Math.sin(angle) * 0.18)
+          creature.group.scale.set(1, 1, 1 + Math.sin(time * 0.004) * 0.06)
+        }
+      })
       core.scale.setScalar(pulse)
       core.rotation.x = time * 0.00008
       core.rotation.y = time * 0.00013
@@ -558,6 +616,12 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
         const materials = Array.isArray(child.material) ? child.material : [child.material]
         materials.forEach(material => material.dispose())
       })
+      overburnCreatures.forEach(creature => creature.model?.traverse(child => {
+        if (!(child instanceof THREE.Mesh)) return
+        child.geometry.dispose()
+        const materials = Array.isArray(child.material) ? child.material : [child.material]
+        materials.forEach(material => material.dispose())
+      }))
       jetFillLight.dispose()
       renderer.dispose()
       if (renderer instanceof THREE.WebGLRenderer) renderer.forceContextLoss()
