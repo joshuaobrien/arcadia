@@ -1490,7 +1490,7 @@ function NowPlayingView({ selection, audioRef, open, close }: { selection: Playb
   const [artwork, setArtwork] = useState(Boolean(track.albumId))
   useEffect(() => setArtwork(Boolean(track.albumId)), [track.albumId])
   return <section ref={viewRef} className={`now-playing-view ${open ? 'open' : ''}`} aria-hidden={!open} aria-label="Now playing visualizer">
-    <Suspense fallback={null}><NowPlayingVisualizer audioRef={audioRef} signalTargetRef={viewRef} selectionKey={selection.requestId} /></Suspense>
+    <Suspense fallback={null}><NowPlayingVisualizer audioRef={audioRef} signalTargetRef={viewRef} selectionKey={selection.requestId} artworkUrl={track.albumId ? `/api/library/albums/${track.albumId}/artwork` : undefined} /></Suspense>
     <div className="now-playing-shade" />
     <button className="now-playing-close" type="button" onClick={close}><X size={16} /> Back to library</button>
     <div className="now-playing-specimen">
