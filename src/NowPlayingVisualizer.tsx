@@ -172,12 +172,31 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       const aircraft = new THREE.Group()
       aircraft.add(loadedJet)
       loadedJet.rotation.y = -Math.PI / 2
+      const hiddenJetParts = [
+        'mm_f14-fx', 'mm_f14-lights', 'mm_strobe', 'mm_stores-model', 'mm_external-lights',
+        'convexhull', 'UC-R', 'UC-L', 'UC-N', 'grip', 'shoot-lights', 'lock-shoot-lights', 'lock-lights',
+      ]
+      hiddenJetParts.forEach(name => { const part = loadedJet.getObjectByName(name); if (part) part.visible = false })
+      loadedJet.traverse(child => {
+        if (/^(gear-indexer|Ladder|LoSpdBrkJack|UpSpdBrkJack|NozzlePlug|RefuelProbe$|InNozzle[LR]Open)/.test(child.name)) child.visible = false
+      })
+      const bounds = new THREE.Box3()
+      const meshBounds = new THREE.Box3()
+      const updateVisibleBounds = () => {
+        bounds.makeEmpty()
+        loadedJet.traverse(child => {
+          if (!(child instanceof THREE.Mesh) || !child.visible) return
+          for (let parent = child.parent; parent && parent !== loadedJet; parent = parent.parent) if (!parent.visible) return
+          if (!child.geometry.boundingBox) child.geometry.computeBoundingBox()
+          if (child.geometry.boundingBox) bounds.union(meshBounds.copy(child.geometry.boundingBox).applyMatrix4(child.matrixWorld))
+        })
+      }
       loadedJet.updateMatrixWorld(true)
-      const bounds = new THREE.Box3().setFromObject(loadedJet)
+      updateVisibleBounds()
       const size = bounds.getSize(new THREE.Vector3())
       loadedJet.scale.setScalar(2.4 / Math.max(size.x, size.y, size.z))
       loadedJet.updateMatrixWorld(true)
-      bounds.setFromObject(loadedJet)
+      updateVisibleBounds()
       loadedJet.position.sub(bounds.getCenter(new THREE.Vector3()))
       loadedJet.traverse(child => {
         if (!(child instanceof THREE.Mesh)) return
