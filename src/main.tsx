@@ -240,6 +240,16 @@ interface SharedTrackResponse {
   createdAt: string
 }
 
+interface SharedAlbumTrack extends Pick<PlayerTrack, 'title' | 'artists' | 'album' | 'albumArtist' | 'trackNumber' | 'discNumber' | 'durationSeconds'> {
+  key: string
+}
+
+interface SharedAlbumResponse {
+  album: { title: string; albumArtist: string; year?: number; trackCount: number; hasArtwork: boolean }
+  tracks: SharedAlbumTrack[]
+  createdAt: string
+}
+
 interface TrackPlaybackControls {
   activeTrackId?: string
   activeAlbumId?: string
@@ -1128,6 +1138,7 @@ function AlbumDetailHero({ album, tracks, close, openArtist, playTrack, playback
           {playing ? <Pause size={12} fill="currentColor" /> : <Play size={12} fill="currentColor" />} {action}
         </button>}
         <button className="button" onClick={close}><ArrowLeft size={13} /> Collection</button>
+        <ShareAlbumButton album={album} />
       </div>
     </div>
   </section>
@@ -1472,7 +1483,15 @@ function SongPlayButton({ track, playback, className, size }: { track: PlayerTra
   </button>
 }
 
-function ShareTrackButton({ track, className = 'track-share' }: { track: PlayerTrack; className?: string }) {
+function ShareCapabilityButton({ endpoint, title, description, shareText, buttonLabel, inputId, className }: {
+  endpoint: string
+  title: string
+  description: string
+  shareText: string
+  buttonLabel: string
+  inputId: string
+  className: string
+}) {
   const [open, setOpen] = useState(false)
   const [link, setLink] = useState<string | null>(null)
   const [status, setStatus] = useState<'idle' | 'creating' | 'copied'>('idle')
@@ -1485,7 +1504,7 @@ function ShareTrackButton({ track, className = 'track-share' }: { track: PlayerT
     if (link) return
     setStatus('creating')
     try {
-      const response = await fetch(`/api/shares/tracks/${encodeURIComponent(track.id)}`, { method: 'POST' })
+      const response = await fetch(endpoint, { method: 'POST' })
       const body = await response.json() as { path?: string; url?: string; error?: { message?: string } }
       if (!response.ok || !body.path) throw new Error(body.error?.message ?? `Could not share track (${response.status})`)
       setLink(body.url ?? new URL(body.path, window.location.href).href)
@@ -1509,12 +1528,12 @@ function ShareTrackButton({ track, className = 'track-share' }: { track: PlayerT
   const nativeShare = async () => {
     if (!link || !navigator.share) return
     try {
-      await navigator.share({ title: track.title, text: `Listen to ${track.title}${track.artists?.length ? ` by ${track.artists.join(', ')}` : ''}`, url: link })
+      await navigator.share({ title, text: shareText, url: link })
     } catch (reason) {
       if (!(reason instanceof DOMException && reason.name === 'AbortError')) setError(errorMessage(reason))
     }
   }
-  const label = status === 'creating' ? 'Creating share link…' : `Share ${track.title}`
+  const label = status === 'creating' ? 'Creating share link…' : buttonLabel
   return <>
     <button className={className} type="button" aria-label={label} title={label} disabled={status === 'creating'} onClick={() => { void createLink() }}>
       {status === 'creating' ? <RefreshCw size={12} className="spinning" /> : <Share2 size={12} />}
@@ -1524,12 +1543,12 @@ function ShareTrackButton({ track, className = 'track-share' }: { track: PlayerT
         <button className="share-dialog-close" type="button" aria-label="Close share dialog" onClick={() => setOpen(false)}><X size={15} /></button>
         <Share2 size={22} />
         <small>PRIVATE LISTENING LINK</small>
-        <h2 id="share-dialog-title">Share “{track.title}”</h2>
-        <p>Anyone with this link can listen to this track—and nothing else in your library.</p>
+        <h2 id="share-dialog-title">Share “{title}”</h2>
+        <p>{description}</p>
         {status === 'creating' && <div className="share-dialog-loading"><RefreshCw size={15} className="spinning" /> Creating secure link…</div>}
         {link && <>
-          <label htmlFor={`share-link-${track.id}`}>Share link</label>
-          <textarea ref={linkInput} id={`share-link-${track.id}`} value={link} readOnly rows={3} onFocus={event => event.currentTarget.select()} />
+          <label htmlFor={inputId}>Share link</label>
+          <textarea ref={linkInput} id={inputId} value={link} readOnly rows={3} onFocus={event => event.currentTarget.select()} />
           <div className="share-dialog-actions">
             <button className="button primary" type="button" onClick={() => { void copyLink() }}>{status === 'copied' ? <><Check size={13} /> Copied</> : <><Share2 size={13} /> Copy link</>}</button>
             {canNativeShare && <button className="button" type="button" onClick={() => { void nativeShare() }}>Share…</button>}
@@ -1539,6 +1558,30 @@ function ShareTrackButton({ track, className = 'track-share' }: { track: PlayerT
       </section>
     </div>}
   </>
+}
+
+function ShareTrackButton({ track, className = 'track-share' }: { track: PlayerTrack; className?: string }) {
+  return <ShareCapabilityButton
+    endpoint={`/api/shares/tracks/${encodeURIComponent(track.id)}`}
+    title={track.title}
+    description="Anyone with this link can listen to this track—and nothing else in your library."
+    shareText={`Listen to ${track.title}${track.artists?.length ? ` by ${track.artists.join(', ')}` : ''}`}
+    buttonLabel={`Share ${track.title}`}
+    inputId={`share-track-${track.id}`}
+    className={className}
+  />
+}
+
+function ShareAlbumButton({ album }: { album: LibraryAlbum }) {
+  return <ShareCapabilityButton
+    endpoint={`/api/shares/albums/${encodeURIComponent(album.id)}`}
+    title={album.title}
+    description="Anyone with this link can listen to this album—and nothing else in your library."
+    shareText={`Listen to ${album.title} by ${album.albumArtist}`}
+    buttonLabel={`Share ${album.title}`}
+    inputId={`share-album-${album.id}`}
+    className="button album-share"
+  />
 }
 
 function SongRow({ track, library, playback }: { track: LibraryTrack; library: LibraryModel; playback: TrackPlaybackControls }) {
@@ -1773,7 +1816,14 @@ function NowPlayingView({ selection, audioRef, open, close }: { selection: Playb
   </section>
 }
 
-function SharedTrackControls({ audioRef, source }: { audioRef: React.RefObject<HTMLAudioElement | null>; source: string }) {
+function SharedTrackControls({ audioRef, source, autoPlay = false, onEnded, onPlaybackChange, scopeLabel = 'This link plays this track only' }: {
+  audioRef: React.RefObject<HTMLAudioElement | null>
+  source: string
+  autoPlay?: boolean
+  onEnded?: () => void
+  onPlaybackChange?: (playing: boolean) => void
+  scopeLabel?: string
+}) {
   const [failed, setFailed] = useState(false)
   const [playing, setPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
@@ -1811,9 +1861,75 @@ function SharedTrackControls({ audioRef, source }: { audioRef: React.RefObject<H
       <button className="player-control" type="button" aria-label={muted ? 'Unmute' : 'Mute'} onClick={toggleMute}>{muted || volume === 0 ? <VolumeX size={14} /> : <Volume2 size={14} />}</button>
       <input className="player-volume" type="range" min="0" max="1" step="0.05" value={muted ? 0 : volume} aria-label="Volume" onChange={event => changeVolume(Number(event.currentTarget.value))} />
     </div>
-    <audio ref={audioRef} preload="metadata" src={source} onLoadedMetadata={event => { event.currentTarget.volume = volume; event.currentTarget.muted = muted }} onPlaying={() => setPlaying(true)} onPause={() => setPlaying(false)} onTimeUpdate={event => setCurrentTime(event.currentTarget.currentTime)} onDurationChange={event => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)} onVolumeChange={event => { setVolume(event.currentTarget.volume); setMuted(event.currentTarget.muted) }} onError={() => { setFailed(true); setPlaying(false) }} />
-    <small>{failed ? 'Playback unavailable' : 'This link plays this track only'}</small>
+    <audio ref={audioRef} autoPlay={autoPlay} preload="metadata" src={source} onLoadedMetadata={event => { event.currentTarget.volume = volume; event.currentTarget.muted = muted }} onPlaying={() => { setPlaying(true); onPlaybackChange?.(true) }} onPause={() => { setPlaying(false); onPlaybackChange?.(false) }} onTimeUpdate={event => setCurrentTime(event.currentTarget.currentTime)} onDurationChange={event => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)} onVolumeChange={event => { setVolume(event.currentTarget.volume); setMuted(event.currentTarget.muted) }} onEnded={onEnded} onError={() => { setFailed(true); setPlaying(false); onPlaybackChange?.(false) }} />
+    <small>{failed ? 'Playback unavailable' : scopeLabel}</small>
   </div>
+}
+
+function SharedAlbumApp({ token }: { token: string }) {
+  const [response, setResponse] = useState<SharedAlbumResponse | null>(null)
+  const [currentIndex, setCurrentIndex] = useState(0)
+  const [started, setStarted] = useState(false)
+  const [playing, setPlaying] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const audioRef = useRef<HTMLAudioElement>(null)
+  const viewRef = useRef<HTMLElement>(null)
+  useEffect(() => {
+    void getJson<SharedAlbumResponse>(`/api/shared/albums/${encodeURIComponent(token)}`)
+      .then(value => {
+        if (!value.tracks.length) throw new Error('Shared album has no tracks')
+        setResponse(value)
+        document.title = `${value.album.title} · Needle`
+      })
+      .catch(reason => setError(errorMessage(reason)))
+  }, [token])
+  if (error) return <main className="shared-track-error"><Disc3 size={38} /><h1>This album is unavailable</h1><p>The link may be invalid or no longer available.</p></main>
+  if (!response) return <main className="shared-track-error"><Disc3 size={38} className="spinning" /><h1>Loading shared album</h1></main>
+  const current = response.tracks[currentIndex]
+  const artworkUrl = response.album.hasArtwork ? `/api/shared/albums/${encodeURIComponent(token)}/artwork` : undefined
+  const selectTrack = (index: number) => {
+    setStarted(true)
+    if (index !== currentIndex) {
+      setPlaying(false)
+      setCurrentIndex(index)
+    }
+    else {
+      const audio = audioRef.current
+      if (audio?.paused) void audio.play()
+      else audio?.pause()
+    }
+  }
+  const playNext = () => {
+    setPlaying(false)
+    if (currentIndex < response.tracks.length - 1) setCurrentIndex(index => index + 1)
+  }
+  return <section ref={viewRef} className="now-playing-view open shared-track-view shared-album-view" aria-label="Shared album player">
+    <Suspense fallback={null}><NowPlayingVisualizer audioRef={audioRef} signalTargetRef={viewRef} selectionKey={currentIndex + 1} artworkUrl={artworkUrl} /></Suspense>
+    <div className="now-playing-shade" />
+    <div className="now-playing-event-field" aria-hidden="true"><i /><b /></div>
+    <div className="shared-track-mark"><span>NEEDLE</span><small>AN ALBUM SHARED WITH YOU</small></div>
+    <div className="now-playing-specimen">
+      <div className="now-playing-cover">{artworkUrl ? <img src={artworkUrl} alt="" /> : <Disc3 size={56} />}</div>
+      <div className="now-playing-copy">
+        <small>NOW PLAYING / {currentIndex + 1} OF {response.tracks.length}</small>
+        <h1 className="reactive-title jam-title" aria-label={current.title}>
+          {Array.from(current.title).map((character, index) => <span className={`jam-glyph jam-band-${index % 6}`} aria-hidden="true" key={`${character}-${index}`}>{character === ' ' ? '\u00a0' : character}</span>)}
+        </h1>
+        <p>{current.artists?.join(', ') || response.album.albumArtist}</p>
+        <span>{response.album.title}{response.album.year ? ` · ${response.album.year}` : ''}</span>
+      </div>
+    </div>
+    <section className="shared-album-track-list" aria-label={`${response.album.title} track list`}>
+      <header><strong>{response.album.title}</strong><span>{response.album.albumArtist}</span></header>
+      <ol>{response.tracks.map((track, index) => <li key={track.key}>
+        <button className={index === currentIndex ? 'active' : ''} onClick={() => selectTrack(index)} aria-label={`${index === currentIndex && playing ? 'Pause' : 'Play'} ${track.title}`}>
+          <span>{index === currentIndex ? playing ? <Pause size={10} fill="currentColor" /> : <Play size={10} fill="currentColor" /> : track.trackNumber ?? index + 1}</span>
+          <strong>{track.title}</strong><time>{formatPlaybackTime(track.durationSeconds ?? 0)}</time>
+        </button>
+      </li>)}</ol>
+    </section>
+    <SharedTrackControls key={current.key} audioRef={audioRef} source={`/api/shared/albums/${encodeURIComponent(token)}/tracks/${encodeURIComponent(current.key)}/stream`} autoPlay={started} onEnded={playNext} onPlaybackChange={setPlaying} scopeLabel="This link plays this album only" />
+  </section>
 }
 
 function SharedTrackApp({ token }: { token: string }) {
@@ -2595,4 +2711,5 @@ function sourceWarning(sources: MusicSearchResponse['sources']): string {
 const root = document.getElementById('root')
 if (!root) throw new Error('Needle root element is missing')
 const sharedTrackMatch = /^\/share\/([A-Za-z0-9_-]{43})\/?$/.exec(window.location.pathname)
-createRoot(root).render(sharedTrackMatch ? <SharedTrackApp token={sharedTrackMatch[1]} /> : <App />)
+const sharedAlbumMatch = /^\/share\/albums\/([A-Za-z0-9_-]{43})\/?$/.exec(window.location.pathname)
+createRoot(root).render(sharedAlbumMatch ? <SharedAlbumApp token={sharedAlbumMatch[1]} /> : sharedTrackMatch ? <SharedTrackApp token={sharedTrackMatch[1]} /> : <App />)

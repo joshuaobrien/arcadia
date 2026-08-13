@@ -3,10 +3,10 @@ import { mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import type { CatalogRelease } from '../integrations/catalog.js'
-import type { LibraryCatalogTrack } from '../integrations/library-catalog.js'
+import type { LibraryAlbum, LibraryCatalogTrack } from '../integrations/library-catalog.js'
 import type { AcquisitionJob, AcquisitionState } from './acquisition.js'
 
-const SCHEMA_VERSION = 9
+const SCHEMA_VERSION = 10
 
 export type DirectSubmissionState = 'none' | 'submitting' | 'submitted' | 'submission-unknown'
 export interface DirectAcquisitionWorkflow {
@@ -86,6 +86,27 @@ interface TrackShareRow {
   created_at: string
 }
 
+export interface AlbumShareTrack {
+  key: string
+  track: LibraryCatalogTrack
+}
+
+export interface AlbumShare {
+  album: LibraryAlbum
+  tracks: readonly AlbumShareTrack[]
+  createdAt: string
+}
+
+export interface CreatedAlbumShare extends AlbumShare {
+  token: string
+}
+
+interface AlbumShareRow {
+  album_json: string
+  tracks_json: string
+  created_at: string
+}
+
 export class AcquisitionLinkConflictError extends Error {
   constructor(message: string) { super(message); this.name = 'AcquisitionLinkConflictError' }
 }
@@ -149,6 +170,28 @@ export class AcquisitionRepository {
       SELECT metadata_json, created_at FROM track_shares WHERE token_hash = ?
     `).get(trackShareHash(token)) as unknown as TrackShareRow | undefined
     return row ? { track: JSON.parse(row.metadata_json) as LibraryCatalogTrack, createdAt: row.created_at } : null
+  }
+
+  createAlbumShare(album: LibraryAlbum, tracks: readonly LibraryCatalogTrack[]): CreatedAlbumShare {
+    const token = randomBytes(32).toString('base64url')
+    const createdAt = new Date().toISOString()
+    const sharedTracks = tracks.map(track => ({ key: randomBytes(12).toString('base64url'), track }))
+    this.#database.prepare(`
+      INSERT INTO album_shares (token_hash, album_id, album_json, tracks_json, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(trackShareHash(token), album.id, JSON.stringify(album), JSON.stringify(sharedTracks), createdAt)
+    return { token, album, tracks: sharedTracks, createdAt }
+  }
+
+  getAlbumShare(token: string): AlbumShare | null {
+    const row = this.#database.prepare(`
+      SELECT album_json, tracks_json, created_at FROM album_shares WHERE token_hash = ?
+    `).get(trackShareHash(token)) as unknown as AlbumShareRow | undefined
+    return row ? {
+      album: JSON.parse(row.album_json) as LibraryAlbum,
+      tracks: JSON.parse(row.tracks_json) as AlbumShareTrack[],
+      createdAt: row.created_at,
+    } : null
   }
 
   wantRelease(release: CatalogRelease): WantReleaseResult {
@@ -419,6 +462,18 @@ export class AcquisitionRepository {
           created_at TEXT NOT NULL
         );
         PRAGMA user_version = 9;
+      `)
+    }
+    if (row.user_version < 10) {
+      this.#transaction(`
+        CREATE TABLE album_shares (
+          token_hash TEXT PRIMARY KEY,
+          album_id TEXT NOT NULL,
+          album_json TEXT NOT NULL,
+          tracks_json TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+        PRAGMA user_version = 10;
       `)
     }
   }
