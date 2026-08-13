@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400..700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Syne:wght@400;500;600;700&display=swap');
 
 @font-face { font-family: 'Climate Crisis'; src: url('./assets/fonts/ClimateCrisis-YEAR.woff2') format('woff2-variations'); font-display: swap; }
 @font-face { font-family: 'Jam'; src: url('./assets/fonts/JamRegular.ttf') format('truetype-variations'); font-display: swap; }
@@ -1038,13 +1038,13 @@ main > section { animation: habitat-enter 260ms ease-out; }
   .album-card:hover, .owned-album-card:hover, .owned-album-card:focus-within { transform: none; }
 }
 
-/* Readable type system: Fraunces carries content while Plex Mono is reserved
+/* Readable type system: Syne carries content while Plex Mono is reserved
    for operational labels and data. Reactive song titles keep their own faces. */
 :root {
-  font-family: 'Fraunces', serif;
-  --interface-font: 'Fraunces', serif;
+  font-family: 'Syne', sans-serif;
+  --interface-font: 'Syne', sans-serif;
   --label-font: 'IBM Plex Mono', monospace;
-  --music-font: 'Fraunces', serif;
+  --music-font: 'Syne', sans-serif;
 }
 
 body { font-family: var(--interface-font); font-size: 14px; font-optical-sizing: auto; line-height: 1.45; }
@@ -1110,7 +1110,7 @@ button, input, select, textarea { font-family: inherit; }
 .button, .want-button { min-height: 36px; font-size: 12px; line-height: 1.2; letter-spacing: .04em; }
 
 .search-form input { font-size: 15px; line-height: 1.4; letter-spacing: .025em; }
-.library-search code { font-size: 11px; }
+.library-search code { font-size: 12px; }
 .error-strip, .source-strip, .idle-state, .integration-state { font-size: 12px; line-height: 1.45; }
 .integration-state strong { font-size: 15px; }
 .integration-state small { font-size: 12px; line-height: 1.5; }
@@ -1151,8 +1151,8 @@ button, input, select, textarea { font-family: inherit; }
 .collection-heading h2 { font-size: 18px; line-height: 1.25; }
 .collection-heading span { font-size: 11px; }
 .album-card > strong, .album-open > strong { min-height: 40px; margin-top: 3px; font-size: 16px; line-height: 1.25; }
-.album-card > small, .album-open > small { font-size: 13px; line-height: 1.35; }
-.album-meta, .release-details { font-size: 11px; line-height: 1.35; letter-spacing: .025em; }
+.album-card > small, .album-open > small { margin-top: 6px; font-size: 13px; line-height: 1.35; }
+.album-meta, .release-details { font-size: 12px; line-height: 1.35; letter-spacing: .02em; }
 .album-play-error { font-size: 9px; }
 .artist-card strong { font-size: 16px; line-height: 1.25; }
 .artist-card small { font-size: 12px; line-height: 1.4; }
@@ -1203,7 +1203,7 @@ button, input, select, textarea { font-family: inherit; }
   .artist-detail-stats strong { font-size: 15px; }
   .album-card > strong, .album-open > strong { min-height: 34px; font-size: 14px; }
   .album-card > small, .album-open > small { font-size: 11px; }
-  .album-meta, .release-details { font-size: 11px; }
+  .album-meta, .release-details { font-size: 12px; }
 }
 
 .now-playing-view.shared-track-view { inset: 0; }
