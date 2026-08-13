@@ -23,6 +23,7 @@ The Vite interface uses port 5173 and the Fastify API uses port 8787. The produc
 - `JELLYFIN_URL` and `JELLYFIN_API_KEY` enable read-only album, track, artwork, and audio-stream access.
 - `MUSIC_LIBRARY_PATH` points at the canonical library mounted read-only in Needle.
 - `NEEDLE_DATABASE_PATH` stores durable acquisition workflows and beets operations in SQLite. Run one writer per database.
+- `NEEDLE_PUBLIC_URL` is Needle's externally reachable origin, used for durable listening links (for example `https://needle.example`). Audio and artwork paths remain relative to that origin.
 
 MusicBrainz catalog access needs no provider secret. Soulseek credentials belong to slskd and must be supplied as deployment secrets, never committed or printed.
 

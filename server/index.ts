@@ -81,6 +81,7 @@ interface BuildAppOptions {
   beets?: BeetsImportPort | null
   acquisitionRepository?: AcquisitionRepositoryPort | null
   staticRoot?: string | null
+  publicUrl?: string | null
   directAcquisition?: DirectAcquisitionService | null
   slskd?: SlskdAdapter | null
 }
@@ -240,6 +241,7 @@ export function buildApp(options: BuildAppOptions = {}) {
   const staticRoot = options.staticRoot === undefined
     ? process.env.NODE_ENV === 'production' ? resolve(serverDirectory, '../dist') : null
     : options.staticRoot
+  const publicUrl = configuredPublicUrl(options.publicUrl === undefined ? process.env.NEEDLE_PUBLIC_URL : options.publicUrl)
   const submittedBeetsPreviews = new Set<string>()
   const submittedBeetsImports = new Set<string>()
   const beetsPreviewSessions = new Map<string, { session: BeetsPreviewSession, cachedAt: number }>()
@@ -537,7 +539,8 @@ export function buildApp(options: BuildAppOptions = {}) {
     if (reply.sent) return
     if (!track) return reply.code(404).send({ error: { code: 'not-found', message: 'Track not found' } })
     const share = acquisitionRepository.createTrackShare(track)
-    return reply.code(201).send({ path: `/share/${share.token}`, createdAt: share.createdAt })
+    const path = `/share/${share.token}`
+    return reply.code(201).send({ path, ...(publicUrl ? { url: `${publicUrl}${path}` } : {}), createdAt: share.createdAt })
   })
   app.get<{ Params: { token: string } }>('/api/shared/tracks/:token', {
     schema: { params: shareTokenParamsSchema() },
@@ -1124,6 +1127,16 @@ function shareTokenParamsSchema() {
     additionalProperties: false,
     properties: { token: { type: 'string', pattern: '^[A-Za-z0-9_-]{43}$' } },
   }
+}
+
+function configuredPublicUrl(value: string | null | undefined): string | undefined {
+  if (!value?.trim()) return undefined
+  const url = new URL(value.trim())
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('NEEDLE_PUBLIC_URL must use http or https')
+  if (url.username || url.password || url.search || url.hash || (url.pathname !== '/' && url.pathname !== '')) {
+    throw new Error('NEEDLE_PUBLIC_URL must be an origin without credentials, path, query, or fragment')
+  }
+  return url.origin
 }
 
 function sharedTrackNotFound(reply: FastifyReply) {

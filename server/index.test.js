@@ -85,12 +85,13 @@ test('track share capabilities expose one isolated listening experience', async 
     getAlbumArtwork: async id => id === albumId ? { contentType: 'image/jpeg', data: new TextEncoder().encode('shared-art') } : null,
   }
   const repository = new AcquisitionRepository(join(directory, 'needle.sqlite'))
-  const app = buildApp({ staticRoot, jellyfin, acquisitionRepository: repository, catalog: null, logger: false }); t.after(() => app.close())
+  const app = buildApp({ staticRoot, publicUrl: 'https://needle.example/', jellyfin, acquisitionRepository: repository, catalog: null, logger: false }); t.after(() => app.close())
   const forbidden = await app.inject({ method: 'POST', url: `/api/shares/tracks/${trackId}`, headers: { origin: 'https://attacker.example', host: 'needle.example' } })
   assert.equal(forbidden.statusCode, 403)
   const created = await app.inject({ method: 'POST', url: `/api/shares/tracks/${trackId}` })
   assert.equal(created.statusCode, 201)
   const path = created.json().path; const token = path.split('/').pop()
+  assert.equal(created.json().url, `https://needle.example${path}`)
   assert.match(token, /^[A-Za-z0-9_-]{43}$/)
   const metadata = await app.inject({ url: `/api/shared/tracks/${token}` })
   assert.equal(metadata.json().track.title, 'Echo <Signal>')
@@ -104,6 +105,11 @@ test('track share capabilities expose one isolated listening experience', async 
   assert.equal((await app.inject({ url: `/api/shared/tracks/${token}/stream?trackId=${otherId}` })).body, 'shared-audio')
   assert.deepEqual(streamed, [trackId])
   assert.equal((await app.inject({ url: `/api/shared/tracks/${'x'.repeat(43)}` })).statusCode, 404)
+})
+
+test('public share origin rejects paths and non-HTTP protocols', () => {
+  assert.throws(() => buildApp({ publicUrl: 'https://needle.example/music', catalog: null, logger: false }), /must be an origin/)
+  assert.throws(() => buildApp({ publicUrl: 'file:///needle', catalog: null, logger: false }), /must use http or https/)
 })
 
 test('unified search combines Jellyfin, MusicBrainz, and wanted identity', async t => {
