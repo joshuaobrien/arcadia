@@ -612,7 +612,7 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       signalTarget?.style.setProperty('--climate-year', String(1979 + displayedSignal * 71))
       signalTarget?.style.setProperty('--climate-pulse', String(1 + energyEnvelope * 0.025 + displayedSignal * 0.055))
       signalTarget?.style.setProperty('--climate-beat', String(displayedSignal))
-      const reactiveBang = 2.5 + energyEnvelope * 4 + displayedSignal * 3.5
+      const reactiveBang = 0.65 + Math.pow(energyEnvelope, 1.7) * 2.15 + Math.pow(displayedSignal, 2.2) * 2.65
       signalTarget?.style.setProperty('--jam-bang', String(Math.max(reactiveBang, Math.min(10, titleBurstEnvelope * 16))))
       signalTarget?.style.setProperty('--jam-punch', String(displayedSignal * 10))
       signalTarget?.style.setProperty('--jam-crumble', String(midEnvelope * 5))
