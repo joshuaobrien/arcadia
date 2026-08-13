@@ -306,15 +306,20 @@ interface MusicSearchResponse {
   tracks: LibraryTrack[]
 }
 
-interface ArtistDetailResponse {
+interface ArtistLibraryResponse {
+  artist: LibraryArtist
+  source: 'available' | 'unconfigured' | 'unavailable'
+  releases: MusicRelease[]
+  tracks: LibraryTrack[]
+}
+
+interface ArtistCatalogResponse {
   artist: LibraryArtist
   sources: {
-    library: 'available' | 'unconfigured' | 'unavailable'
     catalog: 'available' | 'unconfigured' | 'unavailable'
     wanted: 'available' | 'unconfigured' | 'unavailable'
   }
   releases: MusicRelease[]
-  tracks: LibraryTrack[]
 }
 
 type LibrarySection = 'albums' | 'artists' | 'songs'
@@ -747,7 +752,10 @@ function useLibrary() {
   const [section, setSection] = useState<LibrarySection>('albums')
   const [selectedAlbum, setSelectedAlbum] = useState<LibraryAlbum | null>(null)
   const [selectedArtist, setSelectedArtist] = useState<LibraryArtist | null>(null)
-  const [artistDetail, setArtistDetail] = useState<ArtistDetailResponse | null>(null)
+  const [artistLibrary, setArtistLibrary] = useState<ArtistLibraryResponse | null>(null)
+  const [artistCatalog, setArtistCatalog] = useState<ArtistCatalogResponse | null>(null)
+  const [artistLoading, setArtistLoading] = useState({ library: false, catalog: false })
+  const [artistErrors, setArtistErrors] = useState<{ library?: string; catalog?: string }>({})
   const [tracks, setTracks] = useState<LibraryTrack[]>([])
   const [term, setTerm] = useState('')
   const [activeTerm, setActiveTerm] = useState('')
@@ -774,7 +782,8 @@ function useLibrary() {
       setArtworkRevision(current => current + 1)
       setSelectedAlbum(null)
       setSelectedArtist(null)
-      setArtistDetail(null)
+      setArtistLibrary(null)
+      setArtistCatalog(null)
       setTracks([])
     } catch (requestError) {
       if (request === albumRequest.current && !isAbortError(requestError)) setError(errorMessage(requestError))
@@ -817,7 +826,8 @@ function useLibrary() {
     setSection(nextSection)
     setSelectedAlbum(null)
     setSelectedArtist(null)
-    setArtistDetail(null)
+    setArtistLibrary(null)
+    setArtistCatalog(null)
     setTracks([])
     setActiveTerm('')
     setSearchResult(null)
@@ -853,7 +863,8 @@ function useLibrary() {
       setSearchResult(next)
       setSelectedAlbum(null)
       setSelectedArtist(null)
-      setArtistDetail(null)
+      setArtistLibrary(null)
+      setArtistCatalog(null)
       setTracks([])
     } catch (requestError) {
       if (request === albumRequest.current) setError(errorMessage(requestError))
@@ -912,23 +923,35 @@ function useLibrary() {
     const request = ++albumRequest.current
     setSection('artists')
     setSelectedArtist(selection)
-    setArtistDetail(null)
+    setArtistLibrary(null)
+    setArtistCatalog(null)
+    setArtistLoading({ library: true, catalog: true })
+    setArtistErrors({})
     setSelectedAlbum(null)
     setTracks([])
     setActiveTerm('')
     setSearchResult(null)
-    setLoading(true)
+    setLoading(false)
     setError(null)
-    try {
-      const detail = await getJson<ArtistDetailResponse>(`/api/music/artists?name=${encodeURIComponent(selection.name)}`)
+    const name = encodeURIComponent(selection.name)
+    void getJson<ArtistLibraryResponse>(`/api/music/artists/library?name=${name}`).then(detail => {
       if (request !== albumRequest.current) return
-      setSelectedArtist(detail.artist)
-      setArtistDetail(detail)
-    } catch (requestError) {
-      if (request === albumRequest.current && !isAbortError(requestError)) setError(errorMessage(requestError))
-    } finally {
-      if (request === albumRequest.current) setLoading(false)
-    }
+      setSelectedArtist(current => ({ ...current, ...detail.artist }))
+      setArtistLibrary(detail)
+    }).catch(requestError => {
+      if (request === albumRequest.current && !isAbortError(requestError)) setArtistErrors(current => ({ ...current, library: errorMessage(requestError) }))
+    }).finally(() => {
+      if (request === albumRequest.current) setArtistLoading(current => ({ ...current, library: false }))
+    })
+    void getJson<ArtistCatalogResponse>(`/api/music/artists/catalog?name=${name}`).then(detail => {
+      if (request !== albumRequest.current) return
+      setSelectedArtist(current => ({ ...current, ...detail.artist, albumCount: current?.albumCount ?? 0, representativeAlbumId: current?.representativeAlbumId }))
+      setArtistCatalog(detail)
+    }).catch(requestError => {
+      if (request === albumRequest.current && !isAbortError(requestError)) setArtistErrors(current => ({ ...current, catalog: errorMessage(requestError) }))
+    }).finally(() => {
+      if (request === albumRequest.current) setArtistLoading(current => ({ ...current, catalog: false }))
+    })
   }
 
   return {
@@ -939,7 +962,10 @@ function useLibrary() {
     searchResult,
     selectedAlbum,
     selectedArtist,
-    artistDetail,
+    artistLibrary,
+    artistCatalog,
+    artistLoading,
+    artistErrors,
     tracks,
     loading,
     loadingMore,
@@ -957,9 +983,9 @@ function useLibrary() {
     loadMore,
     openAlbum,
     openArtist,
-    cancelPending: () => { albumRequest.current += 1; setOpeningAlbum(null) },
+    cancelPending: () => { albumRequest.current += 1; setOpeningAlbum(null); setArtistLoading({ library: false, catalog: false }) },
     closeAlbum: () => setSelectedAlbum(null),
-    closeArtist: () => { setSelectedArtist(null); setArtistDetail(null) },
+    closeArtist: () => { albumRequest.current += 1; setSelectedArtist(null); setArtistLibrary(null); setArtistCatalog(null); setArtistLoading({ library: false, catalog: false }) },
   }
 }
 
@@ -1102,11 +1128,28 @@ function AlbumDetailHero({ album, tracks, close, openArtist, playTrack, playback
   </section>
 }
 
-function ArtistDetailHero({ artist, detail, close }: { artist: LibraryArtist; detail: ArtistDetailResponse | null; close: () => void }) {
+function mergeArtistReleases(library: ArtistLibraryResponse | null, catalog: ArtistCatalogResponse | null): MusicRelease[] {
+  const releases = new Map<string, MusicRelease>()
+  for (const release of library?.releases ?? []) releases.set(release.key, release)
+  for (const release of catalog?.releases ?? []) {
+    const owned = releases.get(release.key)
+    releases.set(release.key, owned ? {
+      ...release,
+      ...owned,
+      state: 'in-library',
+      catalogRelease: release.catalogRelease,
+      acquisition: release.acquisition,
+    } : release)
+  }
+  return [...releases.values()]
+}
+
+function ArtistDetailHero({ artist, library, catalog, close }: { artist: LibraryArtist; library: ArtistLibraryResponse | null; catalog: ArtistCatalogResponse | null; close: () => void }) {
   const [artwork, setArtwork] = useState(Boolean(artist.representativeAlbumId))
-  const artworkId = detail?.artist.representativeAlbumId ?? artist.representativeAlbumId
+  const artworkId = library?.artist.representativeAlbumId ?? artist.representativeAlbumId
   useEffect(() => setArtwork(Boolean(artworkId)), [artworkId])
-  const owned = detail?.releases.filter(release => release.libraryAlbum).length ?? artist.albumCount
+  const owned = library?.releases.length ?? artist.albumCount
+  const releases = mergeArtistReleases(library, catalog)
   return <section className={`artist-detail-hero ${artwork ? 'has-artwork' : ''}`}>
     {artwork && artworkId && <img className="artist-detail-backdrop" src={`/api/library/albums/${artworkId}/artwork`} alt="" aria-hidden="true" onError={() => setArtwork(false)} />}
     <div className="artist-detail-image" aria-hidden="true">
@@ -1114,12 +1157,12 @@ function ArtistDetailHero({ artist, detail, close }: { artist: LibraryArtist; de
     </div>
     <div className="artist-detail-copy">
       <p>ARTIST</p>
-      <h1>{detail?.artist.name ?? artist.name}</h1>
-      {detail?.artist.disambiguation && <span>{detail.artist.disambiguation}</span>}
+      <h1>{catalog?.artist.name ?? library?.artist.name ?? artist.name}</h1>
+      {catalog?.artist.disambiguation && <span>{catalog.artist.disambiguation}</span>}
       <div className="artist-detail-stats">
         <span><strong>{owned}</strong> in your library</span>
-        <span><strong>{detail?.releases.length ?? '—'}</strong> releases</span>
-        <span><strong>{detail?.tracks.length ?? '—'}</strong> songs owned</span>
+        <span><strong>{catalog ? releases.length : '—'}</strong> releases</span>
+        <span><strong>{library?.tracks.length ?? '—'}</strong> songs owned</span>
       </div>
       <button className="button" onClick={close}><ArrowLeft size={13} /> All artists</button>
     </div>
@@ -1477,10 +1520,12 @@ function LibraryView({ library, acquisitions, playTrack, playback }: { library: 
   const unavailable = (library.error && !currentPage) || (currentPage && (!currentPage.configured || !currentPage.mounted))
   const album = library.selectedAlbum
   const artist = library.selectedArtist
-  const artistDetail = library.artistDetail
+  const artistLibrary = library.artistLibrary
+  const artistCatalog = library.artistCatalog
   const searchResult = library.searchResult
   const releaseGroups = groupSearchReleases(searchResult?.items ?? [])
-  const artistReleaseGroups = groupSearchReleases(artistDetail?.releases ?? [])
+  const artistReleases = mergeArtistReleases(artistLibrary, artistCatalog)
+  const artistReleaseGroups = groupSearchReleases(artistReleases)
   const resultCount = (searchResult?.items.length ?? 0) + (searchResult?.artists.length ?? 0) + (searchResult?.tracks.length ?? 0)
   const browsingCollection = !album && !artist && !library.activeTerm
   const sectionDetails = library.section === 'albums'
@@ -1492,7 +1537,7 @@ function LibraryView({ library, acquisitions, playTrack, playback }: { library: 
   return (
     <section>
       {album ? <AlbumDetailHero album={album} tracks={library.tracks} close={library.closeAlbum} openArtist={library.openArtist} playTrack={playTrack} playback={playback} />
-        : artist ? <ArtistDetailHero artist={artist} detail={artistDetail} close={library.closeArtist} />
+        : artist ? <ArtistDetailHero artist={artist} library={artistLibrary} catalog={artistCatalog} close={library.closeArtist} />
           : <div className={`page-heading ${browsingCollection ? 'library-heading' : ''}`}>
         {browsingCollection ? <>
           <div className="library-heading-lead">
@@ -1534,17 +1579,20 @@ function LibraryView({ library, acquisitions, playTrack, playback }: { library: 
                 <span>{formatBytes(track.bytes)}</span>
               </article>
             ))}
-          </section> : artist ? library.loading && !artistDetail
-            ? <div className="idle-state compact"><Disc3 size={28} className="spinning" /><span>Building {artist.name}’s page</span></div>
-            : artistDetail ? <div className="artist-detail-content">
-              {artistDetail.sources.catalog !== 'available' && <div className="source-strip">Catalog details are {artistDetail.sources.catalog}; showing the music available in your library.</div>}
-              {artistReleaseGroups.map(group => <ArtistReleaseSection group={group} library={library} acquisitions={acquisitions} libraryAvailable={artistDetail.sources.library === 'available'} playTrack={playTrack} playback={playback} key={group.type} />)}
-              {!!artistDetail.tracks.length && <section>
-                <header className="collection-heading"><h2>Songs in your library</h2><span>{artistDetail.tracks.length}</span></header>
-                <div className="panel song-list">{artistDetail.tracks.map(track => <SongRow track={track} library={library} playback={playback} key={track.id ?? `${track.title}:${track.album}`} />)}</div>
+          </section> : artist ? <div className="artist-detail-content">
+              <div className="artist-source-status" aria-live="polite">
+                {library.artistLoading.library && <span><RefreshCw size={11} className="spinning" /> Loading your library</span>}
+                {library.artistLoading.catalog && <span><RefreshCw size={11} className="spinning" /> Loading discography</span>}
+              </div>
+              {(library.artistErrors.library || (artistLibrary && artistLibrary.source !== 'available')) && <div className="source-strip">Your library could not be loaded. Catalog releases remain available.</div>}
+              {(library.artistErrors.catalog || (artistCatalog && artistCatalog.sources.catalog !== 'available')) && <div className="source-strip">The catalog could not be loaded. Showing music from your library.</div>}
+              {artistReleaseGroups.map(group => <ArtistReleaseSection group={group} library={library} acquisitions={acquisitions} libraryAvailable={artistLibrary?.source === 'available'} playTrack={playTrack} playback={playback} key={group.type} />)}
+              {!!artistLibrary?.tracks.length && <section>
+                <header className="collection-heading"><h2>Songs in your library</h2><span>{artistLibrary.tracks.length}</span></header>
+                <div className="panel song-list">{artistLibrary.tracks.map(track => <SongRow track={track} library={library} playback={playback} key={track.id ?? `${track.title}:${track.album}`} />)}</div>
               </section>}
-              {!artistDetail.releases.length && <div className="panel"><p className="empty-row">No releases found for this artist</p></div>}
-            </div> : null
+              {!library.artistLoading.library && !library.artistLoading.catalog && !artistReleases.length && <div className="panel"><p className="empty-row">No releases found for this artist</p></div>}
+            </div>
           : <>
             <form className="search-form library-search" onSubmit={library.search}>
               <Search size={17} />

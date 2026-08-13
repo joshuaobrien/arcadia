@@ -94,7 +94,7 @@ test('exact MusicBrainz artist search returns discography, not fuzzy releases', 
   assert.equal(body.artists[0].name, 'Dua Lipa'); assert.equal(body.artists[0].albumCount, 0)
 })
 
-test('artist page combines exact identity, owned music, catalog discography, and songs', async t => {
+test('artist page exposes library and catalog projections independently', async t => {
   const artistId = '6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f'
   const releaseGroupId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
   const albumId = 'a'.repeat(32); const songId = 'b'.repeat(32)
@@ -119,13 +119,13 @@ test('artist page combines exact identity, owned music, catalog discography, and
     ] },
   }
   const app = buildApp({ jellyfin, catalog, acquisitionRepository: null, logger: false }); t.after(() => app.close())
-  const response = await app.inject({ url: '/api/music/artists?name=Dua%20Lipa' })
-  assert.equal(response.statusCode, 200)
-  const body = response.json()
-  assert.equal(body.artist.name, 'Dua Lipa'); assert.equal(body.artist.musicBrainzArtistId, artistId)
-  assert.equal(body.artist.representativeAlbumId, albumId); assert.equal(body.artist.albumCount, 1)
-  assert.deepEqual(body.releases.map(item => [item.title, item.state]), [['Future Nostalgia', 'in-library'], ['Houdini', 'can-request']])
-  assert.deepEqual(body.tracks.map(item => item.title), ['Levitating'])
+  const library = (await app.inject({ url: '/api/music/artists/library?name=Dua%20Lipa' })).json()
+  assert.equal(library.artist.representativeAlbumId, albumId); assert.equal(library.artist.albumCount, 1)
+  assert.deepEqual(library.releases.map(item => [item.title, item.state]), [['Future Nostalgia', 'in-library']])
+  assert.deepEqual(library.tracks.map(item => item.title), ['Levitating'])
+  const catalogBody = (await app.inject({ url: '/api/music/artists/catalog?name=Dua%20Lipa' })).json()
+  assert.equal(catalogBody.artist.name, 'Dua Lipa'); assert.equal(catalogBody.artist.musicBrainzArtistId, artistId)
+  assert.deepEqual(catalogBody.releases.map(item => [item.title, item.state]), [['Future Nostalgia', 'can-request'], ['Houdini', 'can-request']])
 })
 
 test('ambiguous artist identity retains fuzzy MusicBrainz release lookup', async t => {

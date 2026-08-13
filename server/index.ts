@@ -443,7 +443,7 @@ export function buildApp(options: BuildAppOptions = {}) {
       tracks: trackResult.value,
     }
   })
-  app.get<{ Querystring: ArtistDetailQuery }>('/api/music/artists', {
+  app.get<{ Querystring: ArtistDetailQuery }>('/api/music/artists/library', {
     schema: {
       querystring: {
         type: 'object',
@@ -455,7 +455,7 @@ export function buildApp(options: BuildAppOptions = {}) {
   }, async (request) => {
     const operationId = crypto.randomUUID()
     const normalizedName = normalizedSearchText(request.query.name)
-    const [libraryResult, trackResult, catalogResult] = await Promise.all([
+    const [libraryResult, trackResult] = await Promise.all([
       readProjection(jellyfin !== null, [] as LibraryAlbum[], async () => (
         await listAllMatchingAlbums(jellyfin!, request.query.name, { operationId: `${operationId}:library` })
       ).filter(album => normalizedSearchText(album.albumArtist) === normalizedName)),
@@ -463,35 +463,48 @@ export function buildApp(options: BuildAppOptions = {}) {
         await listArtistTracks(jellyfin!, request.query.name, { operationId: `${operationId}:tracks` })
       ).filter(track => track.artists.some(artist => normalizedSearchText(artist) === normalizedName)
         || normalizedSearchText(track.albumArtist) === normalizedName)),
-      readProjection(catalog !== null, { artist: undefined as CatalogArtist | undefined, releases: [] as readonly CatalogRelease[] }, async () => {
-        const context = { operationId: `${operationId}:catalog` }
-        const artists = (await catalog!.lookupArtists(request.query.name, context))
-          .filter(artist => normalizedSearchText(artist.name) === normalizedName)
-        if (artists.length !== 1) return { artist: undefined, releases: [] }
-        return {
-          artist: artists[0],
-          releases: (await catalog!.listArtistReleases(artists[0].ref, context))
-            .map(release => ({ ...release, artistName: artists[0].name })),
-        }
-      }),
     ])
-    const artistName = catalogResult.value.artist?.name ?? libraryResult.value[0]?.albumArtist ?? request.query.name.trim()
-    const acquisitions = (acquisitionRepository?.list() ?? []).filter(item => normalizedSearchText(item.artist) === normalizedSearchText(artistName))
+    const artistName = libraryResult.value[0]?.albumArtist ?? request.query.name.trim()
     const representativeAlbum = libraryResult.value.find(album => album.hasArtwork) ?? libraryResult.value[0]
     return {
       artist: {
         name: artistName,
         albumCount: libraryResult.value.length,
         representativeAlbumId: representativeAlbum?.id,
-        ...catalogResult.value.artist,
       },
-      sources: {
-        library: libraryResult.state,
-        catalog: catalogResult.state,
-        wanted: acquisitionRepository ? 'available' : 'unconfigured',
-      },
-      releases: mergeMusicReleases(libraryResult.value, catalogResult.value.releases, acquisitions, artistName),
+      source: libraryResult.state,
+      releases: mergeMusicReleases(libraryResult.value, [], [], artistName),
       tracks: trackResult.value,
+    }
+  })
+  app.get<{ Querystring: ArtistDetailQuery }>('/api/music/artists/catalog', {
+    schema: {
+      querystring: {
+        type: 'object',
+        required: ['name'],
+        additionalProperties: false,
+        properties: { name: { type: 'string', minLength: 1, maxLength: 200 } },
+      },
+    },
+  }, async (request) => {
+    const normalizedName = normalizedSearchText(request.query.name)
+    const catalogResult = await readProjection(catalog !== null, { artist: undefined as CatalogArtist | undefined, releases: [] as readonly CatalogRelease[] }, async () => {
+      const context = { operationId: crypto.randomUUID() }
+      const artists = (await catalog!.lookupArtists(request.query.name, context))
+        .filter(artist => normalizedSearchText(artist.name) === normalizedName)
+      if (artists.length !== 1) return { artist: undefined, releases: [] }
+      return {
+        artist: artists[0],
+        releases: (await catalog!.listArtistReleases(artists[0].ref, context))
+          .map(release => ({ ...release, artistName: artists[0].name })),
+      }
+    })
+    const artistName = catalogResult.value.artist?.name ?? request.query.name.trim()
+    const acquisitions = (acquisitionRepository?.list() ?? []).filter(item => normalizedSearchText(item.artist) === normalizedSearchText(artistName))
+    return {
+      artist: { name: artistName, albumCount: 0, ...catalogResult.value.artist },
+      sources: { catalog: catalogResult.state, wanted: acquisitionRepository ? 'available' : 'unconfigured' },
+      releases: mergeMusicReleases([], catalogResult.value.releases, acquisitions, artistName),
     }
   })
   app.get('/api/device', async () => ({
