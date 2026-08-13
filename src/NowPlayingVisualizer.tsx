@@ -373,7 +373,8 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
     let lastTitleFlareAt = -Infinity
     let lastArrangementDropAt = -Infinity
     let titleFlareLatched = false
-    let titleFlareIndex = 0
+    let drumHitEnvelope = 0
+    let drumHitKind = 0
     let titleBurstEnvelope = 0
     const frameInterval = 30
     const jamBands = Array.from({ length: 6 }, () => 0)
@@ -476,20 +477,32 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
         delightEnvelope = 1
         delightStartedAt = time
         delightFlashStartedAt = time
-        delightEvent = (delightEvent + 1) % 3
+        delightEvent = 0
+        signalTargetRef.current?.setAttribute('data-delight-event', 'shockwave')
         nextDelightAt = Math.max(nextDelightAt, time + 15000)
         lastArrangementDropAt = time
       }
       const titleBeatDrive = beatDrive * (0.4 + bassSignal * 0.6)
       if (titleBeatDrive > 0.19 && beatDrive > 0.32 && bassSignal > 0.1 && !titleFlareLatched && time - lastTitleFlareAt > 800) {
-        titleFlareIndex = (titleFlareIndex + 2 + Math.floor(time / 1000) % 3) % titleFlares.length
-        titleFlares[titleFlareIndex] = Math.min(1, 0.68 + titleBeatDrive * 0.65)
+        drumHitKind = sparkDrive > 0.38 && trebleSignal > bassSignal + 0.14
+          ? 2
+          : midSignal > bassSignal + 0.18 ? 1 : 0
+        const flarePatterns = [
+          [1, 0.82, 0.46, 0, 0, 0.2],
+          [0, 0.38, 1, 0.84, 0.24, 0],
+          [0, 0, 0.2, 0.52, 1, 0.82],
+        ]
+        flarePatterns[drumHitKind].forEach((value, index) => {
+          titleFlares[index] = value
+        })
+        drumHitEnvelope = 1
         lastTitleFlareAt = time
         titleFlareLatched = true
       } else if (beatDrive < 0.12) {
         titleFlareLatched = false
       }
       titleFlares.forEach((value, index) => { titleFlares[index] = value * Math.pow(0.965, frameFactor) })
+      drumHitEnvelope *= Math.pow(0.94, frameFactor)
       titleBurstEnvelope *= Math.pow(0.972, frameFactor)
       if (time >= nextDelightAt && beatDrive > 0.42 && bassSignal > 0.12) {
         delightEnvelope = 0.65
@@ -586,9 +599,13 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
         material.color.lerp(barTargetColors[index], 0.045)
         material.emissive.copy(material.color).multiplyScalar(hdrOutput ? 1 : 0.28)
         const reflection = Math.max(0, beatEnvelope - Math.abs((index / BAR_COUNT) - ((time * 0.00018) % 1)) * 2.8)
+        const hitCenter = [0, 1 / 3, 2 / 3][drumHitKind]
+        const hitDistance = Math.abs(index / BAR_COUNT - hitCenter)
+        const wrappedHitDistance = Math.min(hitDistance, 1 - hitDistance)
+        const drumReflection = drumHitEnvelope * Math.max(0, 1 - wrappedHitDistance * 7)
         const delightPosition = Math.min(1, Math.max(0, (time - delightFlashStartedAt) / 520))
         const delightReflection = Math.max(0, delightEnvelope - Math.abs(index / BAR_COUNT - delightPosition) * 5.5)
-        material.emissiveIntensity = hdrOutput ? 0.65 + bassEnvelope * 0.35 + reflection * 2.5 + delightReflection * 4.2 + overburnLevel * 7 : 0.8 + delightReflection * 0.45 + overburnLevel
+        material.emissiveIntensity = hdrOutput ? 0.65 + bassEnvelope * 0.35 + reflection * 2.5 + drumReflection * 3.4 + delightReflection * 4.2 + overburnLevel * 7 : 0.8 + drumReflection * 0.38 + delightReflection * 0.45 + overburnLevel
         material.roughness = 0.34 - midEnvelope * 0.16
       })
       coreMaterial.color.lerp(targetPalette.secondary, 0.045)
@@ -704,7 +721,7 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       cancelAnimationFrame(frame)
       observer.disconnect()
       visibilityObserver.disconnect()
-      for (const property of ['climate-year', 'climate-pulse', 'climate-beat', 'jam-bang', 'jam-punch', 'jam-crumble', 'jam-splatter', 'jam-beat', 'jam-mid', 'jam-spark', 'jam-band-0', 'jam-band-1', 'jam-band-2', 'jam-band-3', 'jam-band-4', 'jam-band-5', 'lab-bevel', 'lab-roundness', 'lab-quad', 'lab-scale', 'delight-level', 'delight-progress', 'delight-offset', 'delight-angle', 'delight-scale', 'delight-stripe-offset', 'overburn-opacity', 'overburn-scale', 'overburn-cover-brightness', 'overburn-cover-saturation', 'overburn-cover-flare', 'overburn-cover-glow', 'overburn-cover-radius', 'overburn-cover-scale', 'overburn-cover-lift', 'overburn-cover-y', 'overburn-cover-x', 'overburn-cover-roll', 'overburn-cover-skew', 'overburn-cover-shadow-y']) signalTargetRef.current?.style.removeProperty(`--${property}`)
+      for (const property of ['climate-year', 'climate-pulse', 'climate-beat', 'jam-bang', 'jam-punch', 'jam-crumble', 'jam-splatter', 'jam-beat', 'jam-mid', 'jam-spark', 'jam-band-0', 'jam-band-1', 'jam-band-2', 'jam-band-3', 'jam-band-4', 'jam-band-5', 'title-burst', 'title-flare-0', 'title-flare-1', 'title-flare-2', 'title-flare-3', 'title-flare-4', 'title-flare-5', 'lab-bevel', 'lab-roundness', 'lab-quad', 'lab-scale', 'delight-level', 'delight-progress', 'delight-offset', 'delight-angle', 'delight-scale', 'delight-stripe-offset', 'overburn-opacity', 'overburn-scale', 'overburn-cover-brightness', 'overburn-cover-saturation', 'overburn-cover-flare', 'overburn-cover-glow', 'overburn-cover-radius', 'overburn-cover-scale', 'overburn-cover-lift', 'overburn-cover-y', 'overburn-cover-x', 'overburn-cover-roll', 'overburn-cover-skew', 'overburn-cover-shadow-y']) signalTargetRef.current?.style.removeProperty(`--${property}`)
       signalTargetRef.current?.removeAttribute('data-delight-event')
       signalTargetRef.current?.removeAttribute('data-overburn')
       source?.disconnect()
