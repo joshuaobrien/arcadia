@@ -375,6 +375,8 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
     let drumHitEnvelope = 0
     let drumHitKind = 0
     let kickWaveDirection = -1
+    let lastKickAt = -Infinity
+    let kickPeriod = 750
     let titleBurstEnvelope = 0
     let activeSection = 'hush'
     let sectionCandidate = activeSection
@@ -519,7 +521,16 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
         flarePatterns[drumHitKind].forEach((value, index) => {
           titleFlares[index] = value
         })
-        if (drumHitKind === 0) kickWaveDirection *= -1
+        if (drumHitKind === 0) {
+          let measuredPeriod = time - lastKickAt
+          if (measuredPeriod >= 280 && measuredPeriod <= 1800) {
+            while (measuredPeriod > 900) measuredPeriod /= 2
+            while (measuredPeriod < 360) measuredPeriod *= 2
+            kickPeriod += (measuredPeriod - kickPeriod) * 0.32
+          }
+          lastKickAt = time
+          kickWaveDirection *= -1
+        }
         drumHitEnvelope = 1
         lastTitleFlareAt = time
       }
@@ -591,8 +602,10 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       signalTarget?.style.setProperty('--type-kick', String(drumHitKind === 0 ? drumHitEnvelope : 0))
       signalTarget?.style.setProperty('--type-snare', String(drumHitKind === 1 ? drumHitEnvelope : 0))
       signalTarget?.style.setProperty('--type-hat', String(drumHitKind === 2 ? drumHitEnvelope : 0))
-      const impactProgress = Math.min(1.15, Math.max(-0.15, (time - lastTitleFlareAt) / 540 * 1.3 - 0.15))
+      const kickWaveDuration = Math.min(720, Math.max(280, kickPeriod * 0.72))
+      const impactProgress = Math.min(1.15, Math.max(-0.15, (time - lastTitleFlareAt) / kickWaveDuration * 1.3 - 0.15))
       const impactPosition = drumHitKind === 0 ? (kickWaveDirection > 0 ? impactProgress : 1 - impactProgress) : -1
+      signalTarget?.style.setProperty('--kick-wave-duration', String(kickWaveDuration))
       signalTarget?.style.setProperty('--impact-position', String(impactPosition))
       signalTarget?.style.setProperty('--title-burst', String(titleBurstEnvelope))
       titleFlares.forEach((value, index) => signalTarget?.style.setProperty(`--title-flare-${index}`, String(value)))
@@ -750,7 +763,7 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       cancelAnimationFrame(frame)
       observer.disconnect()
       visibilityObserver.disconnect()
-      for (const property of ['climate-year', 'climate-pulse', 'climate-beat', 'jam-bang', 'jam-punch', 'jam-crumble', 'jam-splatter', 'jam-beat', 'jam-mid', 'jam-spark', 'jam-band-0', 'jam-band-1', 'jam-band-2', 'jam-band-3', 'jam-band-4', 'jam-band-5', 'type-kick', 'type-snare', 'type-hat', 'impact-position', 'title-burst', 'title-flare-0', 'title-flare-1', 'title-flare-2', 'title-flare-3', 'title-flare-4', 'title-flare-5', 'lab-bevel', 'lab-roundness', 'lab-quad', 'lab-scale', 'delight-level', 'delight-progress', 'delight-offset', 'delight-angle', 'delight-scale', 'delight-stripe-offset', 'overburn-opacity', 'overburn-scale', 'overburn-cover-brightness', 'overburn-cover-saturation', 'overburn-cover-flare', 'overburn-cover-glow', 'overburn-cover-radius', 'overburn-cover-scale', 'overburn-cover-lift', 'overburn-cover-y', 'overburn-cover-x', 'overburn-cover-roll', 'overburn-cover-skew', 'overburn-cover-shadow-y']) signalTargetRef.current?.style.removeProperty(`--${property}`)
+      for (const property of ['climate-year', 'climate-pulse', 'climate-beat', 'jam-bang', 'jam-punch', 'jam-crumble', 'jam-splatter', 'jam-beat', 'jam-mid', 'jam-spark', 'jam-band-0', 'jam-band-1', 'jam-band-2', 'jam-band-3', 'jam-band-4', 'jam-band-5', 'type-kick', 'type-snare', 'type-hat', 'kick-wave-duration', 'impact-position', 'title-burst', 'title-flare-0', 'title-flare-1', 'title-flare-2', 'title-flare-3', 'title-flare-4', 'title-flare-5', 'lab-bevel', 'lab-roundness', 'lab-quad', 'lab-scale', 'delight-level', 'delight-progress', 'delight-offset', 'delight-angle', 'delight-scale', 'delight-stripe-offset', 'overburn-opacity', 'overburn-scale', 'overburn-cover-brightness', 'overburn-cover-saturation', 'overburn-cover-flare', 'overburn-cover-glow', 'overburn-cover-radius', 'overburn-cover-scale', 'overburn-cover-lift', 'overburn-cover-y', 'overburn-cover-x', 'overburn-cover-roll', 'overburn-cover-skew', 'overburn-cover-shadow-y']) signalTargetRef.current?.style.removeProperty(`--${property}`)
       signalTargetRef.current?.removeAttribute('data-delight-event')
       signalTargetRef.current?.removeAttribute('data-type-section')
       signalTargetRef.current?.removeAttribute('data-overburn')
