@@ -59,6 +59,8 @@ interface AcquisitionRepositoryPort {
   wantRelease: AcquisitionRepository['wantRelease']
   createTrackShare?: AcquisitionRepository['createTrackShare']
   getTrackShare?: AcquisitionRepository['getTrackShare']
+  createAlbumShare?: AcquisitionRepository['createAlbumShare']
+  getAlbumShare?: AcquisitionRepository['getAlbumShare']
   close?: AcquisitionRepository['close']
   createBeetsImportOperation?: AcquisitionRepository['createBeetsImportOperation']
   getBeetsImportOperation?: AcquisitionRepository['getBeetsImportOperation']
@@ -306,6 +308,18 @@ export function buildApp(options: BuildAppOptions = {}) {
     return undefined
   }
 
+  async function findLibraryAlbum(albumId: string, reply: FastifyReply): Promise<LibraryAlbum | undefined> {
+    let cursor: string | undefined
+    do {
+      const page = await libraryCatalogRoute(reply, (adapter, context) => adapter.listAlbums({ cursor, limit: 100 }, context))
+      if (!page || reply.sent) return undefined
+      const album = page.items.find(item => item.id === albumId)
+      if (album) return album
+      cursor = page.nextCursor
+    } while (cursor)
+    return undefined
+  }
+
   async function beetsRoute<T>(
     reply: FastifyReply,
     operation: (adapter: BeetsImportPort, context: OperationContext) => Promise<T>,
@@ -528,6 +542,89 @@ export function buildApp(options: BuildAppOptions = {}) {
     ...(await cachedScan(walkmanPath)),
   }))
   app.get('/api/library', async () => cachedScan(libraryPath))
+  app.post<{ Params: { albumId: string } }>('/api/shares/albums/:albumId', {
+    schema: { params: itemIdParamsSchema('albumId') },
+  }, async (request, reply) => {
+    if (!sameOrigin(request, reply)) return
+    if (!acquisitionRepository?.createAlbumShare) {
+      return reply.code(503).send({ error: { code: 'unavailable', message: 'Album sharing requires NEEDLE_DATABASE_PATH' } })
+    }
+    const album = await findLibraryAlbum(request.params.albumId, reply)
+    if (reply.sent) return
+    if (!album) return reply.code(404).send({ error: { code: 'not-found', message: 'Album not found' } })
+    const tracks = await libraryCatalogRoute(reply, (adapter, context) => listAllAlbumTracks(adapter, album.id, context))
+    if (reply.sent) return
+    if (!tracks?.length) return reply.code(409).send({ error: { code: 'conflict', message: 'Album has no playable tracks' } })
+    const share = acquisitionRepository.createAlbumShare(album, tracks)
+    const path = `/share/albums/${share.token}`
+    return reply.code(201).send({ path, ...(publicUrl ? { url: `${publicUrl}${path}` } : {}), createdAt: share.createdAt })
+  })
+  app.get<{ Params: { token: string } }>('/api/shared/albums/:token', {
+    schema: { params: shareTokenParamsSchema() },
+  }, async (request, reply) => {
+    const share = acquisitionRepository?.getAlbumShare?.(request.params.token)
+    if (!share) return sharedAlbumNotFound(reply)
+    return reply.header('Cache-Control', 'no-store').send({
+      album: {
+        title: share.album.title,
+        albumArtist: share.album.albumArtist,
+        year: share.album.year,
+        trackCount: share.tracks.length,
+        hasArtwork: share.album.hasArtwork,
+      },
+      tracks: share.tracks.map(({ key, track }) => ({ key, ...publicTrackMetadata(track) })),
+      createdAt: share.createdAt,
+    })
+  })
+  app.get<{ Params: { token: string; trackKey: string } }>('/api/shared/albums/:token/tracks/:trackKey/stream', {
+    exposeHeadRoute: false,
+    schema: { params: albumShareTrackParamsSchema() },
+  }, async (request, reply) => {
+    const share = acquisitionRepository?.getAlbumShare?.(request.params.token)
+    const sharedTrack = share?.tracks.find(item => item.key === request.params.trackKey)
+    if (!sharedTrack) return sharedAlbumNotFound(reply)
+    reply.header('Cache-Control', 'no-store').header('X-Content-Type-Options', 'nosniff')
+    const range = request.headers.range
+    if (range !== undefined && !isSingleByteRange(range)) return reply.code(416).send()
+    const controller = new AbortController()
+    const abort = () => controller.abort()
+    reply.raw.once('close', abort)
+    const audio = await libraryCatalogRoute(reply, (adapter, context) => adapter.getTrackAudio(sharedTrack.track.id, range, context), controller.signal)
+    reply.raw.off('close', abort)
+    if (controller.signal.aborted || reply.sent) return
+    if (!audio) return sharedAlbumNotFound(reply)
+    if (audio.contentRange !== undefined) reply.header('Content-Range', audio.contentRange)
+    if (audio.acceptRanges !== undefined) reply.header('Accept-Ranges', audio.acceptRanges)
+    if (audio.status === 416) return reply.code(416).send()
+    reply.code(audio.status).type(audio.contentType)
+    if (audio.contentLength !== undefined) reply.header('Content-Length', audio.contentLength)
+    return reply.send(Readable.fromWeb(audio.body as unknown as Parameters<typeof Readable.fromWeb>[0]))
+  })
+  app.get<{ Params: { token: string } }>('/api/shared/albums/:token/artwork', {
+    exposeHeadRoute: false,
+    schema: { params: shareTokenParamsSchema() },
+  }, async (request, reply) => {
+    const share = acquisitionRepository?.getAlbumShare?.(request.params.token)
+    if (!share?.album.hasArtwork) return sharedAlbumNotFound(reply)
+    const artwork = await libraryCatalogRoute(reply, (adapter, context) => adapter.getAlbumArtwork(share.album.id, context))
+    if (reply.sent) return
+    if (!artwork) return sharedAlbumNotFound(reply)
+    return reply.type(artwork.contentType).header('Cache-Control', 'private, max-age=300').header('X-Content-Type-Options', 'nosniff')
+      .send(Buffer.from(artwork.data.buffer, artwork.data.byteOffset, artwork.data.byteLength))
+  })
+  app.get<{ Params: { token: string } }>('/share/albums/:token', {
+    schema: { params: shareTokenParamsSchema() },
+  }, async (request, reply) => {
+    const share = acquisitionRepository?.getAlbumShare?.(request.params.token)
+    if (!share) return sharedAlbumNotFound(reply)
+    if (!staticRoot) return reply.code(404).send({ error: { code: 'not-found', message: 'Shared player is unavailable' } })
+    return reply
+      .header('Cache-Control', 'no-store')
+      .header('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; img-src 'self' blob:; media-src 'self'; connect-src 'self' blob:; font-src 'self' https://fonts.gstatic.com; worker-src blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+      .header('Referrer-Policy', 'no-referrer')
+      .header('X-Content-Type-Options', 'nosniff')
+      .sendFile('index.html')
+  })
   app.post<{ Params: { trackId: string } }>('/api/shares/tracks/:trackId', {
     schema: { params: itemIdParamsSchema('trackId') },
   }, async (request, reply) => {
@@ -1129,6 +1226,30 @@ function shareTokenParamsSchema() {
   }
 }
 
+function albumShareTrackParamsSchema() {
+  return {
+    type: 'object',
+    required: ['token', 'trackKey'],
+    additionalProperties: false,
+    properties: {
+      token: { type: 'string', pattern: '^[A-Za-z0-9_-]{43}$' },
+      trackKey: { type: 'string', pattern: '^[A-Za-z0-9_-]{16}$' },
+    },
+  }
+}
+
+function publicTrackMetadata(track: LibraryCatalogTrack) {
+  return {
+    title: track.title,
+    artists: track.artists,
+    album: track.album,
+    albumArtist: track.albumArtist,
+    trackNumber: track.trackNumber,
+    discNumber: track.discNumber,
+    durationSeconds: track.durationSeconds,
+  }
+}
+
 function configuredPublicUrl(value: string | null | undefined): string | undefined {
   if (!value?.trim()) return undefined
   const url = new URL(value.trim())
@@ -1141,6 +1262,10 @@ function configuredPublicUrl(value: string | null | undefined): string | undefin
 
 function sharedTrackNotFound(reply: FastifyReply) {
   return reply.code(404).header('Cache-Control', 'no-store').send({ error: { code: 'not-found', message: 'Shared track not found' } })
+}
+
+function sharedAlbumNotFound(reply: FastifyReply) {
+  return reply.code(404).header('Cache-Control', 'no-store').send({ error: { code: 'not-found', message: 'Shared album not found' } })
 }
 
 function providerRefSchema() {

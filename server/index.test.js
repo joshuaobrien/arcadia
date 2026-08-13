@@ -107,6 +107,38 @@ test('track share capabilities expose one isolated listening experience', async 
   assert.equal((await app.inject({ url: `/api/shared/tracks/${'x'.repeat(43)}` })).statusCode, 404)
 })
 
+test('album share capabilities expose only the captured album tracks', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'needle-album-share-')); t.after(() => rm(directory, { recursive: true, force: true }))
+  const staticRoot = join(directory, 'dist'); await mkdir(staticRoot); await writeFile(join(staticRoot, 'index.html'), '<div id="root"></div>')
+  const albumId = 'a'.repeat(32); const firstId = 'b'.repeat(32); const secondId = 'c'.repeat(32); const outsideId = 'd'.repeat(32); const streamed = []
+  const tracks = [
+    { id: firstId, title: 'I Found the F', artists: ['Broadcast'], albumId, trackNumber: 1, durationSeconds: 180 },
+    { id: secondId, title: 'Black Cat', artists: ['Broadcast'], albumId, trackNumber: 2, durationSeconds: 200 },
+  ]
+  const jellyfin = {
+    listAlbums: async () => ({ items: [{ id: albumId, title: 'Tender Buttons', albumArtist: 'Broadcast', hasArtwork: true }], total: 1 }),
+    listAlbumTracks: async id => ({ items: id === albumId ? tracks : [], total: id === albumId ? tracks.length : 0 }),
+    getTrackAudio: async id => { streamed.push(id); return { status: 200, contentType: 'audio/flac', body: new Response(id).body } },
+    getAlbumArtwork: async id => id === albumId ? { contentType: 'image/jpeg', data: new TextEncoder().encode('album-art') } : null,
+  }
+  const repository = new AcquisitionRepository(join(directory, 'needle.sqlite'))
+  const app = buildApp({ staticRoot, publicUrl: 'https://needle.example', jellyfin, acquisitionRepository: repository, catalog: null, logger: false }); t.after(() => app.close())
+  const created = await app.inject({ method: 'POST', url: `/api/shares/albums/${albumId}` })
+  assert.equal(created.statusCode, 201)
+  const path = created.json().path; const token = path.split('/').pop()
+  assert.equal(created.json().url, `https://needle.example${path}`)
+  const metadata = (await app.inject({ url: `/api/shared/albums/${token}` })).json()
+  assert.deepEqual(metadata.album, { title: 'Tender Buttons', albumArtist: 'Broadcast', trackCount: 2, hasArtwork: true })
+  assert.deepEqual(metadata.tracks.map(track => track.title), ['I Found the F', 'Black Cat'])
+  assert.ok(metadata.tracks.every(track => track.id === undefined && track.albumId === undefined && /^[A-Za-z0-9_-]{16}$/.test(track.key)))
+  assert.equal((await app.inject({ url: path })).statusCode, 200)
+  assert.equal((await app.inject({ url: `/api/shared/albums/${token}/artwork` })).body, 'album-art')
+  assert.equal((await app.inject({ url: `/api/shared/albums/${token}/tracks/${metadata.tracks[1].key}/stream?trackId=${outsideId}` })).body, secondId)
+  assert.deepEqual(streamed, [secondId])
+  assert.equal((await app.inject({ url: `/api/shared/albums/${token}/tracks/${'x'.repeat(16)}/stream` })).statusCode, 404)
+  assert.equal((await app.inject({ url: `/api/shared/albums/${'x'.repeat(43)}` })).statusCode, 404)
+})
+
 test('public share origin rejects paths and non-HTTP protocols', () => {
   assert.throws(() => buildApp({ publicUrl: 'https://needle.example/music', catalog: null, logger: false }), /must be an origin/)
   assert.throws(() => buildApp({ publicUrl: 'file:///needle', catalog: null, logger: false }), /must use http or https/)

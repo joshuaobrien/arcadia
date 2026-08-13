@@ -436,6 +436,19 @@ main.library-main { width: min(1380px, calc(100% - 32px)); }
 .shared-track-controls .player-controls { width: 100%; }
 .shared-track-controls audio { display: none; }
 .shared-track-controls small { color: #8eb3a8; font-size: 7px; letter-spacing: .14em; text-transform: uppercase; }
+.shared-album-view .now-playing-specimen { right: min(390px,34vw); }
+.shared-album-track-list { width: min(350px,30vw); position: absolute; z-index: 4; top: clamp(90px,12vh,130px); right: clamp(20px,4vw,64px); bottom: 120px; overflow: hidden; color: #dceee7; background: rgba(5,24,30,.82); border: 1px solid rgba(148,214,193,.18); box-shadow: 0 22px 55px rgba(0,7,10,.32); backdrop-filter: blur(16px); }
+.shared-album-track-list header { min-height: 62px; padding: 12px 14px; display: flex; flex-direction: column; justify-content: center; border-bottom: 1px solid rgba(148,214,193,.15); }
+.shared-album-track-list header strong { overflow: hidden; font-family: var(--music-font); font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
+.shared-album-track-list header span { margin-top: 5px; color: #87aa9f; font-size: 8px; }
+.shared-album-track-list ol { height: calc(100% - 62px); margin: 0; padding: 0; overflow: auto; list-style: none; }
+.shared-album-track-list li { border-bottom: 1px solid rgba(148,214,193,.1); }
+.shared-album-track-list li button { width: 100%; min-height: 43px; padding: 7px 10px; display: grid; grid-template-columns: 25px minmax(0,1fr) 38px; align-items: center; gap: 8px; color: #a9c4bb; background: transparent; border: 0; text-align: left; }
+.shared-album-track-list li button:hover, .shared-album-track-list li button.active { color: #f0fff9; background: rgba(91,174,152,.14); }
+.shared-album-track-list li button.active { box-shadow: inset 3px 0 #9bd7ad; }
+.shared-album-track-list li span { display: grid; place-items: center; color: #83b9a9; font-size: 8px; }
+.shared-album-track-list li strong { overflow: hidden; font-family: var(--music-font); font-size: 10px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.shared-album-track-list li time { color: #76998e; font-size: 7px; text-align: right; }
 .shared-track-error { width: 100%; min-height: 100vh; margin: 0; display: grid; place-content: center; justify-items: center; gap: 12px; color: #dceee7; background: radial-gradient(circle at 50% 30%,#15383d,#061920 55%,#020c10); text-align: center; }
 .shared-track-error h1 { margin: 0; font-family: var(--music-font); font-size: 24px; }
 .shared-track-error p { margin: 0; color: #89a99f; font-size: 11px; }
@@ -992,6 +1005,11 @@ main > section { animation: habitat-enter 260ms ease-out; }
   .now-playing-font-picker { top: 102px; right: 14px; }
   .now-playing-telemetry { display: none; }
   .player-control.player-play { width: 34px; height: 34px; margin-left: -2px; }
+  .shared-album-view .now-playing-specimen { top: 82px; right: 14px; bottom: auto; left: 14px; align-items: center; flex-direction: row; gap: 14px; text-align: left; }
+  .shared-album-view .now-playing-cover { width: 112px; }
+  .shared-album-view .now-playing-copy { min-width: 0; padding: 11px 12px; }
+  .shared-album-view .now-playing-copy h1 { margin-block: 7px 5px; font-size: clamp(21px,8vw,34px); }
+  .shared-album-track-list { width: auto; top: 285px; right: 14px; bottom: 124px; left: 14px; background: rgba(5,24,30,.95); }
 }
 @media (max-width: 460px) {
   .now-playing-view { bottom: 140px; }
@@ -1005,6 +1023,11 @@ main > section { animation: habitat-enter 260ms ease-out; }
   .now-playing-cover { width: min(56vw,210px); transform: perspective(600px) rotateY(7deg); }
   .now-playing-copy { padding: 0; }
   .shared-track-view .now-playing-copy { padding: 12px 14px; }
+  .shared-album-view .now-playing-specimen { top: 80px; flex-direction: row; gap: 12px; }
+  .shared-album-view .now-playing-cover { width: 96px; }
+  .shared-album-view .now-playing-copy { padding: 9px 10px; text-align: left; }
+  .shared-album-view .now-playing-copy h1 { font-size: clamp(19px,7vw,30px); }
+  .shared-album-track-list { top: 250px; }
   .now-playing-copy h1 { margin-top: 9px; font-size: clamp(27px,10vw,44px); }
   .album-play { transform: translateX(16px) translateZ(48px); }
   .album-play:hover, .album-play:focus-visible { transform: translateX(16px) translateZ(52px) scale(1.06); }
