@@ -1382,6 +1382,12 @@ function formatDuration(value?: number): string {
   return `${minutes}:${seconds.toString().padStart(2, '0')}`
 }
 
+function formatPlaybackTime(seconds: number): string {
+  if (!Number.isFinite(seconds)) return '0:00'
+  const wholeSeconds = Math.max(0, Math.floor(seconds))
+  return `${Math.floor(wholeSeconds / 60)}:${String(wholeSeconds % 60).padStart(2, '0')}`
+}
+
 function formatReleaseDate(value?: string, fallbackYear?: number): string {
   const match = value?.match(/^(\d{4})-(\d{2})-(\d{2})/)
   if (!match) return fallbackYear?.toString() ?? 'Date unknown'
@@ -1767,6 +1773,49 @@ function NowPlayingView({ selection, audioRef, open, close }: { selection: Playb
   </section>
 }
 
+function SharedTrackControls({ audioRef, source }: { audioRef: React.RefObject<HTMLAudioElement | null>; source: string }) {
+  const [failed, setFailed] = useState(false)
+  const [playing, setPlaying] = useState(false)
+  const [currentTime, setCurrentTime] = useState(0)
+  const [duration, setDuration] = useState(0)
+  const [volume, setVolume] = useState(1)
+  const [muted, setMuted] = useState(false)
+  const togglePlayback = () => {
+    const audio = audioRef.current
+    if (!audio) return
+    if (audio.paused) void audio.play().catch(() => setFailed(true))
+    else audio.pause()
+  }
+  const seek = (value: number) => {
+    if (!audioRef.current) return
+    audioRef.current.currentTime = value
+    setCurrentTime(value)
+  }
+  const changeVolume = (value: number) => {
+    if (!audioRef.current) return
+    audioRef.current.volume = value
+    audioRef.current.muted = false
+    setVolume(value); setMuted(false)
+  }
+  const toggleMute = () => {
+    if (!audioRef.current) return
+    audioRef.current.muted = !audioRef.current.muted
+    setMuted(audioRef.current.muted)
+  }
+  return <div className="shared-track-controls">
+    <div className="player-controls">
+      <button className="player-control player-play" type="button" aria-label={playing ? 'Pause' : 'Play'} disabled={failed} onClick={togglePlayback}>{playing ? <Pause size={14} /> : <Play size={14} />}</button>
+      <time>{formatPlaybackTime(currentTime)}</time>
+      <input className="player-progress" type="range" min="0" max={duration || 0} step="0.1" value={Math.min(currentTime, duration || 0)} disabled={!duration || failed} aria-label="Seek through track" onChange={event => seek(Number(event.currentTarget.value))} />
+      <time>{formatPlaybackTime(duration)}</time>
+      <button className="player-control" type="button" aria-label={muted ? 'Unmute' : 'Mute'} onClick={toggleMute}>{muted || volume === 0 ? <VolumeX size={14} /> : <Volume2 size={14} />}</button>
+      <input className="player-volume" type="range" min="0" max="1" step="0.05" value={muted ? 0 : volume} aria-label="Volume" onChange={event => changeVolume(Number(event.currentTarget.value))} />
+    </div>
+    <audio ref={audioRef} preload="metadata" src={source} onLoadedMetadata={event => { event.currentTarget.volume = volume; event.currentTarget.muted = muted }} onPlaying={() => setPlaying(true)} onPause={() => setPlaying(false)} onTimeUpdate={event => setCurrentTime(event.currentTarget.currentTime)} onDurationChange={event => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)} onVolumeChange={event => { setVolume(event.currentTarget.volume); setMuted(event.currentTarget.muted) }} onError={() => { setFailed(true); setPlaying(false) }} />
+    <small>{failed ? 'Playback unavailable' : 'This link plays this track only'}</small>
+  </div>
+}
+
 function SharedTrackApp({ token }: { token: string }) {
   const [response, setResponse] = useState<SharedTrackResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -1800,10 +1849,7 @@ function SharedTrackApp({ token }: { token: string }) {
         <span>{track.album}</span>
       </div>
     </div>
-    <div className="shared-track-controls">
-      <audio ref={audioRef} controls controlsList="nodownload noplaybackrate" preload="metadata" src={`/api/shared/tracks/${encodeURIComponent(token)}/stream`} />
-      <small>This link plays this track only</small>
-    </div>
+    <SharedTrackControls audioRef={audioRef} source={`/api/shared/tracks/${encodeURIComponent(token)}/stream`} />
   </section>
 }
 
@@ -1872,11 +1918,6 @@ function PlayerBar({ selection, audioRef, close, playNext, openNowPlaying, onPla
     } catch { /* transient metadata state; the next audio event will retry */ }
   }, [playing, currentTime, duration])
 
-  const formatPlaybackTime = (seconds: number) => {
-    if (!Number.isFinite(seconds)) return '0:00'
-    const wholeSeconds = Math.max(0, Math.floor(seconds))
-    return `${Math.floor(wholeSeconds / 60)}:${String(wholeSeconds % 60).padStart(2, '0')}`
-  }
   const togglePlayback = () => {
     const audio = audioRef.current
     if (!audio) return
