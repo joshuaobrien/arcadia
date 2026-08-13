@@ -1789,15 +1789,12 @@ function JamTitle({ title }: { title: string }) {
 }
 
 const variableFontSpecimens = [
-  { name: 'Kablammo', className: 'kablammo-sample', axes: 'MORF' },
-  { name: 'Tilt Warp', className: 'tilt-warp-sample', axes: 'XROT · YROT' },
-  { name: 'Handjet', className: 'handjet-sample', axes: 'ELGR · ELSH · WGHT' },
-  { name: 'Sixtyfour', className: 'sixtyfour-sample', axes: 'BLED · SCAN' },
-  { name: 'Fraunces', className: 'fraunces-sample', axes: 'SOFT · WONK · OPSZ · WGHT' },
-  { name: 'Recursive', className: 'recursive-sample', axes: 'CASL · MONO · SLNT · WGHT' },
-  { name: 'Nabla', className: 'nabla-sample', axes: 'EDPT · EHLT / COLOR' },
-  { name: 'Honk', className: 'honk-sample', axes: 'MORF · SHLN / COLOR' },
-  { name: 'Wavefont', className: 'wavefont-sample', axes: 'ROND · YELA · WGHT' },
+  { name: 'Cheee', className: 'cheee-sample', axes: 'YEAST · GRAVITY · TEMPERATURE' },
+  { name: 'Buffalo Gals', className: 'buffalo-gals-sample', axes: 'COOKIES · FRINGE · HOOVES · CONCAVITY' },
+  { name: 'Fit', className: 'fit-sample', axes: 'WIDTH / 0—1000' },
+  { name: 'Jabin', className: 'jabin-sample', axes: 'SWASH · WEIGHT' },
+  { name: 'Bitcount Double', className: 'bitcount-sample', axes: 'OPEN · SHAPE · SLANT' },
+  { name: 'Pappardelle', className: 'pappardelle-sample', axes: 'OPAQUE · CONTRAST' },
 ] as const
 
 function NowPlayingView({ selection, audioRef, open, close }: { selection: PlaybackSelection; audioRef: React.RefObject<HTMLAudioElement | null>; open: boolean; close: () => void }) {
