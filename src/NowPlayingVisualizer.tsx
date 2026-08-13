@@ -375,6 +375,10 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
     let drumHitEnvelope = 0
     let drumHitKind = 0
     let titleBurstEnvelope = 0
+    let activeSection = 'hush'
+    let sectionCandidate = activeSection
+    let sectionCandidateSince = 0
+    signalTarget?.setAttribute('data-type-section', activeSection)
     const frameInterval = 30
     const jamBands = Array.from({ length: 6 }, () => 0)
     const titleFlares = Array.from({ length: 6 }, () => 0)
@@ -465,6 +469,18 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       if (!sectionEnergyBaseline) sectionEnergyBaseline = sectionEnergy
       sectionEnergyBaseline += (sectionEnergy - sectionEnergyBaseline) * (sectionEnergy > sectionEnergyBaseline ? 0.002 : 0.025)
       const sectionRise = Math.max(0, sectionEnergy - sectionEnergyBaseline)
+      const nextSection = sectionEnergy < 0.28
+        ? 'hush'
+        : sectionEnergy > 0.72 && bassSignal > 0.35 && midSignal > 0.3
+          ? 'surge'
+          : trebleSignal > 0.35 && trebleSignal > bassSignal + 0.12 ? 'air' : 'flow'
+      if (nextSection !== sectionCandidate) {
+        sectionCandidate = nextSection
+        sectionCandidateSince = time
+      } else if (nextSection !== activeSection && time - sectionCandidateSince > 900) {
+        activeSection = nextSection
+        signalTargetRef.current?.setAttribute('data-type-section', activeSection)
+      }
       const arrangementDrop = audio.currentTime > 4
         && sectionEnergy > 0.78
         && sectionRise > 0.56
@@ -570,6 +586,11 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       signalTarget?.style.setProperty('--jam-beat', String(displayedSignal))
       signalTarget?.style.setProperty('--jam-mid', String(midEnvelope))
       signalTarget?.style.setProperty('--jam-spark', String(sparkEnvelope))
+      signalTarget?.style.setProperty('--type-kick', String(drumHitKind === 0 ? drumHitEnvelope : 0))
+      signalTarget?.style.setProperty('--type-snare', String(drumHitKind === 1 ? drumHitEnvelope : 0))
+      signalTarget?.style.setProperty('--type-hat', String(drumHitKind === 2 ? drumHitEnvelope : 0))
+      const impactPosition = drumHitKind === 0 ? Math.min(1.15, Math.max(-0.15, (time - lastTitleFlareAt) / 540 * 1.3 - 0.15)) : -1
+      signalTarget?.style.setProperty('--impact-position', String(impactPosition))
       signalTarget?.style.setProperty('--title-burst', String(titleBurstEnvelope))
       titleFlares.forEach((value, index) => signalTarget?.style.setProperty(`--title-flare-${index}`, String(value)))
       const delightProgress = Math.min(1, Math.max(0, stageAge / 7200))
@@ -726,8 +747,9 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       cancelAnimationFrame(frame)
       observer.disconnect()
       visibilityObserver.disconnect()
-      for (const property of ['climate-year', 'climate-pulse', 'climate-beat', 'jam-bang', 'jam-punch', 'jam-crumble', 'jam-splatter', 'jam-beat', 'jam-mid', 'jam-spark', 'jam-band-0', 'jam-band-1', 'jam-band-2', 'jam-band-3', 'jam-band-4', 'jam-band-5', 'title-burst', 'title-flare-0', 'title-flare-1', 'title-flare-2', 'title-flare-3', 'title-flare-4', 'title-flare-5', 'lab-bevel', 'lab-roundness', 'lab-quad', 'lab-scale', 'delight-level', 'delight-progress', 'delight-offset', 'delight-angle', 'delight-scale', 'delight-stripe-offset', 'overburn-opacity', 'overburn-scale', 'overburn-cover-brightness', 'overburn-cover-saturation', 'overburn-cover-flare', 'overburn-cover-glow', 'overburn-cover-radius', 'overburn-cover-scale', 'overburn-cover-lift', 'overburn-cover-y', 'overburn-cover-x', 'overburn-cover-roll', 'overburn-cover-skew', 'overburn-cover-shadow-y']) signalTargetRef.current?.style.removeProperty(`--${property}`)
+      for (const property of ['climate-year', 'climate-pulse', 'climate-beat', 'jam-bang', 'jam-punch', 'jam-crumble', 'jam-splatter', 'jam-beat', 'jam-mid', 'jam-spark', 'jam-band-0', 'jam-band-1', 'jam-band-2', 'jam-band-3', 'jam-band-4', 'jam-band-5', 'type-kick', 'type-snare', 'type-hat', 'impact-position', 'title-burst', 'title-flare-0', 'title-flare-1', 'title-flare-2', 'title-flare-3', 'title-flare-4', 'title-flare-5', 'lab-bevel', 'lab-roundness', 'lab-quad', 'lab-scale', 'delight-level', 'delight-progress', 'delight-offset', 'delight-angle', 'delight-scale', 'delight-stripe-offset', 'overburn-opacity', 'overburn-scale', 'overburn-cover-brightness', 'overburn-cover-saturation', 'overburn-cover-flare', 'overburn-cover-glow', 'overburn-cover-radius', 'overburn-cover-scale', 'overburn-cover-lift', 'overburn-cover-y', 'overburn-cover-x', 'overburn-cover-roll', 'overburn-cover-skew', 'overburn-cover-shadow-y']) signalTargetRef.current?.style.removeProperty(`--${property}`)
       signalTargetRef.current?.removeAttribute('data-delight-event')
+      signalTargetRef.current?.removeAttribute('data-type-section')
       signalTargetRef.current?.removeAttribute('data-overburn')
       source?.disconnect()
       analyser?.disconnect()
