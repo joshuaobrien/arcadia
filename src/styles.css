@@ -323,6 +323,20 @@ main.library-main { width: min(1380px, calc(100% - 32px)); }
 .song-row time { text-align: right; }
 .track-share, .player-share { width: 27px; height: 27px; padding: 0; display: grid; place-items: center; color: #9fcabd; background: rgba(22,60,61,.8); border: 1px solid rgba(147,213,192,.2); border-radius: 50%; }
 .track-share:hover, .track-share:focus-visible, .player-share:hover, .player-share:focus-visible { color: #eafff7; background: rgba(49,103,94,.9); outline: 1px solid rgba(166,231,211,.4); outline-offset: 2px; }
+.share-dialog-scrim { position: fixed; z-index: 20; inset: 0; display: grid; place-items: center; padding: 18px; background: rgba(1,10,14,.72); backdrop-filter: blur(10px); }
+.share-dialog { width: min(480px,100%); padding: 28px; position: relative; display: flex; flex-direction: column; align-items: flex-start; color: #e9f6f1; background: linear-gradient(145deg,rgba(9,37,42,.98),rgba(8,26,34,.98)); border: 1px solid rgba(151,218,197,.28); box-shadow: 0 35px 90px rgba(0,5,8,.58); }
+.share-dialog > svg { color: #9be0c6; }
+.share-dialog > small { margin-top: 14px; color: #88b8a9; font-size: 8px; letter-spacing: .2em; }
+.share-dialog h2 { margin: 8px 0 0; font-family: var(--music-font); font-size: 24px; font-weight: 500; letter-spacing: -.02em; }
+.share-dialog p { margin: 10px 0 20px; color: #9bb7ae; font-family: var(--music-font); font-size: 11px; line-height: 1.5; }
+.share-dialog label { margin-bottom: 7px; color: #87aa9f; font-size: 8px; letter-spacing: .12em; text-transform: uppercase; }
+.share-dialog textarea { width: 100%; min-height: 60px; padding: 10px 11px; resize: none; overflow-wrap: anywhere; color: #daf3e9; background: rgba(2,17,22,.8); border: 1px solid rgba(145,211,190,.24); font: 10px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.share-dialog textarea:focus { border-color: #8bd3b8; outline: 2px solid rgba(139,211,184,.14); }
+.share-dialog-close { width: 30px; height: 30px; padding: 0; position: absolute; top: 14px; right: 14px; display: grid; place-items: center; color: #b9d5cb; background: rgba(24,61,63,.65); border: 1px solid rgba(151,218,197,.16); }
+.share-dialog-loading { min-height: 42px; display: flex; align-items: center; gap: 9px; color: #abd1c4; font-size: 10px; }
+.share-dialog-actions { width: 100%; margin-top: 14px; display: flex; gap: 8px; }
+.share-dialog-actions .button { min-width: 110px; justify-content: center; }
+.share-dialog-error { width: 100%; margin-top: 14px; padding: 10px; color: #ffd2cb; background: rgba(129,61,59,.3); border: 1px solid rgba(238,130,117,.3); font-size: 9px; line-height: 1.4; }
 .album-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(190px,1fr)); gap: 10px; }
 .album-card { min-width: 0; min-height: 230px; padding: 14px 12px 10px; position: relative; display: flex; flex-direction: column; align-items: stretch; color: var(--ink); background: #d2d1c8; border: 1px solid #85877f; box-shadow: inset 0 1px #efeee7; text-align: left; transition: transform 150ms ease, background-color 150ms ease, box-shadow 150ms ease; }
 .album-card:hover { background: #dcdbd2; border-color: #697068; }
