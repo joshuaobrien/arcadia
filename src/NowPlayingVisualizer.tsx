@@ -368,10 +368,13 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
     let modelFlowPhase = 0
     let modelTempoEnvelope = 0
     let rhythmicBaseline = 0
+    let sectionEnergyBaseline = 0
     let spectrumReady = false
     let lastTitleFlareAt = -Infinity
+    let lastArrangementDropAt = -Infinity
     let titleFlareLatched = false
     let titleFlareIndex = 0
+    let titleBurstEnvelope = 0
     const frameInterval = 30
     const jamBands = Array.from({ length: 6 }, () => 0)
     const titleFlares = Array.from({ length: 6 }, () => 0)
@@ -457,6 +460,26 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       beatEnvelope += (beatDrive - beatEnvelope) * (beatDrive > beatEnvelope ? 0.5 : 0.12)
       const sparkDrive = Math.min(1, highFlux * 11)
       sparkEnvelope += (sparkDrive - sparkEnvelope) * (sparkDrive > sparkEnvelope ? 0.62 : 0.11)
+      const sectionEnergy = bassSignal * 0.42 + midSignal * 0.36 + trebleSignal * 0.22
+      if (!sectionEnergyBaseline) sectionEnergyBaseline = sectionEnergy
+      sectionEnergyBaseline += (sectionEnergy - sectionEnergyBaseline) * (sectionEnergy > sectionEnergyBaseline ? 0.002 : 0.025)
+      const sectionRise = Math.max(0, sectionEnergy - sectionEnergyBaseline)
+      const arrangementDrop = audio.currentTime > 4
+        && sectionEnergy > 0.78
+        && sectionRise > 0.56
+        && bassSignal > 0.12
+        && midSignal > 0.1
+        && time - lastArrangementDropAt > 10000
+      if (arrangementDrop) {
+        titleFlares.fill(1)
+        titleBurstEnvelope = 1
+        delightEnvelope = 1
+        delightStartedAt = time
+        delightFlashStartedAt = time
+        delightEvent = (delightEvent + 1) % 3
+        nextDelightAt = Math.max(nextDelightAt, time + 15000)
+        lastArrangementDropAt = time
+      }
       const titleBeatDrive = beatDrive * (0.4 + bassSignal * 0.6)
       if (titleBeatDrive > 0.19 && beatDrive > 0.32 && bassSignal > 0.1 && !titleFlareLatched && time - lastTitleFlareAt > 800) {
         titleFlareIndex = (titleFlareIndex + 2 + Math.floor(time / 1000) % 3) % titleFlares.length
@@ -467,6 +490,7 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
         titleFlareLatched = false
       }
       titleFlares.forEach((value, index) => { titleFlares[index] = value * Math.pow(0.965, frameFactor) })
+      titleBurstEnvelope *= Math.pow(0.972, frameFactor)
       if (time >= nextDelightAt && beatDrive > 0.42 && bassSignal > 0.12) {
         delightEnvelope = 0.65
         delightStartedAt = time
@@ -528,6 +552,7 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       signalTarget?.style.setProperty('--jam-beat', String(displayedSignal))
       signalTarget?.style.setProperty('--jam-mid', String(midEnvelope))
       signalTarget?.style.setProperty('--jam-spark', String(sparkEnvelope))
+      signalTarget?.style.setProperty('--title-burst', String(titleBurstEnvelope))
       titleFlares.forEach((value, index) => signalTarget?.style.setProperty(`--title-flare-${index}`, String(value)))
       const delightProgress = Math.min(1, Math.max(0, stageAge / 7200))
       const delightDirection = delightEvent % 2 ? -1 : 1
