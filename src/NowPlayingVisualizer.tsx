@@ -18,6 +18,42 @@ export interface VisualScore {
   peaks: readonly { time: number; strength: number; kind: 'drop' | 'climax' }[]
 }
 
+function timelineValue(points: VisualScore['energy'], time: number): number {
+  if (!points.length) return 0
+  let low = 0
+  let high = points.length
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2)
+    if (points[middle].time <= time) low = middle + 1
+    else high = middle
+  }
+  const right = points[Math.min(points.length - 1, low)]
+  const left = points[Math.max(0, low - 1)]
+  if (left === right || right.time === left.time) return left.value
+  const progress = Math.min(1, Math.max(0, (time - left.time) / (right.time - left.time)))
+  return left.value + (right.value - left.value) * progress
+}
+
+function scoredBeat(beats: VisualScore['beats'], time: number): { phase: number; pulse: number; wave: number } {
+  if (beats.length < 2) return { phase: 0, pulse: 0, wave: 0 }
+  let low = 0
+  let high = beats.length
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2)
+    if (beats[middle] <= time) low = middle + 1
+    else high = middle
+  }
+  const previousIndex = Math.max(0, Math.min(beats.length - 2, low - 1))
+  const start = beats[previousIndex]
+  const end = beats[previousIndex + 1]
+  const phase = Math.min(1, Math.max(0, (time - start) / Math.max(0.001, end - start)))
+  return {
+    phase,
+    pulse: Math.exp(-phase * 5.5),
+    wave: (1 - Math.cos(phase * Math.PI * 2)) / 2,
+  }
+}
+
 interface VisualizerPalette {
   primary: THREE.Color
   secondary: THREE.Color
@@ -400,6 +436,8 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
     let lastPlannedPeak = -1
     let appliedScore: VisualScore | undefined
     let lastScoredAudioTime = audio.currentTime
+    let scoredEnergyEnvelope = 0
+    let scoredSectionEnvelope = 0
     signalTarget?.setAttribute('data-type-section', activeSection)
     const frameInterval = 30
     const jamBands = Array.from({ length: 6 }, () => 0)
@@ -415,12 +453,21 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       const frameFactor = lastRenderTime ? Math.min(4, (time - lastRenderTime) / 16.667) : 1
       lastRenderTime = time
       const score = visualScoreRef.current
+      const playbackTime = audio.currentTime
       if (score !== appliedScore) {
         appliedScore = score
         lastPlannedPeak = -1
-        lastScoredAudioTime = audio.currentTime
+        lastScoredAudioTime = playbackTime
+        signalTargetRef.current?.toggleAttribute('data-scored', Boolean(score))
         if (score?.tempoBpm) kickPeriod = 60_000 / score.tempoBpm
       }
+      const scoredSection = score?.sections.find(section => playbackTime >= section.start && playbackTime < section.end)
+      const scoreEnergyTarget = score ? timelineValue(score.energy, playbackTime) : 0
+      const scoreSectionTarget = scoredSection?.energy ?? scoreEnergyTarget
+      scoredEnergyEnvelope += (scoreEnergyTarget - scoredEnergyEnvelope) * (1 - Math.pow(0.91, frameFactor))
+      scoredSectionEnvelope += (scoreSectionTarget - scoredSectionEnvelope) * (1 - Math.pow(0.965, frameFactor))
+      const scoreBeat = score ? scoredBeat(score.beats, playbackTime) : { phase: 0, pulse: 0, wave: 0 }
+      const scoreProgress = score ? Math.min(1, playbackTime / Math.max(1, score.durationSeconds)) : 0
       analyser?.getByteFrequencyData(frequencies)
       let energy = 0
       let audibleBins = 0
@@ -468,7 +515,8 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       spectrumReady = true
       barMeshes.forEach((bar, index) => {
         const value = frequencies[index % frequencies.length] / 255
-        const height = 0.18 + value * 3.8
+        const scoredWave = 0.5 + Math.sin(index / BAR_COUNT * Math.PI * 4 - scoreBeat.phase * Math.PI * 2) * 0.5
+        const height = 0.18 + value * 3.8 + scoredEnergyEnvelope * 0.72 + scoreBeat.pulse * scoredWave * scoredEnergyEnvelope * 0.64
         bar.scale.y += (height - bar.scale.y) * 0.14
         bar.position.y = (bar.scale.y - 1) * 0.5
       })
@@ -498,7 +546,6 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       if (!sectionEnergyBaseline) sectionEnergyBaseline = sectionEnergy
       sectionEnergyBaseline += (sectionEnergy - sectionEnergyBaseline) * (sectionEnergy > sectionEnergyBaseline ? 0.002 : 0.025)
       const sectionRise = Math.max(0, sectionEnergy - sectionEnergyBaseline)
-      const scoredSection = score?.sections.find(section => audio.currentTime >= section.start && audio.currentTime < section.end)
       const nextSection = scoredSection?.kind ?? (sectionEnergy < 0.28
         ? 'hush'
         : sectionEnergy > 0.72 && bassSignal > 0.35 && midSignal > 0.3
@@ -511,7 +558,6 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
         activeSection = nextSection
         signalTargetRef.current?.setAttribute('data-type-section', activeSection)
       }
-      const playbackTime = audio.currentTime
       if (playbackTime < lastScoredAudioTime - 0.25) lastPlannedPeak = -1
       const crossedPeak = playbackTime >= lastScoredAudioTime && playbackTime - lastScoredAudioTime <= 0.75
       const plannedPeak = score?.peaks.findIndex((peak, index) => index !== lastPlannedPeak && (
@@ -616,7 +662,7 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       const stageTarget = stageFade * Math.min(1, 0.08 + bassEnvelope * 0.34 + midEnvelope * 0.2 + beatEnvelope * 0.16 + sparkEnvelope * 0.08)
       stageFlowEnvelope += (stageTarget - stageFlowEnvelope) * (1 - Math.pow(stageTarget > stageFlowEnvelope ? 0.94 : 0.975, frameFactor))
       const stageLevel = stageFlowEnvelope
-      const modelTempoTarget = Math.min(1, energyEnvelope * 0.36 + bassEnvelope * 0.42 + midEnvelope * 0.17 + trebleEnvelope * 0.05)
+      const modelTempoTarget = Math.min(1, energyEnvelope * 0.28 + bassEnvelope * 0.34 + midEnvelope * 0.14 + trebleEnvelope * 0.04 + scoredEnergyEnvelope * 0.2)
       modelTempoEnvelope += (modelTempoTarget - modelTempoEnvelope) * (1 - Math.pow(modelTempoTarget > modelTempoEnvelope ? 0.95 : 0.975, frameFactor))
       modelFlowPhase += (0.004 + modelTempoEnvelope * 0.008) * frameFactor
       jamBands.forEach((value, index) => {
@@ -644,6 +690,7 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       const summonLevel = summonEnvelope
       const nextPeak = score?.peaks.find(peak => peak.time > audio.currentTime)
       const anticipation = nextPeak && nextPeak.time - audio.currentTime < 2 ? 1 - (nextPeak.time - audio.currentTime) / 2 : 0
+      const peakCharge = anticipation * (nextPeak?.strength ?? 0)
       signalTarget?.style.setProperty('--climate-year', String(1979 + displayedSignal * 71))
       signalTarget?.style.setProperty('--climate-pulse', String(1 + energyEnvelope * 0.025 + displayedSignal * 0.055))
       signalTarget?.style.setProperty('--climate-beat', String(displayedSignal))
@@ -664,6 +711,13 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       signalTarget?.style.setProperty('--kick-wave-duration', String(kickWaveDuration))
       signalTarget?.style.setProperty('--impact-position', String(impactPosition))
       signalTarget?.style.setProperty('--score-anticipation', String(anticipation))
+      signalTarget?.style.setProperty('--score-energy', String(scoredEnergyEnvelope))
+      signalTarget?.style.setProperty('--score-section-energy', String(scoredSectionEnvelope))
+      signalTarget?.style.setProperty('--score-beat', String(scoreBeat.pulse))
+      signalTarget?.style.setProperty('--score-breath', String(scoreBeat.wave))
+      signalTarget?.style.setProperty('--score-phase', String(scoreBeat.phase))
+      signalTarget?.style.setProperty('--score-progress', String(scoreProgress))
+      signalTarget?.style.setProperty('--score-peak-charge', String(peakCharge))
       signalTarget?.style.setProperty('--title-burst', String(titleBurstEnvelope))
       titleFlares.forEach((value, index) => signalTarget?.style.setProperty(`--title-flare-${index}`, String(value)))
       const delightProgress = Math.min(1, Math.max(0, stageAge / 7200))
@@ -693,23 +747,24 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       signalTarget?.style.setProperty('--lab-roundness', String(displayedSignal * 1000))
       signalTarget?.style.setProperty('--lab-quad', String(displayedSignal * 1000))
       signalTarget?.style.setProperty('--lab-scale', String(180 + bassEnvelope * 820))
-      const pulse = 1 + energyEnvelope * 0.12 + bassEnvelope * 0.18 + Math.sin(time * 0.0007) * 0.02
+      const pulse = 1 + energyEnvelope * 0.1 + bassEnvelope * 0.14 + scoredEnergyEnvelope * 0.1 + scoreBeat.pulse * scoredEnergyEnvelope * 0.06 + Math.sin(time * 0.0007) * 0.02
       barMaterials.forEach((material, index) => {
         material.color.lerp(barTargetColors[index], 0.045)
         material.emissive.copy(material.color).multiplyScalar(hdrOutput ? 1 : 0.28)
-        const reflection = Math.max(0, beatEnvelope - Math.abs((index / BAR_COUNT) - ((time * 0.00018) % 1)) * 2.8)
+        const scoredReflection = scoreBeat.pulse * Math.max(0, 1 - Math.abs(index / BAR_COUNT - scoreBeat.phase) * 5)
+        const reflection = Math.max(scoredReflection, beatEnvelope - Math.abs((index / BAR_COUNT) - ((time * 0.00018) % 1)) * 2.8)
         const hitCenter = [0, 1 / 3, 2 / 3][drumHitKind]
         const hitDistance = Math.abs(index / BAR_COUNT - hitCenter)
         const wrappedHitDistance = Math.min(hitDistance, 1 - hitDistance)
         const drumReflection = drumHitEnvelope * Math.max(0, 1 - wrappedHitDistance * 7)
         const delightPosition = Math.min(1, Math.max(0, (time - delightFlashStartedAt) / 520))
         const delightReflection = Math.max(0, delightEnvelope - Math.abs(index / BAR_COUNT - delightPosition) * 5.5)
-        material.emissiveIntensity = hdrOutput ? 0.65 + bassEnvelope * 0.35 + reflection * 2.5 + drumReflection * 3.4 + delightReflection * 4.2 + overburnLevel * 7 : 0.8 + drumReflection * 0.38 + delightReflection * 0.45 + overburnLevel
+        material.emissiveIntensity = hdrOutput ? 0.65 + scoredSectionEnvelope * 0.8 + bassEnvelope * 0.35 + reflection * 2.5 + drumReflection * 3.4 + delightReflection * 4.2 + overburnLevel * 7 : 0.8 + scoredSectionEnvelope * 0.28 + reflection * 0.32 + drumReflection * 0.38 + delightReflection * 0.45 + overburnLevel
         material.roughness = 0.34 - midEnvelope * 0.16
       })
       coreMaterial.color.lerp(targetPalette.secondary, 0.045)
       coreMaterial.emissive.copy(coreMaterial.color).multiplyScalar(hdrOutput ? 1 : 0.48)
-      coreMaterial.emissiveIntensity = hdrOutput ? 1.35 + bassEnvelope * 0.65 + drumHitEnvelope * 2.4 + overburnLevel * 6 : 1.3 + drumHitEnvelope * 0.3 + overburnLevel
+      coreMaterial.emissiveIntensity = hdrOutput ? 1.35 + scoredEnergyEnvelope * 1.2 + scoreBeat.pulse * scoredEnergyEnvelope * 1.8 + bassEnvelope * 0.65 + drumHitEnvelope * 2.4 + overburnLevel * 6 : 1.3 + scoredEnergyEnvelope * 0.35 + scoreBeat.pulse * scoredEnergyEnvelope * 0.4 + drumHitEnvelope * 0.3 + overburnLevel
       shellMaterial.color.lerp(targetPalette.accent, 0.045)
       ringMaterial.color.lerp(targetPalette.primary, 0.045)
       hemisphereLight.color.lerp(targetPalette.primary, 0.045)
@@ -775,12 +830,12 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       core.scale.setScalar(pulse)
       core.rotation.x = time * 0.00008
       core.rotation.y = time * 0.00013
-      shell.scale.setScalar(1 + energyEnvelope * 0.12 + stageLevel * (0.1 + bassEnvelope * 0.1))
+      shell.scale.setScalar(1 + energyEnvelope * 0.1 + scoredEnergyEnvelope * 0.09 + scoreBeat.wave * scoredEnergyEnvelope * 0.035 + stageLevel * (0.1 + bassEnvelope * 0.1))
       shell.rotation.x = -time * 0.0001
       shell.rotation.y = time * 0.00016
       stageRotationOffset += stageLevel * 0.00045 * frameFactor * delightDirection
-      bars.rotation.y = time * 0.000025 + stageRotationOffset
-      bars.scale.setScalar(1 + stageLevel * (0.035 + bassEnvelope * 0.045))
+      bars.rotation.y = time * 0.000025 + scoreProgress * Math.PI * 2 + stageRotationOffset
+      bars.scale.setScalar(1 + scoredEnergyEnvelope * 0.04 + scoreBeat.wave * scoredEnergyEnvelope * 0.025 + stageLevel * (0.035 + bassEnvelope * 0.045))
       ring.rotation.z = time * 0.000025
       glints.forEach((glint, index) => {
         const phase = (index * 0.37 + time * 0.00016) % 1
@@ -792,8 +847,9 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
         material.opacity = flash * (hdrOutput ? 0.95 : 0.45)
         glint.scale.setScalar(0.65 + flash * 1.6)
       })
-      camera.position.x = Math.sin(time * 0.00006) * 0.65 + Math.sin(time * 0.0012) * stageLevel * 0.06
-      camera.position.z = 9.6 - stageLevel * (0.22 + bassEnvelope * 0.28) - overburnLevel * 0.28
+      camera.position.x = Math.sin(time * 0.00006 + scoreProgress * Math.PI * 2) * (0.48 + scoredEnergyEnvelope * 0.3) + Math.sin(time * 0.0012) * stageLevel * 0.06
+      camera.position.y = 4.2 - scoredEnergyEnvelope * 0.32 + scoreBeat.wave * scoredEnergyEnvelope * 0.08
+      camera.position.z = 9.6 - scoredEnergyEnvelope * 0.38 - scoreBeat.pulse * scoredEnergyEnvelope * 0.12 - stageLevel * (0.22 + bassEnvelope * 0.28) - overburnLevel * 0.28
       camera.lookAt(0, 0.2, 0)
       renderer.render(scene, camera)
       frame = requestAnimationFrame(render)
@@ -820,7 +876,8 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       cancelAnimationFrame(frame)
       observer.disconnect()
       visibilityObserver.disconnect()
-      for (const property of ['climate-year', 'climate-pulse', 'climate-beat', 'jam-bang', 'jam-punch', 'jam-crumble', 'jam-splatter', 'jam-beat', 'jam-mid', 'jam-spark', 'jam-band-0', 'jam-band-1', 'jam-band-2', 'jam-band-3', 'jam-band-4', 'jam-band-5', 'type-kick', 'type-snare', 'type-hat', 'kick-wave-duration', 'impact-position', 'score-anticipation', 'title-burst', 'title-flare-0', 'title-flare-1', 'title-flare-2', 'title-flare-3', 'title-flare-4', 'title-flare-5', 'lab-bevel', 'lab-roundness', 'lab-quad', 'lab-scale', 'delight-level', 'delight-progress', 'delight-offset', 'delight-angle', 'delight-scale', 'delight-stripe-offset', 'overburn-opacity', 'overburn-scale', 'overburn-cover-brightness', 'overburn-cover-saturation', 'overburn-cover-flare', 'overburn-cover-glow', 'overburn-cover-radius', 'overburn-cover-scale', 'overburn-cover-lift', 'overburn-cover-y', 'overburn-cover-x', 'overburn-cover-roll', 'overburn-cover-skew', 'overburn-cover-shadow-y']) signalTargetRef.current?.style.removeProperty(`--${property}`)
+      for (const property of ['climate-year', 'climate-pulse', 'climate-beat', 'jam-bang', 'jam-punch', 'jam-crumble', 'jam-splatter', 'jam-beat', 'jam-mid', 'jam-spark', 'jam-band-0', 'jam-band-1', 'jam-band-2', 'jam-band-3', 'jam-band-4', 'jam-band-5', 'type-kick', 'type-snare', 'type-hat', 'kick-wave-duration', 'impact-position', 'score-anticipation', 'score-energy', 'score-section-energy', 'score-beat', 'score-breath', 'score-phase', 'score-progress', 'score-peak-charge', 'title-burst', 'title-flare-0', 'title-flare-1', 'title-flare-2', 'title-flare-3', 'title-flare-4', 'title-flare-5', 'lab-bevel', 'lab-roundness', 'lab-quad', 'lab-scale', 'delight-level', 'delight-progress', 'delight-offset', 'delight-angle', 'delight-scale', 'delight-stripe-offset', 'overburn-opacity', 'overburn-scale', 'overburn-cover-brightness', 'overburn-cover-saturation', 'overburn-cover-flare', 'overburn-cover-glow', 'overburn-cover-radius', 'overburn-cover-scale', 'overburn-cover-lift', 'overburn-cover-y', 'overburn-cover-x', 'overburn-cover-roll', 'overburn-cover-skew', 'overburn-cover-shadow-y']) signalTargetRef.current?.style.removeProperty(`--${property}`)
+      signalTargetRef.current?.removeAttribute('data-scored')
       signalTargetRef.current?.removeAttribute('data-delight-event')
       signalTargetRef.current?.removeAttribute('data-type-section')
       signalTargetRef.current?.removeAttribute('data-overburn')

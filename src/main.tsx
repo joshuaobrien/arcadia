@@ -1818,6 +1818,13 @@ function NowPlayingView({ selection, audioRef, open, close }: { selection: Playb
   return <section ref={viewRef} className={`now-playing-view ${open ? 'open' : ''}`} data-summoned={summoned ? '' : undefined} aria-hidden={!open} aria-label="Now playing visualizer">
     <Suspense fallback={null}><NowPlayingVisualizer audioRef={audioRef} signalTargetRef={viewRef} selectionKey={selection.requestId} artworkUrl={track.albumId ? `/api/library/albums/${track.albumId}/artwork` : undefined} visualScore={visualScore} /></Suspense>
     <div className="now-playing-shade" />
+    <div className="now-playing-score-field" aria-hidden="true">
+      <div className="score-aurora"><i /><i /><i /></div>
+      <div className="score-orbits"><i /><i /><i /></div>
+      <div className="score-horizon" />
+      <div className="score-beam" />
+      <div className="score-stars" />
+    </div>
     <div className="now-playing-event-field" aria-hidden="true"><i /><b /></div>
     <div className="now-playing-overburn-field" aria-hidden="true" />
     <button className="now-playing-close" type="button" onClick={close}><X size={16} /> Back to library</button>
