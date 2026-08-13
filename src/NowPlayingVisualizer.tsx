@@ -105,7 +105,7 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       renderer.dispose()
       return
     }
-    renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.6))
+    renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.25))
     if (!hdrOutput) renderer.outputColorSpace = THREE.SRGBColorSpace
     renderer.domElement.setAttribute('aria-hidden', 'true')
     renderer.domElement.dataset.outputRange = hdrOutput ? 'hdr' : 'sdr'
@@ -344,9 +344,16 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
     let modelTempoEnvelope = 0
     let rhythmicBaseline = 0
     let spectrumReady = false
+    const frameInterval = 30
     const jamBands = Array.from({ length: 6 }, () => 0)
     const previousFrequencies = new Uint8Array(frequencies.length)
     const render = (time: number) => {
+      frame = 0
+      if (!signalTargetRef.current?.classList.contains('open')) return
+      if (lastRenderTime && time - lastRenderTime < frameInterval) {
+        frame = requestAnimationFrame(render)
+        return
+      }
       const frameFactor = lastRenderTime ? Math.min(4, (time - lastRenderTime) / 16.667) : 1
       lastRenderTime = time
       analyser?.getByteFrequencyData(frequencies)
@@ -610,12 +617,25 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       renderer.render(scene, camera)
       frame = requestAnimationFrame(render)
     }
-    frame = requestAnimationFrame(render)
+    const visibilityObserver = new MutationObserver(() => {
+      if (signalTargetRef.current?.classList.contains('open')) {
+        if (!frame) {
+          lastRenderTime = 0
+          frame = requestAnimationFrame(render)
+        }
+      } else if (frame) {
+        cancelAnimationFrame(frame)
+        frame = 0
+      }
+    })
+    if (signalTargetRef.current) visibilityObserver.observe(signalTargetRef.current, { attributes: true, attributeFilter: ['class'] })
+    if (signalTargetRef.current?.classList.contains('open')) frame = requestAnimationFrame(render)
 
     disposeScene = () => {
       active = false
       cancelAnimationFrame(frame)
       observer.disconnect()
+      visibilityObserver.disconnect()
       for (const property of ['climate-year', 'climate-pulse', 'climate-beat', 'jam-bang', 'jam-punch', 'jam-crumble', 'jam-splatter', 'jam-beat', 'jam-mid', 'jam-spark', 'jam-band-0', 'jam-band-1', 'jam-band-2', 'jam-band-3', 'jam-band-4', 'jam-band-5', 'lab-bevel', 'lab-roundness', 'lab-quad', 'lab-scale', 'delight-level', 'delight-progress', 'delight-offset', 'delight-angle', 'delight-scale', 'delight-stripe-offset', 'overburn-opacity', 'overburn-scale', 'overburn-cover-brightness', 'overburn-cover-saturation', 'overburn-cover-flare', 'overburn-cover-glow', 'overburn-cover-radius', 'overburn-cover-scale', 'overburn-cover-lift', 'overburn-cover-y', 'overburn-cover-x', 'overburn-cover-roll', 'overburn-cover-skew', 'overburn-cover-shadow-y']) signalTargetRef.current?.style.removeProperty(`--${property}`)
       signalTargetRef.current?.removeAttribute('data-delight-event')
       signalTargetRef.current?.removeAttribute('data-overburn')
