@@ -1768,6 +1768,18 @@ function LibraryView({ library, acquisitions, playTrack, playback }: { library: 
   )
 }
 
+function JamTitle({ title }: { title: string }) {
+  let characterIndex = 0
+  return title.split(' ').map((word, wordIndex) => {
+    const glyphs = Array.from(word).map(character => {
+      const index = characterIndex++
+      return <span className={`jam-glyph jam-band-${index % 6}`} aria-hidden="true" key={`${character}-${index}`}>{character}</span>
+    })
+    characterIndex++
+    return <span className="jam-word" key={`${word}-${wordIndex}`}>{glyphs}</span>
+  })
+}
+
 function NowPlayingView({ selection, audioRef, open, close }: { selection: PlaybackSelection; audioRef: React.RefObject<HTMLAudioElement | null>; open: boolean; close: () => void }) {
   const { track } = selection
   const viewRef = useRef<HTMLElement>(null)
@@ -1803,7 +1815,7 @@ function NowPlayingView({ selection, audioRef, open, close }: { selection: Playb
       <div className="now-playing-copy">
         <small>NOW PLAYING / AUDIO HABITAT</small>
         <h1 className={`reactive-title ${typeface}-title`} aria-label={track.title}>
-          {typeface === 'jam' ? Array.from(track.title).map((character, index) => <span className={`jam-glyph jam-band-${index % 6}`} aria-hidden="true" key={`${character}-${index}`}>{character === ' ' ? '\u00a0' : character}</span>) : track.title}
+          {typeface === 'jam' ? <JamTitle title={track.title} /> : track.title}
         </h1>
         <p>{track.artists?.join(', ') || track.albumArtist || 'Unknown artist'}</p>
         <span>{track.album}</span>
@@ -1913,7 +1925,7 @@ function SharedAlbumApp({ token }: { token: string }) {
       <div className="now-playing-copy">
         <small>NOW PLAYING / {currentIndex + 1} OF {response.tracks.length}</small>
         <h1 className="reactive-title jam-title" aria-label={current.title}>
-          {Array.from(current.title).map((character, index) => <span className={`jam-glyph jam-band-${index % 6}`} aria-hidden="true" key={`${character}-${index}`}>{character === ' ' ? '\u00a0' : character}</span>)}
+          <JamTitle title={current.title} />
         </h1>
         <p>{current.artists?.join(', ') || response.album.albumArtist}</p>
         <span>{response.album.title}{response.album.year ? ` · ${response.album.year}` : ''}</span>
@@ -1959,7 +1971,7 @@ function SharedTrackApp({ token }: { token: string }) {
       <div className="now-playing-copy">
         <small>NOW PLAYING / SHARED SIGNAL</small>
         <h1 className="reactive-title jam-title" aria-label={track.title}>
-          {Array.from(track.title).map((character, index) => <span className={`jam-glyph jam-band-${index % 6}`} aria-hidden="true" key={`${character}-${index}`}>{character === ' ' ? '\u00a0' : character}</span>)}
+          <JamTitle title={track.title} />
         </h1>
         <p>{track.artists?.join(', ') || track.albumArtist || 'Unknown artist'}</p>
         <span>{track.album}</span>
