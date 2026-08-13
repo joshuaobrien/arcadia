@@ -1788,24 +1788,16 @@ function JamTitle({ title }: { title: string }) {
   })
 }
 
-const variableFontSpecimens = [
-  { name: 'Kablammo', className: 'kablammo-sample', axes: 'MORF' },
-  { name: 'Tilt Warp', className: 'tilt-warp-sample', axes: 'XROT · YROT' },
-  { name: 'Handjet', className: 'handjet-sample', axes: 'ELGR · ELSH · WGHT' },
-  { name: 'Sixtyfour', className: 'sixtyfour-sample', axes: 'BLED · SCAN' },
-  { name: 'Fraunces', className: 'fraunces-sample', axes: 'SOFT · WONK · OPSZ · WGHT' },
-  { name: 'Recursive', className: 'recursive-sample', axes: 'CASL · MONO · SLNT · WGHT' },
-  { name: 'Nabla', className: 'nabla-sample', axes: 'EDPT · EHLT / COLOR' },
-  { name: 'Honk', className: 'honk-sample', axes: 'MORF · SHLN / COLOR' },
-  { name: 'Wavefont', className: 'wavefont-sample', axes: 'ROND · YELA · WGHT' },
-] as const
-
 function NowPlayingView({ selection, audioRef, open, close }: { selection: PlaybackSelection; audioRef: React.RefObject<HTMLAudioElement | null>; open: boolean; close: () => void }) {
   const { track } = selection
   const viewRef = useRef<HTMLElement>(null)
+  const [typeface, setTypeface] = useState<'jam' | 'lab' | 'climate'>('jam')
   const [artwork, setArtwork] = useState(Boolean(track.albumId))
+  const [summoned, setSummoned] = useState(false)
   const [visualScore, setVisualScore] = useState<VisualScore>()
   useEffect(() => setArtwork(Boolean(track.albumId)), [track.albumId])
+  useEffect(() => setSummoned(false), [selection.requestId])
+  useEffect(() => { if (!open) setSummoned(false) }, [open])
   useEffect(() => {
     setVisualScore(undefined)
     if (!open) return
@@ -1822,25 +1814,40 @@ function NowPlayingView({ selection, audioRef, open, close }: { selection: Playb
     void load()
     return () => { controller.abort(); if (timer !== undefined) window.clearTimeout(timer) }
   }, [open, selection.requestId, track.id])
-  return <section ref={viewRef} className={`now-playing-view ${open ? 'open' : ''}`} aria-hidden={!open} aria-label="Now playing visualizer">
+  const setOverburn = (active: boolean) => active ? viewRef.current?.setAttribute('data-overburn', '') : viewRef.current?.removeAttribute('data-overburn')
+  return <section ref={viewRef} className={`now-playing-view ${open ? 'open' : ''}`} data-summoned={summoned ? '' : undefined} aria-hidden={!open} aria-label="Now playing visualizer">
     <Suspense fallback={null}><NowPlayingVisualizer audioRef={audioRef} signalTargetRef={viewRef} selectionKey={selection.requestId} artworkUrl={track.albumId ? `/api/library/albums/${track.albumId}/artwork` : undefined} visualScore={visualScore} /></Suspense>
     <div className="now-playing-shade" />
     <div className="now-playing-event-field" aria-hidden="true"><i /><b /></div>
     <div className="now-playing-overburn-field" aria-hidden="true" />
     <button className="now-playing-close" type="button" onClick={close}><X size={16} /> Back to library</button>
-    <div className="now-playing-specimen font-comparison-specimen">
+    <div className="now-playing-actions">
+      <button className="now-playing-summon" type="button" aria-pressed={summoned} onClick={() => setSummoned(active => !active)}>
+        <small>{summoned ? 'DISMISS' : 'SUMMON'}</small> MENAGERIE
+      </button>
+      <button className="now-playing-overburn" type="button" aria-label="Hold to activate Overburn HDR override"
+        onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); setOverburn(true) }}
+        onPointerUp={() => setOverburn(false)} onPointerCancel={() => setOverburn(false)} onLostPointerCapture={() => setOverburn(false)}
+        onKeyDown={event => { if (!event.repeat && (event.key === ' ' || event.key === 'Enter')) setOverburn(true) }}
+        onKeyUp={event => { if (event.key === ' ' || event.key === 'Enter') setOverburn(false) }} onBlur={() => setOverburn(false)}>
+        <small>HOLD</small> OVERBURN
+      </button>
+    </div>
+    <div className="now-playing-specimen">
       <div className="now-playing-cover">
         {artwork && track.albumId ? <img src={`/api/library/albums/${track.albumId}/artwork`} alt="" onError={() => setArtwork(false)} /> : <Disc3 size={56} />}
       </div>
-      <div className="font-comparison-copy">
-        <header><small>VARIABLE TYPE / LIVE COMPARISON</small><p>{track.artists?.join(', ') || track.albumArtist || 'Unknown artist'} · {track.album}</p></header>
-        <div className="font-specimen-list">
-          {variableFontSpecimens.map(font => <article className="font-specimen-row" key={font.name}>
-            <div><strong>{font.name}</strong><small>{font.axes}</small></div>
-            <h1 className={`font-specimen-title ${font.className}`}>{track.title}</h1>
-          </article>)}
-        </div>
+      <div className="now-playing-copy">
+        <small>NOW PLAYING / AUDIO HABITAT</small>
+        <h1 className={`reactive-title ${typeface}-title`} aria-label={track.title}>
+          {typeface === 'jam' ? <JamTitle title={track.title} /> : track.title}
+        </h1>
+        <p>{track.artists?.join(', ') || track.albumArtist || 'Unknown artist'}</p>
+        <span>{track.album}</span>
       </div>
+    </div>
+    <div className="now-playing-font-picker" aria-label="Reactive typeface">
+      {(['jam', 'lab', 'climate'] as const).map(font => <button type="button" className={typeface === font ? 'active' : ''} aria-pressed={typeface === font} onClick={() => setTypeface(font)} key={font}>{font}</button>)}
     </div>
     <div className="now-playing-telemetry" aria-hidden="true"><span>LIVE SIGNAL</span><span>BEAT / BODY / TEXTURE / TRANSIENT</span></div>
   </section>
