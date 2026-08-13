@@ -99,6 +99,9 @@ main.library-main { width: min(1380px, calc(100% - 32px)); }
 .artist-detail-stats span { color: #9ab9af; font-size: 8px; text-transform: uppercase; }
 .artist-detail-stats strong { margin-right: 5px; color: #e9fff7; font-size: 15px; font-weight: 500; }
 .artist-detail-content { display: grid; gap: 30px; }
+.artist-source-status { min-height: 20px; margin-bottom: -18px; display: flex; flex-wrap: wrap; gap: 8px; }
+.artist-source-status:empty { display: none; }
+.artist-source-status span { padding: 6px 9px; display: inline-flex; align-items: center; gap: 6px; color: #9fc4b8; background: rgba(9,38,43,.72); border: 1px solid rgba(144,207,188,.16); font-size: 7px; letter-spacing: .08em; text-transform: uppercase; }
 .artist-release-footer { padding-top: 15px; display: flex; justify-content: center; }
 
 .search-form { height: 45px; margin-bottom: 16px; padding: 6px 6px 6px 12px; display: flex; align-items: center; gap: 10px; background: #bdbdb5; border: 1px solid #6f716a; box-shadow: inset 1px 1px #efeee7, inset -1px -1px #90928a; }
