@@ -14,6 +14,7 @@ ENV NODE_ENV=production \
     PORT=8787
 WORKDIR /app
 
+RUN apk add --no-cache ffmpeg
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist

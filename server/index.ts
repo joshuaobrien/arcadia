@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { MusicBrainzAdapter } from './integrations/musicbrainz.js'
 import { createSlskdAdapterFromEnv, type SlskdAdapter } from './integrations/slskd.js'
 import { DirectAcquisitionService } from './domain/direct-acquisition.js'
+import { VisualScoreRepository, VisualScoreService, type VisualScorePort } from './domain/visual-score.js'
 import { createJellyfinAdapterFromEnv } from './integrations/jellyfin.js'
 import { createBeetsFlaskAdapterFromEnv } from './integrations/beets-flask.js'
 import { isAdapterError } from './integrations/errors.js'
@@ -86,6 +87,7 @@ interface BuildAppOptions {
   publicUrl?: string | null
   directAcquisition?: DirectAcquisitionService | null
   slskd?: SlskdAdapter | null
+  visualScores?: VisualScorePort | null
 }
 
 interface PageQuery {
@@ -234,6 +236,11 @@ export function buildApp(options: BuildAppOptions = {}) {
   const acquisitionRepository = options.acquisitionRepository === undefined
     ? process.env.NEEDLE_DATABASE_PATH ? new AcquisitionRepository(process.env.NEEDLE_DATABASE_PATH) : null
     : options.acquisitionRepository
+  const visualScores = options.visualScores === undefined
+    ? process.env.NEEDLE_DATABASE_PATH
+      ? new VisualScoreService(new VisualScoreRepository(`${process.env.NEEDLE_DATABASE_PATH}.visual-scores`))
+      : null
+    : options.visualScores
   const slskd = options.slskd === undefined ? createSlskdAdapterFromEnv() : options.slskd
   const directAcquisition = options.directAcquisition === undefined
     ? slskd && acquisitionRepository instanceof AcquisitionRepository
@@ -263,6 +270,7 @@ export function buildApp(options: BuildAppOptions = {}) {
   if (acquisitionRepository?.close) {
     app.addHook('onClose', async () => acquisitionRepository.close?.())
   }
+  if (visualScores?.close) app.addHook('onClose', async () => visualScores.close?.())
 
   async function catalogRoute<T>(reply: FastifyReply, operation: (adapter: CatalogLookupPort, context: OperationContext) => Promise<T>): Promise<T | undefined> {
     if (!catalog) return reply.code(503).send({ error: { code: 'unavailable', adapterId: 'musicbrainz', message: 'Catalog is not configured', retryable: false } })
@@ -738,6 +746,24 @@ export function buildApp(options: BuildAppOptions = {}) {
     reply.code(audio.status).type(audio.contentType)
     if (audio.contentLength !== undefined) reply.header('Content-Length', audio.contentLength)
     return reply.send(Readable.fromWeb(audio.body as unknown as Parameters<typeof Readable.fromWeb>[0]))
+  })
+  app.get<{ Params: { songId: string } }>('/api/library/songs/:songId/visual-score', {
+    schema: {
+      params: {
+        type: 'object', required: ['songId'], additionalProperties: false,
+        properties: { songId: { type: 'string', pattern: '^[a-fA-F0-9-]{32,36}$' } },
+      },
+    },
+  }, async (request, reply) => {
+    if (!visualScores) return reply.code(503).send({ state: 'unavailable', retryAfterSeconds: 60 })
+    const result = visualScores.request(request.params.songId, async () => {
+      if (!jellyfin) throw new Error('Library catalog is unavailable')
+      const audio = await jellyfin.getTrackAudio(request.params.songId, undefined, { operationId: crypto.randomUUID() })
+      if (!audio || audio.status !== 200) throw new Error('Track audio is unavailable')
+      return audio.body
+    })
+    reply.header('Cache-Control', result.state === 'ready' ? 'private, max-age=86400' : 'no-store')
+    return reply.code(result.state === 'ready' ? 200 : result.state === 'analyzing' ? 202 : 503).send(result)
   })
   app.get<{ Params: { albumId: string } }>('/api/library/albums/:albumId/artwork', {
     exposeHeadRoute: false,

@@ -8,6 +8,16 @@ import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js'
 
 const BAR_COUNT = 48
 
+export interface VisualScore {
+  version: number
+  durationSeconds: number
+  tempoBpm: number
+  beats: readonly number[]
+  energy: readonly { time: number; value: number }[]
+  sections: readonly { start: number; end: number; kind: 'hush' | 'flow' | 'surge'; energy: number }[]
+  peaks: readonly { time: number; strength: number; kind: 'drop' | 'climax' }[]
+}
+
 interface VisualizerPalette {
   primary: THREE.Color
   secondary: THREE.Color
@@ -79,8 +89,10 @@ async function extractArtworkPalette(url: string): Promise<VisualizerPalette> {
   return { primary, secondary, accent }
 }
 
-export default function NowPlayingVisualizer({ audioRef, signalTargetRef, selectionKey, artworkUrl }: { audioRef: RefObject<HTMLAudioElement | null>; signalTargetRef: RefObject<HTMLElement | null>; selectionKey: number; artworkUrl?: string }) {
+export default function NowPlayingVisualizer({ audioRef, signalTargetRef, selectionKey, artworkUrl, visualScore }: { audioRef: RefObject<HTMLAudioElement | null>; signalTargetRef: RefObject<HTMLElement | null>; selectionKey: number; artworkUrl?: string; visualScore?: VisualScore }) {
   const hostRef = useRef<HTMLDivElement>(null)
+  const visualScoreRef = useRef(visualScore)
+  useEffect(() => { visualScoreRef.current = visualScore }, [visualScore])
 
   useEffect(() => {
     const host = hostRef.current
@@ -385,6 +397,9 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
     let activeSection = 'hush'
     let sectionCandidate = activeSection
     let sectionCandidateSince = 0
+    let lastPlannedPeak = -1
+    let appliedScore: VisualScore | undefined
+    let lastScoredAudioTime = audio.currentTime
     signalTarget?.setAttribute('data-type-section', activeSection)
     const frameInterval = 30
     const jamBands = Array.from({ length: 6 }, () => 0)
@@ -399,6 +414,13 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       }
       const frameFactor = lastRenderTime ? Math.min(4, (time - lastRenderTime) / 16.667) : 1
       lastRenderTime = time
+      const score = visualScoreRef.current
+      if (score !== appliedScore) {
+        appliedScore = score
+        lastPlannedPeak = -1
+        lastScoredAudioTime = audio.currentTime
+        if (score?.tempoBpm) kickPeriod = 60_000 / score.tempoBpm
+      }
       analyser?.getByteFrequencyData(frequencies)
       let energy = 0
       let audibleBins = 0
@@ -476,11 +498,12 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       if (!sectionEnergyBaseline) sectionEnergyBaseline = sectionEnergy
       sectionEnergyBaseline += (sectionEnergy - sectionEnergyBaseline) * (sectionEnergy > sectionEnergyBaseline ? 0.002 : 0.025)
       const sectionRise = Math.max(0, sectionEnergy - sectionEnergyBaseline)
-      const nextSection = sectionEnergy < 0.28
+      const scoredSection = score?.sections.find(section => audio.currentTime >= section.start && audio.currentTime < section.end)
+      const nextSection = scoredSection?.kind ?? (sectionEnergy < 0.28
         ? 'hush'
         : sectionEnergy > 0.72 && bassSignal > 0.35 && midSignal > 0.3
           ? 'surge'
-          : trebleSignal > 0.35 && trebleSignal > bassSignal + 0.12 ? 'air' : 'flow'
+          : trebleSignal > 0.35 && trebleSignal > bassSignal + 0.12 ? 'air' : 'flow')
       if (nextSection !== sectionCandidate) {
         sectionCandidate = nextSection
         sectionCandidateSince = time
@@ -488,13 +511,23 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
         activeSection = nextSection
         signalTargetRef.current?.setAttribute('data-type-section', activeSection)
       }
-      const arrangementDrop = audio.currentTime > 4
+      const playbackTime = audio.currentTime
+      if (playbackTime < lastScoredAudioTime - 0.25) lastPlannedPeak = -1
+      const crossedPeak = playbackTime >= lastScoredAudioTime && playbackTime - lastScoredAudioTime <= 0.75
+      const plannedPeak = score?.peaks.findIndex((peak, index) => index !== lastPlannedPeak && (
+        Math.abs(playbackTime - peak.time) < 0.12
+        || (crossedPeak && peak.time > lastScoredAudioTime && peak.time <= playbackTime)
+      )) ?? -1
+      lastScoredAudioTime = playbackTime
+      const heuristicDrop = audio.currentTime > 4
         && sectionEnergy > 0.78
         && sectionRise > 0.56
         && bassSignal > 0.12
         && midSignal > 0.1
         && time - lastArrangementDropAt > 10000
+      const arrangementDrop = score ? plannedPeak >= 0 : heuristicDrop
       if (arrangementDrop) {
+        if (plannedPeak >= 0) lastPlannedPeak = plannedPeak
         titleFlares.fill(1)
         titleBurstEnvelope = 1
         delightEnvelope = 1
@@ -609,10 +642,12 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
         ? summonEnvelope + (1 - summonEnvelope) * (1 - Math.pow(0.9, frameFactor))
         : summonEnvelope * Math.pow(0.78, frameFactor)
       const summonLevel = summonEnvelope
+      const nextPeak = score?.peaks.find(peak => peak.time > audio.currentTime)
+      const anticipation = nextPeak && nextPeak.time - audio.currentTime < 2 ? 1 - (nextPeak.time - audio.currentTime) / 2 : 0
       signalTarget?.style.setProperty('--climate-year', String(1979 + displayedSignal * 71))
       signalTarget?.style.setProperty('--climate-pulse', String(1 + energyEnvelope * 0.025 + displayedSignal * 0.055))
       signalTarget?.style.setProperty('--climate-beat', String(displayedSignal))
-      const reactiveBang = 2.5 + energyEnvelope * 4 + displayedSignal * 3.5
+      const reactiveBang = 0.65 + Math.pow(energyEnvelope, 1.7) * 2.15 + Math.pow(displayedSignal, 2.2) * 2.65
       signalTarget?.style.setProperty('--jam-bang', String(Math.max(reactiveBang, Math.min(10, titleBurstEnvelope * 16))))
       signalTarget?.style.setProperty('--jam-punch', String(displayedSignal * 10))
       signalTarget?.style.setProperty('--jam-crumble', String(midEnvelope * 5))
@@ -628,6 +663,7 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       const impactPosition = kickWaveEnvelope > 0.01 ? (kickWaveDirection > 0 ? impactProgress : 1 - impactProgress) : -1
       signalTarget?.style.setProperty('--kick-wave-duration', String(kickWaveDuration))
       signalTarget?.style.setProperty('--impact-position', String(impactPosition))
+      signalTarget?.style.setProperty('--score-anticipation', String(anticipation))
       signalTarget?.style.setProperty('--title-burst', String(titleBurstEnvelope))
       titleFlares.forEach((value, index) => signalTarget?.style.setProperty(`--title-flare-${index}`, String(value)))
       const delightProgress = Math.min(1, Math.max(0, stageAge / 7200))
@@ -784,7 +820,7 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       cancelAnimationFrame(frame)
       observer.disconnect()
       visibilityObserver.disconnect()
-      for (const property of ['climate-year', 'climate-pulse', 'climate-beat', 'jam-bang', 'jam-punch', 'jam-crumble', 'jam-splatter', 'jam-beat', 'jam-mid', 'jam-spark', 'jam-band-0', 'jam-band-1', 'jam-band-2', 'jam-band-3', 'jam-band-4', 'jam-band-5', 'type-kick', 'type-snare', 'type-hat', 'kick-wave-duration', 'impact-position', 'title-burst', 'title-flare-0', 'title-flare-1', 'title-flare-2', 'title-flare-3', 'title-flare-4', 'title-flare-5', 'lab-bevel', 'lab-roundness', 'lab-quad', 'lab-scale', 'delight-level', 'delight-progress', 'delight-offset', 'delight-angle', 'delight-scale', 'delight-stripe-offset', 'overburn-opacity', 'overburn-scale', 'overburn-cover-brightness', 'overburn-cover-saturation', 'overburn-cover-flare', 'overburn-cover-glow', 'overburn-cover-radius', 'overburn-cover-scale', 'overburn-cover-lift', 'overburn-cover-y', 'overburn-cover-x', 'overburn-cover-roll', 'overburn-cover-skew', 'overburn-cover-shadow-y']) signalTargetRef.current?.style.removeProperty(`--${property}`)
+      for (const property of ['climate-year', 'climate-pulse', 'climate-beat', 'jam-bang', 'jam-punch', 'jam-crumble', 'jam-splatter', 'jam-beat', 'jam-mid', 'jam-spark', 'jam-band-0', 'jam-band-1', 'jam-band-2', 'jam-band-3', 'jam-band-4', 'jam-band-5', 'type-kick', 'type-snare', 'type-hat', 'kick-wave-duration', 'impact-position', 'score-anticipation', 'title-burst', 'title-flare-0', 'title-flare-1', 'title-flare-2', 'title-flare-3', 'title-flare-4', 'title-flare-5', 'lab-bevel', 'lab-roundness', 'lab-quad', 'lab-scale', 'delight-level', 'delight-progress', 'delight-offset', 'delight-angle', 'delight-scale', 'delight-stripe-offset', 'overburn-opacity', 'overburn-scale', 'overburn-cover-brightness', 'overburn-cover-saturation', 'overburn-cover-flare', 'overburn-cover-glow', 'overburn-cover-radius', 'overburn-cover-scale', 'overburn-cover-lift', 'overburn-cover-y', 'overburn-cover-x', 'overburn-cover-roll', 'overburn-cover-skew', 'overburn-cover-shadow-y']) signalTargetRef.current?.style.removeProperty(`--${property}`)
       signalTargetRef.current?.removeAttribute('data-delight-event')
       signalTargetRef.current?.removeAttribute('data-type-section')
       signalTargetRef.current?.removeAttribute('data-overburn')
