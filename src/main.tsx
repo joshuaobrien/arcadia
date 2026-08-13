@@ -1467,30 +1467,72 @@ function SongPlayButton({ track, playback, className, size }: { track: PlayerTra
 }
 
 function ShareTrackButton({ track, className = 'track-share' }: { track: PlayerTrack; className?: string }) {
-  const [status, setStatus] = useState<'idle' | 'creating' | 'copied' | 'failed'>('idle')
-  const share = async () => {
+  const [open, setOpen] = useState(false)
+  const [link, setLink] = useState<string | null>(null)
+  const [status, setStatus] = useState<'idle' | 'creating' | 'copied'>('idle')
+  const [error, setError] = useState<string | null>(null)
+  const linkInput = useRef<HTMLTextAreaElement>(null)
+  const canNativeShare = 'share' in navigator
+  const createLink = async () => {
+    setOpen(true)
+    setError(null)
+    if (link) return
     setStatus('creating')
     try {
       const response = await fetch(`/api/shares/tracks/${encodeURIComponent(track.id)}`, { method: 'POST' })
       const body = await response.json() as { path?: string; error?: { message?: string } }
       if (!response.ok || !body.path) throw new Error(body.error?.message ?? `Could not share track (${response.status})`)
-      const url = new URL(body.path, window.location.href).href
-      if (navigator.share) await navigator.share({ title: track.title, text: `Listen to ${track.title}${track.artists?.length ? ` by ${track.artists.join(', ')}` : ''}`, url })
-      else await navigator.clipboard.writeText(url)
-      setStatus('copied')
-      window.setTimeout(() => setStatus('idle'), 2200)
-    } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') setStatus('idle')
-      else {
-        setStatus('failed')
-        window.setTimeout(() => setStatus('idle'), 2600)
-      }
+      setLink(new URL(body.path, window.location.href).href)
+      setStatus('idle')
+    } catch (reason) {
+      setStatus('idle')
+      setError(errorMessage(reason))
     }
   }
-  const label = status === 'creating' ? 'Creating link…' : status === 'copied' ? 'Link copied' : status === 'failed' ? 'Share failed' : `Share ${track.title}`
-  return <button className={className} type="button" aria-label={label} title={label} disabled={status === 'creating'} onClick={() => { void share() }}>
-    {status === 'copied' ? <Check size={12} /> : status === 'creating' ? <RefreshCw size={12} className="spinning" /> : <Share2 size={12} />}
-  </button>
+  const copyLink = async () => {
+    if (!link) return
+    try {
+      await navigator.clipboard.writeText(link)
+      setStatus('copied')
+      window.setTimeout(() => setStatus('idle'), 2200)
+    } catch {
+      linkInput.current?.select()
+      setError('Copy was blocked. The link is selected so you can copy it manually.')
+    }
+  }
+  const nativeShare = async () => {
+    if (!link || !navigator.share) return
+    try {
+      await navigator.share({ title: track.title, text: `Listen to ${track.title}${track.artists?.length ? ` by ${track.artists.join(', ')}` : ''}`, url: link })
+    } catch (reason) {
+      if (!(reason instanceof DOMException && reason.name === 'AbortError')) setError(errorMessage(reason))
+    }
+  }
+  const label = status === 'creating' ? 'Creating share link…' : `Share ${track.title}`
+  return <>
+    <button className={className} type="button" aria-label={label} title={label} disabled={status === 'creating'} onClick={() => { void createLink() }}>
+      {status === 'creating' ? <RefreshCw size={12} className="spinning" /> : <Share2 size={12} />}
+    </button>
+    {open && <div className="share-dialog-scrim" onClick={() => setOpen(false)}>
+      <section className="share-dialog" role="dialog" aria-modal="true" aria-labelledby="share-dialog-title" onClick={event => event.stopPropagation()}>
+        <button className="share-dialog-close" type="button" aria-label="Close share dialog" onClick={() => setOpen(false)}><X size={15} /></button>
+        <Share2 size={22} />
+        <small>PRIVATE LISTENING LINK</small>
+        <h2 id="share-dialog-title">Share “{track.title}”</h2>
+        <p>Anyone with this link can listen to this track—and nothing else in your library.</p>
+        {status === 'creating' && <div className="share-dialog-loading"><RefreshCw size={15} className="spinning" /> Creating secure link…</div>}
+        {link && <>
+          <label htmlFor={`share-link-${track.id}`}>Share link</label>
+          <textarea ref={linkInput} id={`share-link-${track.id}`} value={link} readOnly rows={3} onFocus={event => event.currentTarget.select()} />
+          <div className="share-dialog-actions">
+            <button className="button primary" type="button" onClick={() => { void copyLink() }}>{status === 'copied' ? <><Check size={13} /> Copied</> : <><Share2 size={13} /> Copy link</>}</button>
+            {canNativeShare && <button className="button" type="button" onClick={() => { void nativeShare() }}>Share…</button>}
+          </div>
+        </>}
+        {error && <div className="share-dialog-error" role="alert">{error}</div>}
+      </section>
+    </div>}
+  </>
 }
 
 function SongRow({ track, library, playback }: { track: LibraryTrack; library: LibraryModel; playback: TrackPlaybackControls }) {
