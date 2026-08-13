@@ -1,11 +1,12 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import type { CatalogRelease } from '../integrations/catalog.js'
+import type { LibraryCatalogTrack } from '../integrations/library-catalog.js'
 import type { AcquisitionJob, AcquisitionState } from './acquisition.js'
 
-const SCHEMA_VERSION = 8
+const SCHEMA_VERSION = 9
 
 export type DirectSubmissionState = 'none' | 'submitting' | 'submitted' | 'submission-unknown'
 export interface DirectAcquisitionWorkflow {
@@ -71,6 +72,20 @@ export interface WantReleaseResult {
   created: boolean
 }
 
+export interface TrackShare {
+  track: LibraryCatalogTrack
+  createdAt: string
+}
+
+export interface CreatedTrackShare extends TrackShare {
+  token: string
+}
+
+interface TrackShareRow {
+  metadata_json: string
+  created_at: string
+}
+
 export class AcquisitionLinkConflictError extends Error {
   constructor(message: string) { super(message); this.name = 'AcquisitionLinkConflictError' }
 }
@@ -117,6 +132,23 @@ export class AcquisitionRepository {
   get(id: string): AcquisitionJob | null {
     const row = this.#database.prepare('SELECT * FROM acquisitions WHERE id = ?').get(id) as unknown as AcquisitionRow | undefined
     return row ? toJob(row) : null
+  }
+
+  createTrackShare(track: LibraryCatalogTrack): CreatedTrackShare {
+    const token = randomBytes(32).toString('base64url')
+    const createdAt = new Date().toISOString()
+    this.#database.prepare(`
+      INSERT INTO track_shares (token_hash, track_id, metadata_json, created_at)
+      VALUES (?, ?, ?, ?)
+    `).run(trackShareHash(token), track.id, JSON.stringify(track), createdAt)
+    return { token, track, createdAt }
+  }
+
+  getTrackShare(token: string): TrackShare | null {
+    const row = this.#database.prepare(`
+      SELECT metadata_json, created_at FROM track_shares WHERE token_hash = ?
+    `).get(trackShareHash(token)) as unknown as TrackShareRow | undefined
+    return row ? { track: JSON.parse(row.metadata_json) as LibraryCatalogTrack, createdAt: row.created_at } : null
   }
 
   wantRelease(release: CatalogRelease): WantReleaseResult {
@@ -378,6 +410,17 @@ export class AcquisitionRepository {
     if (row.user_version < 8) {
       this.#transaction(`ALTER TABLE direct_acquisitions ADD COLUMN preview_submission_state TEXT NOT NULL DEFAULT 'none' CHECK(preview_submission_state IN('none','submitting','submitted','submission-unknown')); PRAGMA user_version=8;`)
     }
+    if (row.user_version < 9) {
+      this.#transaction(`
+        CREATE TABLE track_shares (
+          token_hash TEXT PRIMARY KEY,
+          track_id TEXT NOT NULL,
+          metadata_json TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+        PRAGMA user_version = 9;
+      `)
+    }
   }
 
   #transaction(sql: string): void {
@@ -390,6 +433,10 @@ export class AcquisitionRepository {
       throw error
     }
   }
+}
+
+function trackShareHash(token: string): string {
+  return createHash('sha256').update(token).digest('hex')
 }
 
 function toDirect(r:DirectRow):DirectAcquisitionWorkflow{return{acquisitionId:r.acquisition_id,candidates:JSON.parse(r.candidates_json),editions:JSON.parse(r.editions_json),searchIds:JSON.parse(r.search_ids_json),...(r.selected_candidate_id?{selectedCandidateId:r.selected_candidate_id}:{}),...(r.selected_edition_id?{selectedEditionId:r.selected_edition_id}:{}),...(r.selection_explanation?{selectionExplanation:r.selection_explanation}:{}),submissionState:r.submission_state,previewSubmissionState:r.preview_submission_state,batchIds:JSON.parse(r.batch_ids_json),expectedFileCount:r.expected_file_count,relativeDestination:r.relative_destination,...(r.output_provider_path?{outputProviderPath:r.output_provider_path}:{}),...(r.output_needle_path?{outputNeedlePath:r.output_needle_path}:{}),...(r.error?{error:r.error}:{}),createdAt:r.created_at,updatedAt:r.updated_at}}
