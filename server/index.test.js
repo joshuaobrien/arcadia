@@ -72,6 +72,26 @@ test('song streaming returns 404 when Jellyfin has no track', async t => {
   assert.equal((await app.inject({ url: `/api/library/songs/${'b'.repeat(32)}/stream` })).statusCode, 404)
 })
 
+test('visual scores analyze asynchronously and return the cached score', async t => {
+  const songId = 'b'.repeat(32)
+  const score = { version: 1, durationSeconds: 60, tempoBpm: 120, beats: [0, 0.5], energy: [], sections: [{ start: 0, end: 60, kind: 'flow', energy: 0.5 }], peaks: [{ time: 16, strength: 1, kind: 'drop' }] }
+  let state = 'analyzing'; let loads = 0
+  const visualScores = {
+    request: (_trackId, loadAudio) => {
+      if (state === 'ready') return { state, score }
+      void loadAudio().then(body => body.cancel()).then(() => { state = 'ready' })
+      return { state }
+    },
+  }
+  const jellyfin = { getTrackAudio: async () => { loads += 1; return { status: 200, contentType: 'audio/flac', body: new Response('audio').body } } }
+  const app = buildApp({ jellyfin, visualScores, catalog: null, logger: false }); t.after(() => app.close())
+  const pending = await app.inject({ url: `/api/library/songs/${songId}/visual-score` })
+  assert.equal(pending.statusCode, 202); assert.equal(pending.json().state, 'analyzing')
+  await new Promise(resolve => setTimeout(resolve, 0))
+  const ready = await app.inject({ url: `/api/library/songs/${songId}/visual-score` })
+  assert.equal(ready.statusCode, 200); assert.deepEqual(ready.json().score, score); assert.equal(loads, 1)
+})
+
 test('track share capabilities expose one isolated listening experience', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'needle-share-')); t.after(() => rm(directory, { recursive: true, force: true }))
   const staticRoot = join(directory, 'dist'); await mkdir(staticRoot); await writeFile(join(staticRoot, 'index.html'), '<div id="root"></div><script src="/app.js"></script>')

@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import type { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Activity, ArrowLeft, Bookmark, Check, Cloud, Disc3, Grid2X2, LibraryBig, ListMusic, PackageOpen, Pause, Play, Radio, RefreshCw, Search, Share2, ShieldCheck, UserRound, Volume2, VolumeX, X } from 'lucide-react'
+import type { VisualScore } from './NowPlayingVisualizer.js'
 import './styles.css'
 
 const EcoScene = lazy(() => import('./EcoScene.js'))
@@ -1793,12 +1794,29 @@ function NowPlayingView({ selection, audioRef, open, close }: { selection: Playb
   const [typeface, setTypeface] = useState<'jam' | 'lab' | 'climate'>('jam')
   const [artwork, setArtwork] = useState(Boolean(track.albumId))
   const [summoned, setSummoned] = useState(false)
+  const [visualScore, setVisualScore] = useState<VisualScore>()
   useEffect(() => setArtwork(Boolean(track.albumId)), [track.albumId])
   useEffect(() => setSummoned(false), [selection.requestId])
   useEffect(() => { if (!open) setSummoned(false) }, [open])
+  useEffect(() => {
+    setVisualScore(undefined)
+    if (!open) return
+    const controller = new AbortController()
+    let timer: number | undefined
+    const load = async () => {
+      try {
+        const response = await fetch(`/api/library/songs/${track.id}/visual-score`, { signal: controller.signal })
+        const result = await response.json() as { state: 'ready'; score: VisualScore } | { state: 'analyzing' | 'unavailable' }
+        if (result.state === 'ready') setVisualScore(result.score)
+        else if (result.state === 'analyzing') timer = window.setTimeout(load, 1_500)
+      } catch { /* Live analysis remains available when scoring fails. */ }
+    }
+    void load()
+    return () => { controller.abort(); if (timer !== undefined) window.clearTimeout(timer) }
+  }, [open, selection.requestId, track.id])
   const setOverburn = (active: boolean) => active ? viewRef.current?.setAttribute('data-overburn', '') : viewRef.current?.removeAttribute('data-overburn')
   return <section ref={viewRef} className={`now-playing-view ${open ? 'open' : ''}`} data-summoned={summoned ? '' : undefined} aria-hidden={!open} aria-label="Now playing visualizer">
-    <Suspense fallback={null}><NowPlayingVisualizer audioRef={audioRef} signalTargetRef={viewRef} selectionKey={selection.requestId} artworkUrl={track.albumId ? `/api/library/albums/${track.albumId}/artwork` : undefined} /></Suspense>
+    <Suspense fallback={null}><NowPlayingVisualizer audioRef={audioRef} signalTargetRef={viewRef} selectionKey={selection.requestId} artworkUrl={track.albumId ? `/api/library/albums/${track.albumId}/artwork` : undefined} visualScore={visualScore} /></Suspense>
     <div className="now-playing-shade" />
     <div className="now-playing-event-field" aria-hidden="true"><i /><b /></div>
     <div className="now-playing-overburn-field" aria-hidden="true" />
