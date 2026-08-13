@@ -372,7 +372,6 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
     let spectrumReady = false
     let lastTitleFlareAt = -Infinity
     let lastArrangementDropAt = -Infinity
-    let titleFlareLatched = false
     let drumHitEnvelope = 0
     let drumHitKind = 0
     let titleBurstEnvelope = 0
@@ -458,6 +457,7 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       if (!rhythmicBaseline) rhythmicBaseline = rhythmicEnergy
       rhythmicBaseline += (rhythmicEnergy - rhythmicBaseline) * (rhythmicEnergy > rhythmicBaseline ? 0.008 : 0.04)
       const beatDrive = Math.min(1, Math.max(0, (rhythmicEnergy - rhythmicBaseline - 0.02) * 3 + spectralFlux * 5.5))
+      const beatRise = Math.max(0, beatDrive - beatEnvelope)
       beatEnvelope += (beatDrive - beatEnvelope) * (beatDrive > beatEnvelope ? 0.5 : 0.12)
       const sparkDrive = Math.min(1, highFlux * 11)
       sparkEnvelope += (sparkDrive - sparkEnvelope) * (sparkDrive > sparkEnvelope ? 0.62 : 0.11)
@@ -483,7 +483,14 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
         lastArrangementDropAt = time
       }
       const titleBeatDrive = beatDrive * (0.4 + bassSignal * 0.6)
-      if (titleBeatDrive > 0.19 && beatDrive > 0.32 && bassSignal > 0.1 && !titleFlareLatched && time - lastTitleFlareAt > 800) {
+      const drumHit = audio.currentTime > 1
+        && sectionEnergy > 0.72
+        && titleBeatDrive > 0.19
+        && beatDrive > 0.32
+        && beatRise > 0.09
+        && bassSignal > 0.1
+        && time - lastTitleFlareAt > 480
+      if (drumHit) {
         drumHitKind = sparkDrive > 0.38 && trebleSignal > bassSignal + 0.14
           ? 2
           : midSignal > bassSignal + 0.18 ? 1 : 0
@@ -497,9 +504,6 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
         })
         drumHitEnvelope = 1
         lastTitleFlareAt = time
-        titleFlareLatched = true
-      } else if (beatDrive < 0.12) {
-        titleFlareLatched = false
       }
       titleFlares.forEach((value, index) => { titleFlares[index] = value * Math.pow(0.965, frameFactor) })
       drumHitEnvelope *= Math.pow(0.94, frameFactor)
@@ -610,15 +614,15 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       })
       coreMaterial.color.lerp(targetPalette.secondary, 0.045)
       coreMaterial.emissive.copy(coreMaterial.color).multiplyScalar(hdrOutput ? 1 : 0.48)
-      coreMaterial.emissiveIntensity = hdrOutput ? 1.35 + bassEnvelope * 0.65 + overburnLevel * 6 : 1.3 + overburnLevel
+      coreMaterial.emissiveIntensity = hdrOutput ? 1.35 + bassEnvelope * 0.65 + drumHitEnvelope * 2.4 + overburnLevel * 6 : 1.3 + drumHitEnvelope * 0.3 + overburnLevel
       shellMaterial.color.lerp(targetPalette.accent, 0.045)
       ringMaterial.color.lerp(targetPalette.primary, 0.045)
       hemisphereLight.color.lerp(targetPalette.primary, 0.045)
       roseLight.color.lerp(targetPalette.accent, 0.045)
       violetLight.color.lerp(targetPalette.secondary, 0.045)
       hemisphereLight.intensity = (hdrOutput ? 0.65 : 2.2) + overburnLevel * (hdrOutput ? 1.4 : 0.4)
-      roseLight.intensity = (hdrOutput ? 8 : 18) + overburnLevel * (hdrOutput ? 18 : 4)
-      violetLight.intensity = (hdrOutput ? 8 : 18) + overburnLevel * (hdrOutput ? 18 : 4)
+      roseLight.intensity = (hdrOutput ? 8 : 18) + drumHitEnvelope * (hdrOutput ? 4.5 : 1.2) + overburnLevel * (hdrOutput ? 18 : 4)
+      violetLight.intensity = (hdrOutput ? 8 : 18) + drumHitEnvelope * (hdrOutput ? 4.5 : 1.2) + overburnLevel * (hdrOutput ? 18 : 4)
       const jetAngle = modelFlowPhase - Math.PI / 2
       const setJetPosition = (target: THREE.Vector3, angle: number) => target.set(
         Math.sin(angle - Math.PI / 2) * 3.6,
