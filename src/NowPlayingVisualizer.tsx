@@ -267,6 +267,12 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       secondary: new THREE.Color(0x695da3),
       accent: new THREE.Color(0xff7f8f),
     }
+    const applyTitlePalette = (palette: VisualizerPalette) => {
+      const target = signalTargetRef.current
+      target?.style.setProperty('--title-primary', palette.primary.getStyle())
+      target?.style.setProperty('--title-secondary', palette.secondary.getStyle())
+      target?.style.setProperty('--title-accent', palette.accent.getStyle())
+    }
     const barTargetColors = Array.from({ length: BAR_COUNT }, () => new THREE.Color())
     const updateBarPalette = () => {
       barTargetColors.forEach((color, index) => {
@@ -279,6 +285,7 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       })
     }
     updateBarPalette()
+    applyTitlePalette(targetPalette)
     let active = true
     if (artworkUrl) {
       void extractArtworkPalette(artworkUrl).then(palette => {
@@ -287,6 +294,7 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
         targetPalette.secondary.copy(palette.secondary)
         targetPalette.accent.copy(palette.accent)
         updateBarPalette()
+        applyTitlePalette(targetPalette)
       }).catch(() => { /* Keep the default habitat palette when artwork cannot be sampled. */ })
     }
 
