@@ -457,6 +457,8 @@ main.library-main { width: min(1380px, calc(100% - 32px)); }
 .now-playing-copy h1 { margin: 14px 0 8px; font-family: var(--music-font); font-size: clamp(30px,5vw,72px); font-weight: 500; line-height: .94; letter-spacing: -.045em; overflow-wrap: anywhere; }
 .now-playing-copy .reactive-title { padding-left: 14px; font-synthesis: none; filter: drop-shadow(0 0 calc(var(--climate-beat) * 14px) rgba(210,255,240,.2)); transform: scale(var(--climate-pulse)); transform-origin: left center; }
 .now-playing-copy .jam-title { font-family: 'Jam', var(--music-font); font-variation-settings: 'wght' var(--jam-bang), 'punc' var(--jam-punch), 'crum' var(--jam-crumble), 'spla' var(--jam-splatter); }
+.jam-word { display: inline-block; margin-right: .24em; white-space: nowrap; }
+.jam-word:last-child { margin-right: 0; }
 .jam-glyph { display: inline-block; transform-origin: center bottom; }
 .jam-band-0 { --jam-local: var(--jam-band-0); }
 .jam-band-1 { --jam-local: var(--jam-band-1); }
