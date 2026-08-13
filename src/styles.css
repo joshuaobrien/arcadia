@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Syne:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
 
 @font-face { font-family: 'Climate Crisis'; src: url('./assets/fonts/ClimateCrisis-YEAR.woff2') format('woff2-variations'); font-display: swap; }
 @font-face { font-family: 'Jam'; src: url('./assets/fonts/JamRegular.ttf') format('truetype-variations'); font-display: swap; }
@@ -1038,13 +1038,13 @@ main > section { animation: habitat-enter 260ms ease-out; }
   .album-card:hover, .owned-album-card:hover, .owned-album-card:focus-within { transform: none; }
 }
 
-/* Readable type system: Syne carries content while Plex Mono is reserved
+/* Readable type system: Plex Sans carries content while Plex Mono is reserved
    for operational labels and data. Reactive song titles keep their own faces. */
 :root {
-  font-family: 'Syne', sans-serif;
-  --interface-font: 'Syne', sans-serif;
+  font-family: 'IBM Plex Sans', sans-serif;
+  --interface-font: 'IBM Plex Sans', sans-serif;
   --label-font: 'IBM Plex Mono', monospace;
-  --music-font: 'Syne', sans-serif;
+  --music-font: 'IBM Plex Sans', sans-serif;
 }
 
 body { font-family: var(--interface-font); font-size: 14px; font-optical-sizing: auto; line-height: 1.45; }
