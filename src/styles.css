@@ -1038,4 +1038,171 @@ main > section { animation: habitat-enter 260ms ease-out; }
   .album-card:hover, .owned-album-card:hover, .owned-album-card:focus-within { transform: none; }
 }
 
+/* Readable type system: Plex Sans carries content while Plex Mono is reserved
+   for operational labels and data. Reactive song titles keep their own faces. */
+:root {
+  font-family: 'IBM Plex Sans', sans-serif;
+  --interface-font: 'IBM Plex Sans', sans-serif;
+  --label-font: 'IBM Plex Mono', monospace;
+}
+
+body { font-family: var(--interface-font); font-size: 14px; line-height: 1.45; }
+button, input, select, textarea { font-family: inherit; }
+
+.brand,
+.page-heading h1,
+.library-heading-copy h1,
+.panel > header h2,
+.collection-heading h2,
+.album-detail-copy h1,
+.album-artist-link,
+.artist-detail-copy h1,
+.album-card > strong, .album-open > strong,
+.artist-card strong,
+.song-row strong, .song-row > span:nth-child(3),
+.library-panel > header h2,
+.library-track-row strong,
+.player-copy strong, .player-copy span,
+.shared-album-track-list header strong,
+.shared-album-track-list li strong { font-family: var(--interface-font); }
+
+.brand small,
+.sidebar nav > small,
+.sidebar nav button em,
+.connection small, .connection strong, .connection code,
+.page-heading p,
+.page-heading > span,
+.library-heading-count,
+.button, .want-button,
+.album-detail-copy p, .album-detail-copy > span,
+.artist-detail-copy > p, .artist-detail-copy > span,
+.artist-detail-stats span,
+.artist-source-status span,
+.panel > header span,
+.state-tag, .history-row > span,
+.album-meta, .release-details,
+.artist-open,
+.song-row time,
+.library-track-row > b, .library-track-row code, .library-track-row > span,
+.player-copy small, .player-controls time,
+.shared-track-mark, .shared-track-controls small,
+.shared-album-track-list header span, .shared-album-track-list li span, .shared-album-track-list li time,
+.now-playing-copy small, .now-playing-copy > span,
+.now-playing-font-picker, .now-playing-telemetry { font-family: var(--label-font); }
+
+.brand { font-size: 18px; letter-spacing: .24em; }
+.brand small { font-size: 9px; line-height: 1.35; letter-spacing: .14em; }
+.sidebar nav > small { font-size: 11px; line-height: 1.3; letter-spacing: .13em; }
+.sidebar nav button { font-size: 14px; line-height: 1.25; letter-spacing: .045em; }
+.sidebar nav button em { min-width: 22px; font-size: 10px; }
+.connection small { font-size: 10px; }
+.connection strong { font-size: 11px; }
+.connection code { font-size: 10px; }
+
+.page-heading p, .library-heading-copy p { font-size: 11px; line-height: 1.4; letter-spacing: .14em; }
+.page-heading h1 { font-size: 32px; line-height: 1.08; letter-spacing: -.025em; text-transform: none; }
+.page-heading > span { font-size: 10px; }
+.library-heading-copy h1 { font-size: 32px; line-height: 1.08; letter-spacing: -.025em; }
+.library-heading-copy > span { font-size: 12px; line-height: 1.4; }
+.library-heading-count strong { font-size: 20px; }
+.library-heading-count span { font-size: 10px; }
+.button, .want-button { min-height: 36px; font-size: 12px; line-height: 1.2; letter-spacing: .04em; }
+
+.search-form input { font-size: 15px; line-height: 1.4; letter-spacing: .025em; }
+.library-search code { font-size: 11px; }
+.error-strip, .source-strip, .idle-state, .integration-state { font-size: 12px; line-height: 1.45; }
+.integration-state strong { font-size: 15px; }
+.integration-state small { font-size: 12px; line-height: 1.5; }
+
+.panel > header { min-height: 42px; height: auto; }
+.panel > header h2 { font-size: 14px; line-height: 1.25; letter-spacing: .04em; text-transform: none; }
+.panel > header span { font-size: 11px; }
+.home-row strong, .result-row strong, .history-row strong, .wanted-row strong, .import-row strong { font-size: 14px; line-height: 1.35; }
+.home-row small, .result-row small, .history-row small, .history-row time,
+.wanted-row small, .wanted-row time, .import-row small { font-size: 11px; line-height: 1.4; }
+.result-row code { font-size: 10px; }
+.empty-row, .acquisition-setup > p { font-size: 12px; line-height: 1.45; }
+.state-tag, .history-row > span { padding: 4px 7px; font-size: 10px; line-height: 1.25; letter-spacing: .025em; }
+
+.journey-stage-rail > div { font-size: 10px; line-height: 1.35; }
+.journey-stage-rail i { font-size: 9px; }
+.journey-attention, .journey-transfer > div:first-child, .direct-review-empty { font-size: 12px; }
+.journey-transfer span, .journey-actions > span { font-size: 10px; }
+.journey-events strong { font-size: 13px; }
+.journey-events small, .journey-events time { font-size: 10px; line-height: 1.4; }
+.direct-candidates article header b, .inbox-card header strong, .candidate-card strong { font-size: 13px; }
+.direct-candidates article header code, .candidate-card code { font-size: 10px; }
+.direct-candidates article > p, .direct-candidates dd, .direct-candidates details,
+.candidate-card small, .candidate-comparison dd { font-size: 11px; line-height: 1.4; }
+.direct-candidates dt, .inbox-card dt, .candidate-heading b, .candidate-comparison dt,
+.candidate-penalties em, .track-match { font-size: 10px; }
+.inbox-card header span, .inbox-card > small { font-size: 11px; }
+.inbox-card dd { font-size: 13px; }
+.preview-tracks b, .preview-tracks code { font-size: 10px; }
+.preview-tracks strong { font-size: 12px; }
+.preview-tracks small { font-size: 10px; }
+.duplicate-policy, .lifecycle-note { font-size: 11px; }
+.duplicate-policy select { font-size: 12px; }
+.import-approval label strong, .completion-message strong { font-size: 13px; }
+.import-approval label small, .completion-message small { font-size: 11px; line-height: 1.4; }
+
+.collection-heading { min-height: 38px; }
+.collection-heading h2 { font-size: 18px; line-height: 1.25; }
+.collection-heading span { font-size: 11px; }
+.album-card > strong, .album-open > strong { min-height: 38px; font-size: 16px; line-height: 1.2; }
+.album-card > small, .album-open > small { font-size: 13px; line-height: 1.35; }
+.album-meta, .release-details { font-size: 11px; line-height: 1.35; letter-spacing: .025em; }
+.album-play-error { font-size: 9px; }
+.artist-card strong { font-size: 16px; line-height: 1.25; }
+.artist-card small { font-size: 12px; line-height: 1.4; }
+.artist-open { font-size: 10px; letter-spacing: .04em; }
+
+.song-row { min-height: 66px; }
+.song-row strong, .song-row > span:nth-child(3), .library-track-row strong { font-size: 14px; line-height: 1.3; }
+.song-row small, .library-track-row small { font-size: 12px; line-height: 1.35; }
+.song-row > span:nth-child(3), .song-row time { color: #a9c4bb; font-size: 12px; }
+.library-panel > header h2 { font-size: 14px; }
+.library-track-row { min-height: 64px; }
+.library-track-row > b, .library-track-row code, .library-track-row > span { font-size: 10px; }
+
+.album-detail-copy p { font-size: 11px; }
+.album-detail-copy h1 { font-size: clamp(34px,4vw,54px); line-height: 1; letter-spacing: -.04em; }
+.album-artist-link, .album-detail-copy strong { font-size: 17px; }
+.album-detail-copy > span { font-size: 12px; }
+.artist-detail-copy > p { font-size: 11px; }
+.artist-detail-copy > span { font-size: 12px; }
+.artist-detail-stats span { font-size: 10px; }
+.artist-detail-stats strong { font-size: 18px; }
+.artist-source-status span { font-size: 10px; }
+
+.share-dialog > small, .share-dialog label { font-size: 10px; }
+.share-dialog h2 { font-size: 28px; }
+.share-dialog p { font-size: 14px; }
+.share-dialog textarea, .share-dialog-loading, .share-dialog-error { font-size: 12px; }
+
+.player-copy small { font-size: 9px; }
+.player-copy strong { font-size: 15px; line-height: 1.25; }
+.player-copy span { font-size: 12px; }
+.player-controls time { font-size: 10px; }
+.shared-track-mark small, .shared-track-controls small { font-size: 9px; }
+.shared-album-track-list header span { font-size: 10px; }
+.shared-album-track-list li strong { font-size: 13px; }
+.shared-album-track-list li span, .shared-album-track-list li time { font-size: 10px; }
+
+@media (max-width: 650px) {
+  .page-heading h1, .library-heading-copy h1 { font-size: 25px; letter-spacing: -.02em; }
+  .page-heading p, .library-heading-copy p { font-size: 10px; }
+  .button, .want-button { font-size: 11px; }
+  .album-detail-copy h1 { font-size: 26px; }
+  .album-artist-link, .album-detail-copy strong { font-size: 14px; }
+  .album-detail-copy p { font-size: 9px; }
+  .album-detail-copy > span { font-size: 10px; }
+  .artist-detail-copy h1 { font-size: 34px; }
+  .artist-detail-stats span { font-size: 9px; }
+  .artist-detail-stats strong { font-size: 15px; }
+  .album-card > strong, .album-open > strong { min-height: 34px; font-size: 14px; }
+  .album-card > small, .album-open > small { font-size: 11px; }
+  .album-meta, .release-details { font-size: 11px; }
+}
+
 .now-playing-view.shared-track-view { inset: 0; }
