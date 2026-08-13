@@ -84,6 +84,22 @@ main.library-main { width: min(1380px, calc(100% - 32px)); }
 .album-detail-copy strong { font-size: 12px; font-weight: 500; }
 .album-detail-copy > span { margin-top: 7px; color: #c0c8ca; font-size: 8px; }
 .album-detail-actions { margin-top: 21px; display: flex; flex-wrap: wrap; gap: 8px; text-shadow: none; }
+.album-artist-link { padding: 0; color: inherit; background: transparent; border: 0; font-family: var(--music-font); font-size: 12px; font-weight: 500; text-decoration: underline; text-decoration-color: rgba(197,255,235,.35); text-underline-offset: 4px; }
+.album-artist-link:hover { color: #baf0dc; text-decoration-color: currentColor; }
+.artist-detail-hero { min-height: 310px; margin-bottom: 26px; padding: 30px clamp(24px,4vw,54px); position: relative; isolation: isolate; overflow: hidden; display: grid; grid-template-columns: minmax(170px,230px) minmax(0,1fr); align-items: center; gap: clamp(25px,5vw,70px); color: #effbf6; background: #09232a; border: 1px solid rgba(151,218,197,.2); box-shadow: 0 30px 70px rgba(0,8,12,.36); }
+.artist-detail-hero::after { content: ''; position: absolute; z-index: -1; inset: 0; background: linear-gradient(90deg,rgba(4,18,23,.36),rgba(7,29,34,.76) 52%,rgba(7,25,32,.96)); }
+.artist-detail-backdrop { width: 112%; height: 150%; position: absolute; z-index: -2; inset: -25% -6%; object-fit: cover; filter: blur(45px) saturate(.72); opacity: .65; transform: scale(1.08); }
+.artist-detail-image { width: 100%; aspect-ratio: 1; display: grid; place-items: center; overflow: hidden; color: #d9f2e8; background: radial-gradient(circle at 50% 35%,#71958b,#31545a 50%,#152e36); border: 1px solid rgba(211,255,239,.38); border-radius: 50%; box-shadow: 0 24px 55px rgba(0,5,8,.44),0 0 45px rgba(108,211,177,.12); }
+.artist-detail-image img { width: 100%; height: 100%; object-fit: cover; }
+.artist-detail-copy { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; }
+.artist-detail-copy > p { margin: 0 0 12px; color: #8fd0ba; font-size: 8px; letter-spacing: .28em; }
+.artist-detail-copy h1 { margin: 0; font-family: var(--music-font); font-size: clamp(42px,7vw,92px); font-weight: 500; line-height: .88; letter-spacing: -.065em; overflow-wrap: anywhere; }
+.artist-detail-copy > span { margin-top: 12px; color: #a9c8be; font-size: 9px; }
+.artist-detail-stats { margin: 24px 0 20px; display: flex; flex-wrap: wrap; gap: 8px 24px; }
+.artist-detail-stats span { color: #9ab9af; font-size: 8px; text-transform: uppercase; }
+.artist-detail-stats strong { margin-right: 5px; color: #e9fff7; font-size: 15px; font-weight: 500; }
+.artist-detail-content { display: grid; gap: 30px; }
+.artist-release-footer { padding-top: 15px; display: flex; justify-content: center; }
 
 .search-form { height: 45px; margin-bottom: 16px; padding: 6px 6px 6px 12px; display: flex; align-items: center; gap: 10px; background: #bdbdb5; border: 1px solid #6f716a; box-shadow: inset 1px 1px #efeee7, inset -1px -1px #90928a; }
 .search-form svg { color: #526274; }
@@ -463,6 +479,9 @@ main.library-main { width: min(1380px, calc(100% - 32px)); }
 
 @media (max-width: 650px) {
   .album-detail-hero { min-height: 220px; padding: 18px; grid-template-columns: 130px minmax(0,1fr); gap: 20px; }
+  .artist-detail-hero { min-height: 230px; padding: 20px; grid-template-columns: 130px minmax(0,1fr); gap: 22px; }
+  .artist-detail-copy h1 { font-size: clamp(34px,9vw,56px); }
+  .artist-detail-stats { margin: 15px 0; gap: 6px 14px; }
   .has-player main { padding-bottom: 180px; }
   .player-bar { min-height: 116px; padding: 8px 9px; grid-template-columns: 38px minmax(0,1fr) 28px; gap: 8px; }
   .player-art { width: 36px; height: 36px; }
@@ -494,6 +513,12 @@ main.library-main { width: min(1380px, calc(100% - 32px)); }
   .album-detail-copy > span { margin-top: 4px; font-size: 7px; }
   .album-detail-actions { margin-top: 11px; gap: 5px; }
   .album-detail-actions .button { min-height: 32px; padding-inline: 8px; font-size: 7px; }
+  .artist-detail-hero { min-height: 0; padding: 14px; grid-template-columns: 92px minmax(0,1fr); gap: 14px; }
+  .artist-detail-copy h1 { font-size: 29px; }
+  .artist-detail-copy > p { margin-bottom: 7px; }
+  .artist-detail-stats { margin: 10px 0; gap: 3px 10px; }
+  .artist-detail-stats span { font-size: 6px; }
+  .artist-detail-stats strong { font-size: 10px; }
   .search-form { height: 48px; padding: 5px 5px 5px 9px; gap: 6px; }
   .search-form input { width: 0; flex-basis: auto; padding-inline: 8px; }
   .search-form .button { min-height: 36px; padding-inline: 10px; }
