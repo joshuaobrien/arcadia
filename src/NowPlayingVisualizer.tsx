@@ -369,8 +369,12 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
     let modelTempoEnvelope = 0
     let rhythmicBaseline = 0
     let spectrumReady = false
+    let lastTitleFlareAt = -Infinity
+    let titleFlareLatched = false
+    let titleFlareIndex = 0
     const frameInterval = 30
     const jamBands = Array.from({ length: 6 }, () => 0)
+    const titleFlares = Array.from({ length: 6 }, () => 0)
     const previousFrequencies = new Uint8Array(frequencies.length)
     const render = (time: number) => {
       frame = 0
@@ -453,6 +457,15 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       beatEnvelope += (beatDrive - beatEnvelope) * (beatDrive > beatEnvelope ? 0.5 : 0.12)
       const sparkDrive = Math.min(1, highFlux * 11)
       sparkEnvelope += (sparkDrive - sparkEnvelope) * (sparkDrive > sparkEnvelope ? 0.62 : 0.11)
+      if (sparkDrive > 0.36 && !titleFlareLatched && time - lastTitleFlareAt > 1400) {
+        titleFlareIndex = (titleFlareIndex + 2 + Math.floor(time / 1000) % 3) % titleFlares.length
+        titleFlares[titleFlareIndex] = 1
+        lastTitleFlareAt = time
+        titleFlareLatched = true
+      } else if (sparkDrive < 0.12) {
+        titleFlareLatched = false
+      }
+      titleFlares.forEach((value, index) => { titleFlares[index] = value * Math.pow(0.965, frameFactor) })
       if (time >= nextDelightAt && beatDrive > 0.42 && bassSignal > 0.12) {
         delightEnvelope = 0.65
         delightStartedAt = time
@@ -514,6 +527,7 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       signalTarget?.style.setProperty('--jam-beat', String(displayedSignal))
       signalTarget?.style.setProperty('--jam-mid', String(midEnvelope))
       signalTarget?.style.setProperty('--jam-spark', String(sparkEnvelope))
+      titleFlares.forEach((value, index) => signalTarget?.style.setProperty(`--title-flare-${index}`, String(value)))
       const delightProgress = Math.min(1, Math.max(0, stageAge / 7200))
       const delightDirection = delightEvent % 2 ? -1 : 1
       signalTarget?.style.setProperty('--delight-level', String(Math.min(1, stageLevel * 0.72 + delightEnvelope * 0.22)))
