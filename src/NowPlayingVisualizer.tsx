@@ -26,6 +26,16 @@ function colorDistanceSquared(left: THREE.Color, right: THREE.Color): number {
   return (left.r - right.r) ** 2 + (left.g - right.g) ** 2 + (left.b - right.b) ** 2
 }
 
+function titleColor(source: THREE.Color, hueShift: number, saturationLift: number, lightnessLift: number): THREE.Color {
+  const hsl = { h: 0, s: 0, l: 0 }
+  source.getHSL(hsl)
+  return source.clone().setHSL(
+    (hsl.h + hueShift + 1) % 1,
+    Math.min(0.88, Math.max(0.5, hsl.s + saturationLift)),
+    Math.min(0.78, Math.max(0.48, hsl.l + lightnessLift)),
+  )
+}
+
 async function extractArtworkPalette(url: string): Promise<VisualizerPalette> {
   const image = new Image()
   image.crossOrigin = 'anonymous'
@@ -267,6 +277,12 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       secondary: new THREE.Color(0x695da3),
       accent: new THREE.Color(0xff7f8f),
     }
+    const applyTitlePalette = (palette: VisualizerPalette) => {
+      const target = signalTargetRef.current
+      target?.style.setProperty('--title-primary', titleColor(palette.primary, 0.055, 0.12, 0.12).getStyle())
+      target?.style.setProperty('--title-secondary', titleColor(palette.secondary, -0.055, 0.16, 0.13).getStyle())
+      target?.style.setProperty('--title-accent', titleColor(palette.accent, -0.12, 0.18, 0.1).getStyle())
+    }
     const barTargetColors = Array.from({ length: BAR_COUNT }, () => new THREE.Color())
     const updateBarPalette = () => {
       barTargetColors.forEach((color, index) => {
@@ -279,6 +295,7 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       })
     }
     updateBarPalette()
+    applyTitlePalette(targetPalette)
     let active = true
     if (artworkUrl) {
       void extractArtworkPalette(artworkUrl).then(palette => {
@@ -287,6 +304,7 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
         targetPalette.secondary.copy(palette.secondary)
         targetPalette.accent.copy(palette.accent)
         updateBarPalette()
+        applyTitlePalette(targetPalette)
       }).catch(() => { /* Keep the default habitat palette when artwork cannot be sampled. */ })
     }
 
@@ -350,9 +368,16 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
     let modelFlowPhase = 0
     let modelTempoEnvelope = 0
     let rhythmicBaseline = 0
+    let sectionEnergyBaseline = 0
     let spectrumReady = false
+    let lastTitleFlareAt = -Infinity
+    let lastArrangementDropAt = -Infinity
+    let drumHitEnvelope = 0
+    let drumHitKind = 0
+    let titleBurstEnvelope = 0
     const frameInterval = 30
     const jamBands = Array.from({ length: 6 }, () => 0)
+    const titleFlares = Array.from({ length: 6 }, () => 0)
     const previousFrequencies = new Uint8Array(frequencies.length)
     const render = (time: number) => {
       frame = 0
@@ -432,9 +457,57 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       if (!rhythmicBaseline) rhythmicBaseline = rhythmicEnergy
       rhythmicBaseline += (rhythmicEnergy - rhythmicBaseline) * (rhythmicEnergy > rhythmicBaseline ? 0.008 : 0.04)
       const beatDrive = Math.min(1, Math.max(0, (rhythmicEnergy - rhythmicBaseline - 0.02) * 3 + spectralFlux * 5.5))
+      const beatRise = Math.max(0, beatDrive - beatEnvelope)
       beatEnvelope += (beatDrive - beatEnvelope) * (beatDrive > beatEnvelope ? 0.5 : 0.12)
       const sparkDrive = Math.min(1, highFlux * 11)
       sparkEnvelope += (sparkDrive - sparkEnvelope) * (sparkDrive > sparkEnvelope ? 0.62 : 0.11)
+      const sectionEnergy = bassSignal * 0.42 + midSignal * 0.36 + trebleSignal * 0.22
+      if (!sectionEnergyBaseline) sectionEnergyBaseline = sectionEnergy
+      sectionEnergyBaseline += (sectionEnergy - sectionEnergyBaseline) * (sectionEnergy > sectionEnergyBaseline ? 0.002 : 0.025)
+      const sectionRise = Math.max(0, sectionEnergy - sectionEnergyBaseline)
+      const arrangementDrop = audio.currentTime > 4
+        && sectionEnergy > 0.78
+        && sectionRise > 0.56
+        && bassSignal > 0.12
+        && midSignal > 0.1
+        && time - lastArrangementDropAt > 10000
+      if (arrangementDrop) {
+        titleFlares.fill(1)
+        titleBurstEnvelope = 1
+        delightEnvelope = 1
+        delightStartedAt = time
+        delightFlashStartedAt = time
+        delightEvent = 0
+        signalTargetRef.current?.setAttribute('data-delight-event', 'shockwave')
+        nextDelightAt = Math.max(nextDelightAt, time + 15000)
+        lastArrangementDropAt = time
+      }
+      const titleBeatDrive = beatDrive * (0.4 + bassSignal * 0.6)
+      const drumHit = audio.currentTime > 1
+        && sectionEnergy > 0.72
+        && titleBeatDrive > 0.19
+        && beatDrive > 0.32
+        && beatRise > 0.09
+        && bassSignal > 0.1
+        && time - lastTitleFlareAt > 480
+      if (drumHit) {
+        drumHitKind = sparkDrive > 0.38 && trebleSignal > bassSignal + 0.14
+          ? 2
+          : midSignal > bassSignal + 0.18 ? 1 : 0
+        const flarePatterns = [
+          [1, 0.82, 0.46, 0, 0, 0.2],
+          [0, 0.38, 1, 0.84, 0.24, 0],
+          [0, 0, 0.2, 0.52, 1, 0.82],
+        ]
+        flarePatterns[drumHitKind].forEach((value, index) => {
+          titleFlares[index] = value
+        })
+        drumHitEnvelope = 1
+        lastTitleFlareAt = time
+      }
+      titleFlares.forEach((value, index) => { titleFlares[index] = value * Math.pow(0.965, frameFactor) })
+      drumHitEnvelope *= Math.pow(0.94, frameFactor)
+      titleBurstEnvelope *= Math.pow(0.972, frameFactor)
       if (time >= nextDelightAt && beatDrive > 0.42 && bassSignal > 0.12) {
         delightEnvelope = 0.65
         delightStartedAt = time
@@ -496,6 +569,8 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       signalTarget?.style.setProperty('--jam-beat', String(displayedSignal))
       signalTarget?.style.setProperty('--jam-mid', String(midEnvelope))
       signalTarget?.style.setProperty('--jam-spark', String(sparkEnvelope))
+      signalTarget?.style.setProperty('--title-burst', String(titleBurstEnvelope))
+      titleFlares.forEach((value, index) => signalTarget?.style.setProperty(`--title-flare-${index}`, String(value)))
       const delightProgress = Math.min(1, Math.max(0, stageAge / 7200))
       const delightDirection = delightEvent % 2 ? -1 : 1
       signalTarget?.style.setProperty('--delight-level', String(Math.min(1, stageLevel * 0.72 + delightEnvelope * 0.22)))
@@ -528,22 +603,26 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
         material.color.lerp(barTargetColors[index], 0.045)
         material.emissive.copy(material.color).multiplyScalar(hdrOutput ? 1 : 0.28)
         const reflection = Math.max(0, beatEnvelope - Math.abs((index / BAR_COUNT) - ((time * 0.00018) % 1)) * 2.8)
+        const hitCenter = [0, 1 / 3, 2 / 3][drumHitKind]
+        const hitDistance = Math.abs(index / BAR_COUNT - hitCenter)
+        const wrappedHitDistance = Math.min(hitDistance, 1 - hitDistance)
+        const drumReflection = drumHitEnvelope * Math.max(0, 1 - wrappedHitDistance * 7)
         const delightPosition = Math.min(1, Math.max(0, (time - delightFlashStartedAt) / 520))
         const delightReflection = Math.max(0, delightEnvelope - Math.abs(index / BAR_COUNT - delightPosition) * 5.5)
-        material.emissiveIntensity = hdrOutput ? 0.65 + bassEnvelope * 0.35 + reflection * 2.5 + delightReflection * 4.2 + overburnLevel * 7 : 0.8 + delightReflection * 0.45 + overburnLevel
+        material.emissiveIntensity = hdrOutput ? 0.65 + bassEnvelope * 0.35 + reflection * 2.5 + drumReflection * 3.4 + delightReflection * 4.2 + overburnLevel * 7 : 0.8 + drumReflection * 0.38 + delightReflection * 0.45 + overburnLevel
         material.roughness = 0.34 - midEnvelope * 0.16
       })
       coreMaterial.color.lerp(targetPalette.secondary, 0.045)
       coreMaterial.emissive.copy(coreMaterial.color).multiplyScalar(hdrOutput ? 1 : 0.48)
-      coreMaterial.emissiveIntensity = hdrOutput ? 1.35 + bassEnvelope * 0.65 + overburnLevel * 6 : 1.3 + overburnLevel
+      coreMaterial.emissiveIntensity = hdrOutput ? 1.35 + bassEnvelope * 0.65 + drumHitEnvelope * 2.4 + overburnLevel * 6 : 1.3 + drumHitEnvelope * 0.3 + overburnLevel
       shellMaterial.color.lerp(targetPalette.accent, 0.045)
       ringMaterial.color.lerp(targetPalette.primary, 0.045)
       hemisphereLight.color.lerp(targetPalette.primary, 0.045)
       roseLight.color.lerp(targetPalette.accent, 0.045)
       violetLight.color.lerp(targetPalette.secondary, 0.045)
       hemisphereLight.intensity = (hdrOutput ? 0.65 : 2.2) + overburnLevel * (hdrOutput ? 1.4 : 0.4)
-      roseLight.intensity = (hdrOutput ? 8 : 18) + overburnLevel * (hdrOutput ? 18 : 4)
-      violetLight.intensity = (hdrOutput ? 8 : 18) + overburnLevel * (hdrOutput ? 18 : 4)
+      roseLight.intensity = (hdrOutput ? 8 : 18) + drumHitEnvelope * (hdrOutput ? 4.5 : 1.2) + overburnLevel * (hdrOutput ? 18 : 4)
+      violetLight.intensity = (hdrOutput ? 8 : 18) + drumHitEnvelope * (hdrOutput ? 4.5 : 1.2) + overburnLevel * (hdrOutput ? 18 : 4)
       const jetAngle = modelFlowPhase - Math.PI / 2
       const setJetPosition = (target: THREE.Vector3, angle: number) => target.set(
         Math.sin(angle - Math.PI / 2) * 3.6,
@@ -646,7 +725,7 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       cancelAnimationFrame(frame)
       observer.disconnect()
       visibilityObserver.disconnect()
-      for (const property of ['climate-year', 'climate-pulse', 'climate-beat', 'jam-bang', 'jam-punch', 'jam-crumble', 'jam-splatter', 'jam-beat', 'jam-mid', 'jam-spark', 'jam-band-0', 'jam-band-1', 'jam-band-2', 'jam-band-3', 'jam-band-4', 'jam-band-5', 'lab-bevel', 'lab-roundness', 'lab-quad', 'lab-scale', 'delight-level', 'delight-progress', 'delight-offset', 'delight-angle', 'delight-scale', 'delight-stripe-offset', 'overburn-opacity', 'overburn-scale', 'overburn-cover-brightness', 'overburn-cover-saturation', 'overburn-cover-flare', 'overburn-cover-glow', 'overburn-cover-radius', 'overburn-cover-scale', 'overburn-cover-lift', 'overburn-cover-y', 'overburn-cover-x', 'overburn-cover-roll', 'overburn-cover-skew', 'overburn-cover-shadow-y']) signalTargetRef.current?.style.removeProperty(`--${property}`)
+      for (const property of ['climate-year', 'climate-pulse', 'climate-beat', 'jam-bang', 'jam-punch', 'jam-crumble', 'jam-splatter', 'jam-beat', 'jam-mid', 'jam-spark', 'jam-band-0', 'jam-band-1', 'jam-band-2', 'jam-band-3', 'jam-band-4', 'jam-band-5', 'title-burst', 'title-flare-0', 'title-flare-1', 'title-flare-2', 'title-flare-3', 'title-flare-4', 'title-flare-5', 'lab-bevel', 'lab-roundness', 'lab-quad', 'lab-scale', 'delight-level', 'delight-progress', 'delight-offset', 'delight-angle', 'delight-scale', 'delight-stripe-offset', 'overburn-opacity', 'overburn-scale', 'overburn-cover-brightness', 'overburn-cover-saturation', 'overburn-cover-flare', 'overburn-cover-glow', 'overburn-cover-radius', 'overburn-cover-scale', 'overburn-cover-lift', 'overburn-cover-y', 'overburn-cover-x', 'overburn-cover-roll', 'overburn-cover-skew', 'overburn-cover-shadow-y']) signalTargetRef.current?.style.removeProperty(`--${property}`)
       signalTargetRef.current?.removeAttribute('data-delight-event')
       signalTargetRef.current?.removeAttribute('data-overburn')
       source?.disconnect()
