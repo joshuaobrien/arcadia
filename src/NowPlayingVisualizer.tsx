@@ -26,6 +26,16 @@ function colorDistanceSquared(left: THREE.Color, right: THREE.Color): number {
   return (left.r - right.r) ** 2 + (left.g - right.g) ** 2 + (left.b - right.b) ** 2
 }
 
+function titleColor(source: THREE.Color, hueShift: number, saturationLift: number, lightnessLift: number): THREE.Color {
+  const hsl = { h: 0, s: 0, l: 0 }
+  source.getHSL(hsl)
+  return source.clone().setHSL(
+    (hsl.h + hueShift + 1) % 1,
+    Math.min(0.88, Math.max(0.5, hsl.s + saturationLift)),
+    Math.min(0.78, Math.max(0.48, hsl.l + lightnessLift)),
+  )
+}
+
 async function extractArtworkPalette(url: string): Promise<VisualizerPalette> {
   const image = new Image()
   image.crossOrigin = 'anonymous'
@@ -269,9 +279,9 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
     }
     const applyTitlePalette = (palette: VisualizerPalette) => {
       const target = signalTargetRef.current
-      target?.style.setProperty('--title-primary', palette.primary.getStyle())
-      target?.style.setProperty('--title-secondary', palette.secondary.getStyle())
-      target?.style.setProperty('--title-accent', palette.accent.getStyle())
+      target?.style.setProperty('--title-primary', titleColor(palette.primary, 0.055, 0.12, 0.12).getStyle())
+      target?.style.setProperty('--title-secondary', titleColor(palette.secondary, -0.055, 0.16, 0.13).getStyle())
+      target?.style.setProperty('--title-accent', titleColor(palette.accent, -0.12, 0.18, 0.1).getStyle())
     }
     const barTargetColors = Array.from({ length: BAR_COUNT }, () => new THREE.Color())
     const updateBarPalette = () => {
