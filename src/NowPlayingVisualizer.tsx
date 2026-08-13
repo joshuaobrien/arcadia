@@ -374,6 +374,7 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
     let lastArrangementDropAt = -Infinity
     let drumHitEnvelope = 0
     let drumHitKind = 0
+    let kickWaveDirection = -1
     let titleBurstEnvelope = 0
     let activeSection = 'hush'
     let sectionCandidate = activeSection
@@ -518,6 +519,7 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
         flarePatterns[drumHitKind].forEach((value, index) => {
           titleFlares[index] = value
         })
+        if (drumHitKind === 0) kickWaveDirection *= -1
         drumHitEnvelope = 1
         lastTitleFlareAt = time
       }
@@ -589,7 +591,8 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       signalTarget?.style.setProperty('--type-kick', String(drumHitKind === 0 ? drumHitEnvelope : 0))
       signalTarget?.style.setProperty('--type-snare', String(drumHitKind === 1 ? drumHitEnvelope : 0))
       signalTarget?.style.setProperty('--type-hat', String(drumHitKind === 2 ? drumHitEnvelope : 0))
-      const impactPosition = drumHitKind === 0 ? Math.min(1.15, Math.max(-0.15, (time - lastTitleFlareAt) / 540 * 1.3 - 0.15)) : -1
+      const impactProgress = Math.min(1.15, Math.max(-0.15, (time - lastTitleFlareAt) / 540 * 1.3 - 0.15))
+      const impactPosition = drumHitKind === 0 ? (kickWaveDirection > 0 ? impactProgress : 1 - impactProgress) : -1
       signalTarget?.style.setProperty('--impact-position', String(impactPosition))
       signalTarget?.style.setProperty('--title-burst', String(titleBurstEnvelope))
       titleFlares.forEach((value, index) => signalTarget?.style.setProperty(`--title-flare-${index}`, String(value)))
