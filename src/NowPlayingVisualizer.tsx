@@ -375,6 +375,12 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
     let drumHitEnvelope = 0
     let drumHitKind = 0
     let kickWaveDirection = -1
+    let lastKickAt = -Infinity
+    let kickPeriod = 750
+    let kickWaveEnvelope = 0
+    let kickWaveStartedAt = -Infinity
+    let lastKickWaveAt = -Infinity
+    let kickWaveCount = 0
     let titleBurstEnvelope = 0
     let activeSection = 'hush'
     let sectionCandidate = activeSection
@@ -498,6 +504,13 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
         signalTargetRef.current?.setAttribute('data-delight-event', 'shockwave')
         nextDelightAt = Math.max(nextDelightAt, time + 15000)
         lastArrangementDropAt = time
+        if (time - lastKickWaveAt > 35000 && kickWaveCount < 3) {
+          kickWaveDirection *= -1
+          kickWaveEnvelope = 1
+          kickWaveStartedAt = time
+          lastKickWaveAt = time
+          kickWaveCount += 1
+        }
       }
       const titleBeatDrive = beatDrive * (0.4 + bassSignal * 0.6)
       const drumHit = audio.currentTime > 1
@@ -512,19 +525,38 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
           ? 2
           : midSignal > bassSignal + 0.18 ? 1 : 0
         const flarePatterns = [
-          [1, 0.82, 0.46, 0, 0, 0.2],
+          [0.16, 0.11, 0.05, 0, 0, 0.03],
           [0, 0.38, 1, 0.84, 0.24, 0],
           [0, 0, 0.2, 0.52, 1, 0.82],
         ]
-        flarePatterns[drumHitKind].forEach((value, index) => {
-          titleFlares[index] = value
-        })
-        if (drumHitKind === 0) kickWaveDirection *= -1
+        if (!arrangementDrop) {
+          flarePatterns[drumHitKind].forEach((value, index) => {
+            titleFlares[index] = value
+          })
+        }
+        if (drumHitKind === 0) {
+          let measuredPeriod = time - lastKickAt
+          if (measuredPeriod >= 280 && measuredPeriod <= 1800) {
+            while (measuredPeriod > 900) measuredPeriod /= 2
+            while (measuredPeriod < 360) measuredPeriod *= 2
+            kickPeriod += (measuredPeriod - kickPeriod) * 0.32
+          }
+          lastKickAt = time
+          const rarePeak = sectionEnergy > 0.94 && beatDrive > 0.82 && beatRise > 0.3
+          if (rarePeak && time - lastKickWaveAt > 35000 && kickWaveCount < 3) {
+            kickWaveDirection *= -1
+            kickWaveEnvelope = 1
+            kickWaveStartedAt = time
+            lastKickWaveAt = time
+            kickWaveCount += 1
+          }
+        }
         drumHitEnvelope = 1
         lastTitleFlareAt = time
       }
       titleFlares.forEach((value, index) => { titleFlares[index] = value * Math.pow(0.965, frameFactor) })
       drumHitEnvelope *= Math.pow(0.94, frameFactor)
+      kickWaveEnvelope *= Math.pow(0.94, frameFactor)
       titleBurstEnvelope *= Math.pow(0.972, frameFactor)
       if (time >= nextDelightAt && beatDrive > 0.42 && bassSignal > 0.12) {
         delightEnvelope = 0.65
@@ -588,11 +620,13 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       signalTarget?.style.setProperty('--jam-beat', String(displayedSignal))
       signalTarget?.style.setProperty('--jam-mid', String(midEnvelope))
       signalTarget?.style.setProperty('--jam-spark', String(sparkEnvelope))
-      signalTarget?.style.setProperty('--type-kick', String(drumHitKind === 0 ? drumHitEnvelope : 0))
+      signalTarget?.style.setProperty('--type-kick', String(kickWaveEnvelope))
       signalTarget?.style.setProperty('--type-snare', String(drumHitKind === 1 ? drumHitEnvelope : 0))
       signalTarget?.style.setProperty('--type-hat', String(drumHitKind === 2 ? drumHitEnvelope : 0))
-      const impactProgress = Math.min(1.15, Math.max(-0.15, (time - lastTitleFlareAt) / 540 * 1.3 - 0.15))
-      const impactPosition = drumHitKind === 0 ? (kickWaveDirection > 0 ? impactProgress : 1 - impactProgress) : -1
+      const kickWaveDuration = Math.min(720, Math.max(280, kickPeriod * 0.72))
+      const impactProgress = Math.min(1.15, Math.max(-0.15, (time - kickWaveStartedAt) / kickWaveDuration * 1.3 - 0.15))
+      const impactPosition = kickWaveEnvelope > 0.01 ? (kickWaveDirection > 0 ? impactProgress : 1 - impactProgress) : -1
+      signalTarget?.style.setProperty('--kick-wave-duration', String(kickWaveDuration))
       signalTarget?.style.setProperty('--impact-position', String(impactPosition))
       signalTarget?.style.setProperty('--title-burst', String(titleBurstEnvelope))
       titleFlares.forEach((value, index) => signalTarget?.style.setProperty(`--title-flare-${index}`, String(value)))
@@ -750,7 +784,7 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       cancelAnimationFrame(frame)
       observer.disconnect()
       visibilityObserver.disconnect()
-      for (const property of ['climate-year', 'climate-pulse', 'climate-beat', 'jam-bang', 'jam-punch', 'jam-crumble', 'jam-splatter', 'jam-beat', 'jam-mid', 'jam-spark', 'jam-band-0', 'jam-band-1', 'jam-band-2', 'jam-band-3', 'jam-band-4', 'jam-band-5', 'type-kick', 'type-snare', 'type-hat', 'impact-position', 'title-burst', 'title-flare-0', 'title-flare-1', 'title-flare-2', 'title-flare-3', 'title-flare-4', 'title-flare-5', 'lab-bevel', 'lab-roundness', 'lab-quad', 'lab-scale', 'delight-level', 'delight-progress', 'delight-offset', 'delight-angle', 'delight-scale', 'delight-stripe-offset', 'overburn-opacity', 'overburn-scale', 'overburn-cover-brightness', 'overburn-cover-saturation', 'overburn-cover-flare', 'overburn-cover-glow', 'overburn-cover-radius', 'overburn-cover-scale', 'overburn-cover-lift', 'overburn-cover-y', 'overburn-cover-x', 'overburn-cover-roll', 'overburn-cover-skew', 'overburn-cover-shadow-y']) signalTargetRef.current?.style.removeProperty(`--${property}`)
+      for (const property of ['climate-year', 'climate-pulse', 'climate-beat', 'jam-bang', 'jam-punch', 'jam-crumble', 'jam-splatter', 'jam-beat', 'jam-mid', 'jam-spark', 'jam-band-0', 'jam-band-1', 'jam-band-2', 'jam-band-3', 'jam-band-4', 'jam-band-5', 'type-kick', 'type-snare', 'type-hat', 'kick-wave-duration', 'impact-position', 'title-burst', 'title-flare-0', 'title-flare-1', 'title-flare-2', 'title-flare-3', 'title-flare-4', 'title-flare-5', 'lab-bevel', 'lab-roundness', 'lab-quad', 'lab-scale', 'delight-level', 'delight-progress', 'delight-offset', 'delight-angle', 'delight-scale', 'delight-stripe-offset', 'overburn-opacity', 'overburn-scale', 'overburn-cover-brightness', 'overburn-cover-saturation', 'overburn-cover-flare', 'overburn-cover-glow', 'overburn-cover-radius', 'overburn-cover-scale', 'overburn-cover-lift', 'overburn-cover-y', 'overburn-cover-x', 'overburn-cover-roll', 'overburn-cover-skew', 'overburn-cover-shadow-y']) signalTargetRef.current?.style.removeProperty(`--${property}`)
       signalTargetRef.current?.removeAttribute('data-delight-event')
       signalTargetRef.current?.removeAttribute('data-type-section')
       signalTargetRef.current?.removeAttribute('data-overburn')
