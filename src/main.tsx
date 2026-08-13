@@ -1486,9 +1486,9 @@ function ShareTrackButton({ track, className = 'track-share' }: { track: PlayerT
     setStatus('creating')
     try {
       const response = await fetch(`/api/shares/tracks/${encodeURIComponent(track.id)}`, { method: 'POST' })
-      const body = await response.json() as { path?: string; error?: { message?: string } }
+      const body = await response.json() as { path?: string; url?: string; error?: { message?: string } }
       if (!response.ok || !body.path) throw new Error(body.error?.message ?? `Could not share track (${response.status})`)
-      setLink(new URL(body.path, window.location.href).href)
+      setLink(body.url ?? new URL(body.path, window.location.href).href)
       setStatus('idle')
     } catch (reason) {
       setStatus('idle')
