@@ -95,7 +95,7 @@ test('acquisition repository migrates version 1 without changing wanted releases
 
   const migrated = new DatabaseSync(path)
   const version = migrated.prepare('PRAGMA user_version').get() as { user_version: number }
-  assert.equal(version.user_version, 8)
+  assert.equal(version.user_version, 9)
   migrated.close()
 })
 
@@ -105,13 +105,33 @@ test('acquisition repository rejects a database created by a newer schema', asyn
   t.after(() => rm(directory, { recursive: true, force: true }))
 
   const database = new DatabaseSync(path)
-  database.exec('PRAGMA user_version = 9')
+  database.exec('PRAGMA user_version = 10')
   database.close()
 
   assert.throws(
     () => new AcquisitionRepository(path),
-    /database schema 9 is newer than supported schema 8/,
+    /database schema 10 is newer than supported schema 9/,
   )
+})
+
+test('track shares persist metadata while storing only a token hash', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'needle-track-share-'))
+  const path = join(directory, 'needle.sqlite')
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const repository = new AcquisitionRepository(path)
+  const track = { id: 'b'.repeat(32), title: 'Echo', artists: ['Broadcast'], albumId: 'a'.repeat(32), album: 'Tender Buttons' }
+  const created = repository.createTrackShare(track)
+  assert.match(created.token, /^[A-Za-z0-9_-]{43}$/)
+  assert.deepEqual(repository.getTrackShare(created.token)?.track, track)
+  assert.equal(repository.getTrackShare('x'.repeat(43)), null)
+  repository.close()
+
+  const database = new DatabaseSync(path)
+  const row = database.prepare('SELECT token_hash, track_id FROM track_shares').get() as { token_hash: string; track_id: string }
+  assert.equal(row.track_id, track.id)
+  assert.match(row.token_hash, /^[a-f0-9]{64}$/)
+  assert.notEqual(row.token_hash, created.token)
+  database.close()
 })
 
 test('beets import operations persist exact selections, deduplicate sessions, and transition', async (t) => {
@@ -235,7 +255,7 @@ test('schema version 4 migrates existing acquisitions and import operations to l
   assert.equal(repository.getBeetsImportOperation('operation-v4')?.acquisitionId, undefined)
   repository.close()
   const migrated = new DatabaseSync(path)
-  assert.equal((migrated.prepare('PRAGMA user_version').get() as { user_version: number }).user_version, 8)
+  assert.equal((migrated.prepare('PRAGMA user_version').get() as { user_version: number }).user_version, 9)
   migrated.close()
 })
 

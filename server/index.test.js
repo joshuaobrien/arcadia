@@ -72,6 +72,40 @@ test('song streaming returns 404 when Jellyfin has no track', async t => {
   assert.equal((await app.inject({ url: `/api/library/songs/${'b'.repeat(32)}/stream` })).statusCode, 404)
 })
 
+test('track share capabilities expose one isolated listening experience', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'needle-share-')); t.after(() => rm(directory, { recursive: true, force: true }))
+  const staticRoot = join(directory, 'dist'); await mkdir(staticRoot); await writeFile(join(staticRoot, 'index.html'), '<div id="root"></div><script src="/app.js"></script>')
+  const albumId = 'a'.repeat(32); const trackId = 'b'.repeat(32); const otherId = 'c'.repeat(32); const streamed = []
+  const jellyfin = {
+    listTracks: async () => ({ items: [
+      { id: otherId, title: 'Other', artists: ['Someone'] },
+      { id: trackId, title: 'Echo <Signal>', artists: ['Broadcast'], albumId, album: 'Tender Buttons' },
+    ], total: 2 }),
+    getTrackAudio: async id => { streamed.push(id); return { status: 200, contentType: 'audio/flac', body: new Response(id === trackId ? 'shared-audio' : 'wrong-audio').body } },
+    getAlbumArtwork: async id => id === albumId ? { contentType: 'image/jpeg', data: new TextEncoder().encode('shared-art') } : null,
+  }
+  const repository = new AcquisitionRepository(join(directory, 'needle.sqlite'))
+  const app = buildApp({ staticRoot, jellyfin, acquisitionRepository: repository, catalog: null, logger: false }); t.after(() => app.close())
+  const forbidden = await app.inject({ method: 'POST', url: `/api/shares/tracks/${trackId}`, headers: { origin: 'https://attacker.example', host: 'needle.example' } })
+  assert.equal(forbidden.statusCode, 403)
+  const created = await app.inject({ method: 'POST', url: `/api/shares/tracks/${trackId}` })
+  assert.equal(created.statusCode, 201)
+  const path = created.json().path; const token = path.split('/').pop()
+  assert.match(token, /^[A-Za-z0-9_-]{43}$/)
+  const metadata = await app.inject({ url: `/api/shared/tracks/${token}` })
+  assert.equal(metadata.json().track.title, 'Echo <Signal>')
+  assert.equal(metadata.json().track.id, undefined)
+  assert.equal(metadata.json().track.albumId, undefined)
+  assert.equal(metadata.json().track.hasArtwork, true)
+  const page = await app.inject({ url: path })
+  assert.equal(page.statusCode, 200); assert.match(page.body, /id="root"/); assert.doesNotMatch(page.body, /Echo|Broadcast|Tender Buttons/)
+  assert.match(page.headers['content-security-policy'], /default-src 'none'/)
+  assert.equal((await app.inject({ url: `/api/shared/tracks/${token}/artwork` })).body, 'shared-art')
+  assert.equal((await app.inject({ url: `/api/shared/tracks/${token}/stream?trackId=${otherId}` })).body, 'shared-audio')
+  assert.deepEqual(streamed, [trackId])
+  assert.equal((await app.inject({ url: `/api/shared/tracks/${'x'.repeat(43)}` })).statusCode, 404)
+})
+
 test('unified search combines Jellyfin, MusicBrainz, and wanted identity', async t => {
   const mbid = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
   const wanted = { id: 'wanted', state: 'wanted', artist: 'Broadcast', release: 'Tender Buttons', musicBrainzReleaseGroupId: mbid, searchRefs: [{ adapterId: 'musicbrainz', nativeId: `release-group:mbid:${mbid}` }], createdAt: '', updatedAt: '' }

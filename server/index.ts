@@ -57,6 +57,8 @@ interface AcquisitionRepositoryPort {
   list: AcquisitionRepository['list']
   get?: AcquisitionRepository['get']
   wantRelease: AcquisitionRepository['wantRelease']
+  createTrackShare?: AcquisitionRepository['createTrackShare']
+  getTrackShare?: AcquisitionRepository['getTrackShare']
   close?: AcquisitionRepository['close']
   createBeetsImportOperation?: AcquisitionRepository['createBeetsImportOperation']
   getBeetsImportOperation?: AcquisitionRepository['getBeetsImportOperation']
@@ -290,6 +292,18 @@ export function buildApp(options: BuildAppOptions = {}) {
     }
   }
 
+  async function findLibraryTrack(trackId: string, reply: FastifyReply): Promise<LibraryCatalogTrack | undefined> {
+    let cursor: string | undefined
+    do {
+      const page = await libraryCatalogRoute(reply, (adapter, context) => adapter.listTracks({ cursor, limit: 100 }, context))
+      if (!page || reply.sent) return undefined
+      const track = page.items.find(item => item.id === trackId)
+      if (track) return track
+      cursor = page.nextCursor
+    } while (cursor)
+    return undefined
+  }
+
   async function beetsRoute<T>(
     reply: FastifyReply,
     operation: (adapter: BeetsImportPort, context: OperationContext) => Promise<T>,
@@ -512,6 +526,89 @@ export function buildApp(options: BuildAppOptions = {}) {
     ...(await cachedScan(walkmanPath)),
   }))
   app.get('/api/library', async () => cachedScan(libraryPath))
+  app.post<{ Params: { trackId: string } }>('/api/shares/tracks/:trackId', {
+    schema: { params: itemIdParamsSchema('trackId') },
+  }, async (request, reply) => {
+    if (!sameOrigin(request, reply)) return
+    if (!acquisitionRepository?.createTrackShare) {
+      return reply.code(503).send({ error: { code: 'unavailable', message: 'Track sharing requires NEEDLE_DATABASE_PATH' } })
+    }
+    const track = await findLibraryTrack(request.params.trackId, reply)
+    if (reply.sent) return
+    if (!track) return reply.code(404).send({ error: { code: 'not-found', message: 'Track not found' } })
+    const share = acquisitionRepository.createTrackShare(track)
+    return reply.code(201).send({ path: `/share/${share.token}`, createdAt: share.createdAt })
+  })
+  app.get<{ Params: { token: string } }>('/api/shared/tracks/:token', {
+    schema: { params: shareTokenParamsSchema() },
+  }, async (request, reply) => {
+    const share = acquisitionRepository?.getTrackShare?.(request.params.token)
+    if (!share) return sharedTrackNotFound(reply)
+    const track = share.track
+    return reply.header('Cache-Control', 'no-store').send({
+      track: {
+        title: track.title,
+        artists: track.artists,
+        album: track.album,
+        albumArtist: track.albumArtist,
+        trackNumber: track.trackNumber,
+        discNumber: track.discNumber,
+        durationSeconds: track.durationSeconds,
+        hasArtwork: Boolean(track.albumId),
+      },
+      createdAt: share.createdAt,
+    })
+  })
+  app.get<{ Params: { token: string } }>('/api/shared/tracks/:token/stream', {
+    exposeHeadRoute: false,
+    schema: { params: shareTokenParamsSchema() },
+  }, async (request, reply) => {
+    const share = acquisitionRepository?.getTrackShare?.(request.params.token)
+    if (!share) return sharedTrackNotFound(reply)
+    reply.header('Cache-Control', 'no-store').header('X-Content-Type-Options', 'nosniff')
+    const range = request.headers.range
+    if (range !== undefined && !isSingleByteRange(range)) return reply.code(416).send()
+    const controller = new AbortController()
+    const abort = () => controller.abort()
+    reply.raw.once('close', abort)
+    const audio = await libraryCatalogRoute(reply, (adapter, context) => (
+      adapter.getTrackAudio(share.track.id, range, context)
+    ), controller.signal)
+    reply.raw.off('close', abort)
+    if (controller.signal.aborted || reply.sent) return
+    if (!audio) return sharedTrackNotFound(reply)
+    if (audio.contentRange !== undefined) reply.header('Content-Range', audio.contentRange)
+    if (audio.acceptRanges !== undefined) reply.header('Accept-Ranges', audio.acceptRanges)
+    if (audio.status === 416) return reply.code(416).send()
+    reply.code(audio.status).type(audio.contentType)
+    if (audio.contentLength !== undefined) reply.header('Content-Length', audio.contentLength)
+    return reply.send(Readable.fromWeb(audio.body as unknown as Parameters<typeof Readable.fromWeb>[0]))
+  })
+  app.get<{ Params: { token: string } }>('/api/shared/tracks/:token/artwork', {
+    exposeHeadRoute: false,
+    schema: { params: shareTokenParamsSchema() },
+  }, async (request, reply) => {
+    const share = acquisitionRepository?.getTrackShare?.(request.params.token)
+    if (!share?.track.albumId) return sharedTrackNotFound(reply)
+    const artwork = await libraryCatalogRoute(reply, (adapter, context) => adapter.getAlbumArtwork(share.track.albumId!, context))
+    if (reply.sent) return
+    if (!artwork) return sharedTrackNotFound(reply)
+    return reply.type(artwork.contentType).header('Cache-Control', 'private, max-age=300').header('X-Content-Type-Options', 'nosniff')
+      .send(Buffer.from(artwork.data.buffer, artwork.data.byteOffset, artwork.data.byteLength))
+  })
+  app.get<{ Params: { token: string } }>('/share/:token', {
+    schema: { params: shareTokenParamsSchema() },
+  }, async (request, reply) => {
+    const share = acquisitionRepository?.getTrackShare?.(request.params.token)
+    if (!share) return sharedTrackNotFound(reply)
+    if (!staticRoot) return reply.code(404).send({ error: { code: 'not-found', message: 'Shared player is unavailable' } })
+    return reply
+      .header('Cache-Control', 'no-store')
+      .header('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; img-src 'self' blob:; media-src 'self'; connect-src 'self' blob:; font-src 'self' https://fonts.gstatic.com; worker-src blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+      .header('Referrer-Policy', 'no-referrer')
+      .header('X-Content-Type-Options', 'nosniff')
+      .sendFile('index.html')
+  })
   app.get<{ Params: { songId: string } }>('/api/library/songs/:songId/stream', {
     exposeHeadRoute: false,
     schema: {
@@ -1009,6 +1106,28 @@ function libraryAlbumQuerySchema() {
       term: { type: 'string', minLength: 1, maxLength: 200 },
     },
   }
+}
+
+function itemIdParamsSchema(name: string) {
+  return {
+    type: 'object',
+    required: [name],
+    additionalProperties: false,
+    properties: { [name]: { type: 'string', pattern: '^[a-fA-F0-9-]{32,36}$' } },
+  }
+}
+
+function shareTokenParamsSchema() {
+  return {
+    type: 'object',
+    required: ['token'],
+    additionalProperties: false,
+    properties: { token: { type: 'string', pattern: '^[A-Za-z0-9_-]{43}$' } },
+  }
+}
+
+function sharedTrackNotFound(reply: FastifyReply) {
+  return reply.code(404).header('Cache-Control', 'no-store').send({ error: { code: 'not-found', message: 'Shared track not found' } })
 }
 
 function providerRefSchema() {
