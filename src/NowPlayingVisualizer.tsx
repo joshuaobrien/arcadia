@@ -457,12 +457,13 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       beatEnvelope += (beatDrive - beatEnvelope) * (beatDrive > beatEnvelope ? 0.5 : 0.12)
       const sparkDrive = Math.min(1, highFlux * 11)
       sparkEnvelope += (sparkDrive - sparkEnvelope) * (sparkDrive > sparkEnvelope ? 0.62 : 0.11)
-      if (sparkDrive > 0.36 && !titleFlareLatched && time - lastTitleFlareAt > 1400) {
+      const titleBeatDrive = beatDrive * (0.4 + bassSignal * 0.6)
+      if (titleBeatDrive > 0.19 && beatDrive > 0.32 && bassSignal > 0.1 && !titleFlareLatched && time - lastTitleFlareAt > 800) {
         titleFlareIndex = (titleFlareIndex + 2 + Math.floor(time / 1000) % 3) % titleFlares.length
-        titleFlares[titleFlareIndex] = 1
+        titleFlares[titleFlareIndex] = Math.min(1, 0.68 + titleBeatDrive * 0.65)
         lastTitleFlareAt = time
         titleFlareLatched = true
-      } else if (sparkDrive < 0.12) {
+      } else if (beatDrive < 0.12) {
         titleFlareLatched = false
       }
       titleFlares.forEach((value, index) => { titleFlares[index] = value * Math.pow(0.965, frameFactor) })
