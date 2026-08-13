@@ -294,6 +294,10 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
     let source: MediaElementAudioSourceNode | undefined
     let analyser: AnalyserNode | undefined
     let frequencies = new Uint8Array(BAR_COUNT)
+    const signalTarget = signalTargetRef.current
+    const resumeAudioContext = () => {
+      if (context?.state === 'suspended') void context.resume().catch(() => { /* Safari requires a later user gesture. */ })
+    }
     try {
       context = new AudioContext()
       analyser = context.createAnalyser()
@@ -303,7 +307,10 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       source = context.createMediaElementSource(audio)
       source.connect(analyser)
       analyser.connect(context.destination)
-      void context.resume()
+      void context.resume().catch(() => { /* The interaction listeners retry when the user starts playback. */ })
+      signalTarget?.addEventListener('pointerdown', resumeAudioContext, { capture: true })
+      signalTarget?.addEventListener('keydown', resumeAudioContext, { capture: true })
+      audio.addEventListener('play', resumeAudioContext)
     } catch { /* The scene keeps its idle motion if Web Audio is unavailable. */ }
     const hzPerBin = (context?.sampleRate ?? 48000) / (frequencies.length * 2)
 
@@ -633,6 +640,9 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
 
     disposeScene = () => {
       active = false
+      signalTarget?.removeEventListener('pointerdown', resumeAudioContext, { capture: true })
+      signalTarget?.removeEventListener('keydown', resumeAudioContext, { capture: true })
+      audio.removeEventListener('play', resumeAudioContext)
       cancelAnimationFrame(frame)
       observer.disconnect()
       visibilityObserver.disconnect()
