@@ -91,6 +91,41 @@ test('exact MusicBrainz artist search returns discography, not fuzzy releases', 
   const app = buildApp({ jellyfin: null, catalog, acquisitionRepository: null, logger: false }); t.after(() => app.close())
   const body = (await app.inject({ url: '/api/music/releases?term=%20DUA%20%20LIPA%20' })).json()
   assert.equal(fuzzy, 0); assert.deepEqual(body.items.map(item => item.title), ['Houdini'])
+  assert.equal(body.artists[0].name, 'Dua Lipa'); assert.equal(body.artists[0].albumCount, 0)
+})
+
+test('artist page combines exact identity, owned music, catalog discography, and songs', async t => {
+  const artistId = '6f1a58bf-9b1b-49cf-a44a-6cefad7ae04f'
+  const releaseGroupId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+  const albumId = 'a'.repeat(32); const songId = 'b'.repeat(32)
+  const ref = { adapterId: 'musicbrainz', nativeId: `artist:mbid:${artistId}` }
+  const jellyfin = {
+    listAlbums: async () => ({ items: [
+      { id: albumId, title: 'Future Nostalgia', albumArtist: 'Dua Lipa', musicBrainzReleaseGroupId: releaseGroupId, hasArtwork: true },
+      { id: 'c'.repeat(32), title: 'Wrong Artist', albumArtist: 'Dua Lipa Tribute', hasArtwork: false },
+    ], total: 2 }),
+    listTracks: async () => ({ items: [
+      { id: songId, title: 'Levitating', artists: ['Dua Lipa'], albumArtist: 'Dua Lipa', albumId },
+      { id: 'd'.repeat(32), title: 'Feature', artists: ['Someone Else'], albumArtist: 'Someone Else' },
+    ], total: 2 }),
+    listAlbumTracks: async id => ({ items: id === albumId ? [{ id: songId, title: 'Levitating', artists: ['Dua Lipa'], albumArtist: 'Dua Lipa', albumId }] : [], total: id === albumId ? 1 : 0 }),
+  }
+  const catalog = {
+    lookupArtists: async () => [{ ref, name: 'Dua Lipa', sortName: 'Lipa, Dua', disambiguation: 'English-Albanian singer', musicBrainzArtistId: artistId }],
+    lookupReleases: async () => [],
+    listArtistReleases: async value => { assert.deepEqual(value, ref); return [
+      { ref: { adapterId: 'musicbrainz', nativeId: `release-group:mbid:${releaseGroupId}` }, artistRef: ref, title: 'Future Nostalgia', releaseType: 'Album', musicBrainzReleaseGroupId: releaseGroupId },
+      { ref: { adapterId: 'musicbrainz', nativeId: 'release-group:mbid:eeeeeeee-bbbb-cccc-dddd-eeeeeeeeeeee' }, artistRef: ref, title: 'Houdini', releaseType: 'Single' },
+    ] },
+  }
+  const app = buildApp({ jellyfin, catalog, acquisitionRepository: null, logger: false }); t.after(() => app.close())
+  const response = await app.inject({ url: '/api/music/artists?name=Dua%20Lipa' })
+  assert.equal(response.statusCode, 200)
+  const body = response.json()
+  assert.equal(body.artist.name, 'Dua Lipa'); assert.equal(body.artist.musicBrainzArtistId, artistId)
+  assert.equal(body.artist.representativeAlbumId, albumId); assert.equal(body.artist.albumCount, 1)
+  assert.deepEqual(body.releases.map(item => [item.title, item.state]), [['Future Nostalgia', 'in-library'], ['Houdini', 'can-request']])
+  assert.deepEqual(body.tracks.map(item => item.title), ['Levitating'])
 })
 
 test('ambiguous artist identity retains fuzzy MusicBrainz release lookup', async t => {

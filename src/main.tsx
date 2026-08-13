@@ -257,6 +257,10 @@ interface LibraryArtist {
   name: string
   albumCount: number
   representativeAlbumId?: string
+  ref?: ProviderRef
+  sortName?: string
+  disambiguation?: string
+  musicBrainzArtistId?: string
 }
 
 interface LibraryPage<T> {
@@ -299,6 +303,17 @@ interface MusicSearchResponse {
   }
   items: MusicRelease[]
   artists: LibraryArtist[]
+  tracks: LibraryTrack[]
+}
+
+interface ArtistDetailResponse {
+  artist: LibraryArtist
+  sources: {
+    library: 'available' | 'unconfigured' | 'unavailable'
+    catalog: 'available' | 'unconfigured' | 'unavailable'
+    wanted: 'available' | 'unconfigured' | 'unavailable'
+  }
+  releases: MusicRelease[]
   tracks: LibraryTrack[]
 }
 
@@ -731,6 +746,8 @@ function useLibrary() {
   const [songPage, setSongPage] = useState<LibraryPage<LibraryTrack> | null>(null)
   const [section, setSection] = useState<LibrarySection>('albums')
   const [selectedAlbum, setSelectedAlbum] = useState<LibraryAlbum | null>(null)
+  const [selectedArtist, setSelectedArtist] = useState<LibraryArtist | null>(null)
+  const [artistDetail, setArtistDetail] = useState<ArtistDetailResponse | null>(null)
   const [tracks, setTracks] = useState<LibraryTrack[]>([])
   const [term, setTerm] = useState('')
   const [activeTerm, setActiveTerm] = useState('')
@@ -756,6 +773,8 @@ function useLibrary() {
       setSearchResult(null)
       setArtworkRevision(current => current + 1)
       setSelectedAlbum(null)
+      setSelectedArtist(null)
+      setArtistDetail(null)
       setTracks([])
     } catch (requestError) {
       if (request === albumRequest.current && !isAbortError(requestError)) setError(errorMessage(requestError))
@@ -797,6 +816,8 @@ function useLibrary() {
     const request = ++albumRequest.current
     setSection(nextSection)
     setSelectedAlbum(null)
+    setSelectedArtist(null)
+    setArtistDetail(null)
     setTracks([])
     setActiveTerm('')
     setSearchResult(null)
@@ -831,6 +852,8 @@ function useLibrary() {
       if (request !== albumRequest.current) return
       setSearchResult(next)
       setSelectedAlbum(null)
+      setSelectedArtist(null)
+      setArtistDetail(null)
       setTracks([])
     } catch (requestError) {
       if (request === albumRequest.current) setError(errorMessage(requestError))
@@ -884,6 +907,30 @@ function useLibrary() {
     }
   }
 
+  async function openArtist(artist: LibraryArtist | string) {
+    const selection = typeof artist === 'string' ? { name: artist, albumCount: 0 } : artist
+    const request = ++albumRequest.current
+    setSection('artists')
+    setSelectedArtist(selection)
+    setArtistDetail(null)
+    setSelectedAlbum(null)
+    setTracks([])
+    setActiveTerm('')
+    setSearchResult(null)
+    setLoading(true)
+    setError(null)
+    try {
+      const detail = await getJson<ArtistDetailResponse>(`/api/music/artists?name=${encodeURIComponent(selection.name)}`)
+      if (request !== albumRequest.current) return
+      setSelectedArtist(detail.artist)
+      setArtistDetail(detail)
+    } catch (requestError) {
+      if (request === albumRequest.current && !isAbortError(requestError)) setError(errorMessage(requestError))
+    } finally {
+      if (request === albumRequest.current) setLoading(false)
+    }
+  }
+
   return {
     page,
     artistPage,
@@ -891,6 +938,8 @@ function useLibrary() {
     section,
     searchResult,
     selectedAlbum,
+    selectedArtist,
+    artistDetail,
     tracks,
     loading,
     loadingMore,
@@ -904,11 +953,13 @@ function useLibrary() {
     searchFor,
     clearSearch,
     browse,
-    refresh: () => activeTerm ? searchReleases(activeTerm) : browse(section),
+    refresh: () => selectedArtist ? openArtist(selectedArtist) : activeTerm ? searchReleases(activeTerm) : browse(section),
     loadMore,
     openAlbum,
+    openArtist,
     cancelPending: () => { albumRequest.current += 1; setOpeningAlbum(null) },
     closeAlbum: () => setSelectedAlbum(null),
+    closeArtist: () => { setSelectedArtist(null); setArtistDetail(null) },
   }
 }
 
@@ -1012,10 +1063,11 @@ function OwnedAlbumCard({ album, library, playTrack, playback, title = album.tit
   </article>
 }
 
-function AlbumDetailHero({ album, tracks, close, playTrack, playback }: {
+function AlbumDetailHero({ album, tracks, close, openArtist, playTrack, playback }: {
   album: LibraryAlbum
   tracks: LibraryTrack[]
   close: () => void
+  openArtist: (artist: string) => void
   playTrack: (track: PlayerTrack) => void
   playback: TrackPlaybackControls
 }) {
@@ -1038,7 +1090,7 @@ function AlbumDetailHero({ album, tracks, close, playTrack, playback }: {
     <div className="album-detail-copy">
       <p>IN YOUR LIBRARY</p>
       <h1>{album.title}</h1>
-      <strong>{album.albumArtist}</strong>
+      <button className="album-artist-link" onClick={() => openArtist(album.albumArtist)}>{album.albumArtist}</button>
       <span>{[album.year, `${tracks.length} ${tracks.length === 1 ? 'track' : 'tracks'}`].filter(Boolean).join(' · ')}</span>
       <div className="album-detail-actions">
         {firstPlayable?.id && <button className={`button primary${active ? ' active-playback' : ''}`} onClick={toggleAlbum}>
@@ -1046,6 +1098,30 @@ function AlbumDetailHero({ album, tracks, close, playTrack, playback }: {
         </button>}
         <button className="button" onClick={close}><ArrowLeft size={13} /> Collection</button>
       </div>
+    </div>
+  </section>
+}
+
+function ArtistDetailHero({ artist, detail, close }: { artist: LibraryArtist; detail: ArtistDetailResponse | null; close: () => void }) {
+  const [artwork, setArtwork] = useState(Boolean(artist.representativeAlbumId))
+  const artworkId = detail?.artist.representativeAlbumId ?? artist.representativeAlbumId
+  useEffect(() => setArtwork(Boolean(artworkId)), [artworkId])
+  const owned = detail?.releases.filter(release => release.libraryAlbum).length ?? artist.albumCount
+  return <section className={`artist-detail-hero ${artwork ? 'has-artwork' : ''}`}>
+    {artwork && artworkId && <img className="artist-detail-backdrop" src={`/api/library/albums/${artworkId}/artwork`} alt="" aria-hidden="true" onError={() => setArtwork(false)} />}
+    <div className="artist-detail-image" aria-hidden="true">
+      {artwork && artworkId ? <img src={`/api/library/albums/${artworkId}/artwork`} alt="" onError={() => setArtwork(false)} /> : <UserRound size={58} />}
+    </div>
+    <div className="artist-detail-copy">
+      <p>ARTIST</p>
+      <h1>{detail?.artist.name ?? artist.name}</h1>
+      {detail?.artist.disambiguation && <span>{detail.artist.disambiguation}</span>}
+      <div className="artist-detail-stats">
+        <span><strong>{owned}</strong> in your library</span>
+        <span><strong>{detail?.releases.length ?? '—'}</strong> releases</span>
+        <span><strong>{detail?.tracks.length ?? '—'}</strong> songs owned</span>
+      </div>
+      <button className="button" onClick={close}><ArrowLeft size={13} /> All artists</button>
     </div>
   </section>
 }
@@ -1321,15 +1397,15 @@ function UnifiedReleaseCard({ item, library, acquisitions, libraryAvailable, pla
 
 function ArtistCard({ artist, library }: { artist: LibraryArtist; library: LibraryModel }) {
   const [artwork, setArtwork] = useState(Boolean(artist.representativeAlbumId))
-  return <button className="artist-card" onClick={() => library.searchFor(artist.name)}>
+  return <button className="artist-card" onClick={() => library.openArtist(artist)}>
     <div className="artist-image">
       {artwork && artist.representativeAlbumId
         ? <img src={`/api/library/albums/${artist.representativeAlbumId}/artwork`} alt="" loading="lazy" onError={() => setArtwork(false)} />
         : <UserRound size={30} />}
     </div>
     <strong>{artist.name}</strong>
-    <small>{artist.albumCount} {artist.albumCount === 1 ? 'album' : 'albums'}</small>
-    <span className="artist-open"><Disc3 size={11} /> Open discography</span>
+    <small>{artist.albumCount ? `${artist.albumCount} ${artist.albumCount === 1 ? 'album' : 'albums'} in your library` : artist.disambiguation || 'Artist'}</small>
+    <span className="artist-open"><Disc3 size={11} /> View artist</span>
   </button>
 }
 
@@ -1376,15 +1452,37 @@ function groupSearchReleases(items: readonly MusicRelease[]) {
   return groups.filter(group => group.items.length > 0)
 }
 
+function ArtistReleaseSection({ group, library, acquisitions, libraryAvailable, playTrack, playback }: {
+  group: ReturnType<typeof groupSearchReleases>[number]
+  library: LibraryModel
+  acquisitions: AcquisitionsModel
+  libraryAvailable: boolean
+  playTrack: (track: PlayerTrack) => void
+  playback: TrackPlaybackControls
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const initialCount = group.type === 'album' ? 12 : 8
+  const ordered = [...group.items].sort((left, right) => Number(Boolean(right.libraryAlbum)) - Number(Boolean(left.libraryAlbum)))
+  const visible = expanded ? ordered : ordered.slice(0, initialCount)
+  return <section>
+    <header className="collection-heading"><h2>{group.label}</h2><span>{group.items.length}</span></header>
+    <div className="album-grid">{visible.map(item => <UnifiedReleaseCard item={item} library={library} acquisitions={acquisitions} libraryAvailable={libraryAvailable} playTrack={playTrack} playback={playback} key={item.key} />)}</div>
+    {group.items.length > initialCount && <footer className="artist-release-footer"><button className="button" onClick={() => setExpanded(value => !value)}>{expanded ? `Show fewer ${group.label.toLowerCase()}` : `Show all ${group.items.length} ${group.label.toLowerCase()}`}</button></footer>}
+  </section>
+}
+
 function LibraryView({ library, acquisitions, playTrack, playback }: { library: LibraryModel; acquisitions: AcquisitionsModel; playTrack: (track: PlayerTrack) => void; playback: TrackPlaybackControls }) {
   const page = library.page
   const currentPage = library.section === 'albums' ? page : library.section === 'artists' ? library.artistPage : library.songPage
   const unavailable = (library.error && !currentPage) || (currentPage && (!currentPage.configured || !currentPage.mounted))
   const album = library.selectedAlbum
+  const artist = library.selectedArtist
+  const artistDetail = library.artistDetail
   const searchResult = library.searchResult
   const releaseGroups = groupSearchReleases(searchResult?.items ?? [])
+  const artistReleaseGroups = groupSearchReleases(artistDetail?.releases ?? [])
   const resultCount = (searchResult?.items.length ?? 0) + (searchResult?.artists.length ?? 0) + (searchResult?.tracks.length ?? 0)
-  const browsingCollection = !album && !library.activeTerm
+  const browsingCollection = !album && !artist && !library.activeTerm
   const sectionDetails = library.section === 'albums'
     ? { title: 'Albums', description: 'The records, EPs, and releases on your shelves.', icon: <Grid2X2 size={18} /> }
     : library.section === 'artists'
@@ -1393,7 +1491,9 @@ function LibraryView({ library, acquisitions, playTrack, playback }: { library: 
 
   return (
     <section>
-      {album ? <AlbumDetailHero album={album} tracks={library.tracks} close={library.closeAlbum} playTrack={playTrack} playback={playback} /> : <div className={`page-heading ${browsingCollection ? 'library-heading' : ''}`}>
+      {album ? <AlbumDetailHero album={album} tracks={library.tracks} close={library.closeAlbum} openArtist={library.openArtist} playTrack={playTrack} playback={playback} />
+        : artist ? <ArtistDetailHero artist={artist} detail={artistDetail} close={library.closeArtist} />
+          : <div className={`page-heading ${browsingCollection ? 'library-heading' : ''}`}>
         {browsingCollection ? <>
           <div className="library-heading-lead">
             <span className="library-heading-icon">{sectionDetails.icon}</span>
@@ -1434,7 +1534,18 @@ function LibraryView({ library, acquisitions, playTrack, playback }: { library: 
                 <span>{formatBytes(track.bytes)}</span>
               </article>
             ))}
-          </section> : <>
+          </section> : artist ? library.loading && !artistDetail
+            ? <div className="idle-state compact"><Disc3 size={28} className="spinning" /><span>Building {artist.name}’s page</span></div>
+            : artistDetail ? <div className="artist-detail-content">
+              {artistDetail.sources.catalog !== 'available' && <div className="source-strip">Catalog details are {artistDetail.sources.catalog}; showing the music available in your library.</div>}
+              {artistReleaseGroups.map(group => <ArtistReleaseSection group={group} library={library} acquisitions={acquisitions} libraryAvailable={artistDetail.sources.library === 'available'} playTrack={playTrack} playback={playback} key={group.type} />)}
+              {!!artistDetail.tracks.length && <section>
+                <header className="collection-heading"><h2>Songs in your library</h2><span>{artistDetail.tracks.length}</span></header>
+                <div className="panel song-list">{artistDetail.tracks.map(track => <SongRow track={track} library={library} playback={playback} key={track.id ?? `${track.title}:${track.album}`} />)}</div>
+              </section>}
+              {!artistDetail.releases.length && <div className="panel"><p className="empty-row">No releases found for this artist</p></div>}
+            </div> : null
+          : <>
             <form className="search-form library-search" onSubmit={library.search}>
               <Search size={17} />
               <input
