@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import type { FormEvent, PointerEvent as ReactPointerEvent } from 'react'
+import type { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Activity, ArrowLeft, Bookmark, Check, Cloud, Disc3, Grid2X2, LibraryBig, ListMusic, PackageOpen, Pause, Play, Radio, RefreshCw, Search, Share2, ShieldCheck, UserRound, Volume2, VolumeX, X } from 'lucide-react'
 import './styles.css'
@@ -1769,13 +1769,20 @@ function LibraryView({ library, acquisitions, playTrack, playback }: { library: 
 }
 
 function JamTitle({ title }: { title: string }) {
+  const glyphCount = Array.from(title.replaceAll(' ', '')).length
   let characterIndex = 0
   return title.split(' ').map((word, wordIndex) => {
     const glyphs = Array.from(word).map(character => {
       const index = characterIndex++
-      return <span className={`jam-glyph jam-band-${index % 6}`} aria-hidden="true" key={`${character}-${index}`}>{character}</span>
+      const position = glyphCount > 1 ? index / (glyphCount - 1) : 0.5
+      const band = Math.min(5, Math.floor(position * 6))
+      const instrument = position < 1 / 3 ? 'low' : position < 2 / 3 ? 'mid' : 'high'
+      const style = {
+        '--glyph-position': position,
+        '--glyph-direction': index % 2 ? 1 : -1,
+      } as CSSProperties
+      return <span className={`jam-glyph jam-band-${band} jam-${instrument}`} style={style} aria-hidden="true" key={`${character}-${index}`}>{character}</span>
     })
-    characterIndex++
     return <span className="jam-word" key={`${word}-${wordIndex}`}>{glyphs}</span>
   })
 }
