@@ -3,6 +3,15 @@
 @font-face { font-family: 'Climate Crisis'; src: url('./assets/fonts/ClimateCrisis-YEAR.woff2') format('woff2-variations'); font-display: swap; }
 @font-face { font-family: 'Jam'; src: url('./assets/fonts/JamRegular.ttf') format('truetype-variations'); font-display: swap; }
 @font-face { font-family: 'Lab DJR'; src: url('./assets/fonts/Lab-DJR.ttf') format('truetype-variations'); font-display: swap; }
+@font-face { font-family: 'Kablammo'; src: url('./assets/fonts/Kablammo-MORF.woff2') format('woff2-variations'); font-display: swap; }
+@font-face { font-family: 'Tilt Warp'; src: url('./assets/fonts/TiltWarp-XROT-YROT.woff2') format('woff2-variations'); font-display: swap; }
+@font-face { font-family: 'Handjet'; src: url('./assets/fonts/Handjet-ELGR-ELSH-wght.woff2') format('woff2-variations'); font-display: swap; }
+@font-face { font-family: 'Sixtyfour'; src: url('./assets/fonts/Sixtyfour-BLED-SCAN.woff2') format('woff2-variations'); font-display: swap; }
+@font-face { font-family: 'Fraunces'; src: url('./assets/fonts/Fraunces-SOFT-WONK-opsz-wght.woff2') format('woff2-variations'); font-display: swap; }
+@font-face { font-family: 'Recursive'; src: url('./assets/fonts/Recursive-CASL-CRSV-MONO-slnt-wght.woff2') format('woff2-variations'); font-display: swap; }
+@font-face { font-family: 'Nabla'; src: url('./assets/fonts/Nabla-EDPT-EHLT.woff2') format('woff2-variations'); font-display: swap; }
+@font-face { font-family: 'Honk'; src: url('./assets/fonts/Honk-MORF-SHLN.woff2') format('woff2-variations'); font-display: swap; }
+@font-face { font-family: 'Wavefont'; src: url('./assets/fonts/Wavefont-ROND-YELA-wght.woff2') format('woff2-variations'); font-display: swap; }
 
 :root {
   font-family: 'IBM Plex Mono', monospace;
@@ -482,9 +491,27 @@ main.library-main { width: min(1380px, calc(100% - 32px)); }
 .now-playing-copy .climate-title { font-family: 'Climate Crisis', var(--music-font); font-variation-settings: 'YEAR' var(--climate-year); }
 .now-playing-copy p { margin: 0; color: #d4ebe3; font-family: var(--music-font); font-size: clamp(14px,1.8vw,24px); }
 .now-playing-copy > span { margin-top: 8px; display: block; color: #8faea4; font-size: 10px; }
-.now-playing-font-picker { position: absolute; z-index: 3; top: 74px; right: 24px; display: flex; gap: 5px; }
-.now-playing-font-picker button { padding: 5px 8px; color: #8fb3a7; background: rgba(6,26,31,.62); border: 1px solid rgba(151,221,198,.2); font-family: var(--music-font); font-size: 8px; text-transform: uppercase; backdrop-filter: blur(10px); }
-.now-playing-font-picker button.active { color: #062129; background: #9be0c6; border-color: #c5f4e1; }
+.font-comparison-specimen { top: 86px; bottom: 30px; align-items: center; }
+.font-comparison-specimen .now-playing-cover { width: clamp(130px,16vw,230px); }
+.font-comparison-copy { min-width: 0; width: min(900px,calc(100% - 190px)); max-height: 100%; padding: 13px 16px; overflow: auto; background: rgba(3,18,23,.72); border: 1px solid rgba(151,218,197,.15); box-shadow: 0 22px 55px rgba(0,7,10,.24); backdrop-filter: blur(10px); }
+.font-comparison-copy > header { margin-bottom: 6px; display: flex; align-items: baseline; justify-content: space-between; gap: 18px; }
+.font-comparison-copy > header small { color: #8ed0ba; font-size: 7px; letter-spacing: .2em; }
+.font-comparison-copy > header p { margin: 0; overflow: hidden; color: #aac4bb; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.font-specimen-list { display: flex; flex-direction: column; }
+.font-specimen-row { min-height: 56px; padding: 5px 0; display: grid; grid-template-columns: 124px minmax(0,1fr); align-items: center; gap: 12px; border-top: 1px solid rgba(151,218,197,.12); }
+.font-specimen-row > div { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.font-specimen-row strong { color: #d7eee6; font-size: 10px; font-weight: 500; }
+.font-specimen-row small { overflow: hidden; color: #8dac9f; font-size: 8px; letter-spacing: .06em; text-overflow: ellipsis; white-space: nowrap; }
+.font-specimen-title { min-width: 0; width: 100%; margin: 0; overflow: hidden; contain: layout paint style; color: transparent; background: linear-gradient(100deg,var(--title-primary),var(--title-accent) 48%,color-mix(in oklab,var(--title-secondary),white 24%)); background-position: calc(var(--score-progress,0) * 100%) 50%; background-size: 190% 100%; background-clip: text; -webkit-background-clip: text; font-size: clamp(25px,3.3vw,48px); font-weight: 500; line-height: 1; text-overflow: ellipsis; white-space: nowrap; filter: saturate(calc(1 + var(--score-energy,0) * .45)) brightness(calc(1 + var(--score-beat,0) * .16 + var(--score-peak-charge,0) * .8)); transition: font-variation-settings 100ms linear,filter 100ms linear; dynamic-range-limit: no-limit; }
+.kablammo-sample { font-family: 'Kablammo', sans-serif; font-variation-settings: 'MORF' calc(var(--score-energy,0) * 60); }
+.tilt-warp-sample { font-family: 'Tilt Warp', sans-serif; font-variation-settings: 'XROT' calc(-42 + var(--score-breath,0) * 84), 'YROT' calc(-35 + var(--score-energy,0) * 70); }
+.handjet-sample { font-family: 'Handjet', sans-serif; font-variation-settings: 'ELGR' calc(1 + var(--score-energy,0)), 'ELSH' calc(var(--score-progress,0) * 16), 'wght' calc(180 + var(--score-energy,0) * 720); }
+.sixtyfour-sample { font-family: 'Sixtyfour', sans-serif; font-variation-settings: 'BLED' calc(var(--score-energy,0) * 100), 'SCAN' calc(-53 + var(--score-breath,0) * 153); }
+.fraunces-sample { font-family: 'Fraunces', serif; font-variation-settings: 'SOFT' calc(var(--score-energy,0) * 100), 'WONK' var(--score-beat,0), 'opsz' calc(24 + var(--score-energy,0) * 120), 'wght' calc(250 + var(--score-energy,0) * 650); }
+.recursive-sample { font-family: 'Recursive', sans-serif; font-variation-settings: 'CASL' var(--score-energy,0), 'CRSV' .5, 'MONO' calc(var(--score-breath,0) * .55), 'slnt' calc(var(--score-breath,0) * -15), 'wght' calc(350 + var(--score-energy,0) * 650); }
+.nabla-sample { color: #fff; background: none; font-family: 'Nabla', sans-serif; font-variation-settings: 'EDPT' calc(var(--score-energy,0) * 200), 'EHLT' calc(var(--score-beat,0) * 24); }
+.honk-sample { color: #fff; background: none; font-family: 'Honk', sans-serif; font-variation-settings: 'MORF' calc(var(--score-energy,0) * 45), 'SHLN' calc(var(--score-breath,0) * 100); }
+.wavefont-sample { font-family: 'Wavefont', sans-serif; font-size: clamp(17px,2.1vw,29px); letter-spacing: -.08em; font-variation-settings: 'ROND' calc(var(--score-breath,0) * 100), 'YELA' calc(-100 + var(--score-energy,0) * 200), 'wght' calc(80 + var(--score-energy,0) * 920); }
 .now-playing-telemetry { position: absolute; top: 32px; right: 360px; display: flex; gap: 28px; color: rgba(159,213,195,.55); font-size: 8px; letter-spacing: .18em; }
 .spinning { animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -1015,8 +1042,10 @@ main > section { animation: habitat-enter 260ms ease-out; }
   .now-playing-view { bottom: 116px; }
   .now-playing-actions { top: 58px; right: 14px; }
   .now-playing-overburn, .now-playing-summon { min-height: 34px; padding: 0 9px; font-size: 8px; }
-  .now-playing-font-picker { top: 102px; right: 14px; }
   .now-playing-telemetry { display: none; }
+  .font-comparison-specimen { top: 102px; right: 14px; bottom: 14px; left: 14px; }
+  .font-comparison-specimen .now-playing-cover { display: none; }
+  .font-comparison-copy { width: 100%; }
   .player-control.player-play { width: 34px; height: 34px; margin-left: -2px; }
   .shared-album-view .now-playing-specimen { top: 82px; right: 14px; bottom: auto; left: 14px; align-items: center; flex-direction: row; gap: 14px; text-align: left; }
   .shared-album-view .now-playing-cover { width: 112px; }
@@ -1028,6 +1057,11 @@ main > section { animation: habitat-enter 260ms ease-out; }
   .now-playing-view { bottom: 140px; }
   .now-playing-close { top: 14px; left: 14px; }
   .now-playing-specimen { left: 16px; right: 16px; bottom: 24px; align-items: center; flex-direction: column; gap: 18px; text-align: center; }
+  .font-comparison-specimen { top: 102px; right: 8px; bottom: 8px; left: 8px; display: block; text-align: left; }
+  .font-comparison-copy { height: 100%; padding: 10px; }
+  .font-comparison-copy > header p { display: none; }
+  .font-specimen-row { grid-template-columns: 86px minmax(0,1fr); gap: 7px; }
+  .font-specimen-title { font-size: clamp(21px,7.4vw,34px); }
   .shared-track-view .now-playing-specimen { bottom: 128px; gap: 13px; }
   .shared-track-view .now-playing-cover { width: min(42vw,160px); }
   .shared-track-view .now-playing-copy h1 { font-size: clamp(24px,9vw,38px); }
@@ -1050,7 +1084,7 @@ main > section { animation: habitat-enter 260ms ease-out; }
   .album-card, .owned-album-card { transition: none; transform: none; }
   .album-card:hover, .owned-album-card:hover, .owned-album-card:focus-within { transform: none; }
   .now-playing-copy .reactive-title { animation: none; background-position: 50% 50%; }
-  .now-playing-view { --type-kick: 0 !important; --type-snare: 0 !important; --type-hat: 0 !important; --impact-position: -1 !important; --title-burst: 0 !important; --title-flare-0: 0 !important; --title-flare-1: 0 !important; --title-flare-2: 0 !important; --title-flare-3: 0 !important; --title-flare-4: 0 !important; --title-flare-5: 0 !important; }
+  .now-playing-view { --score-energy: .4 !important; --score-beat: 0 !important; --score-breath: 0 !important; --score-progress: .5 !important; --score-peak-charge: 0 !important; --type-kick: 0 !important; --type-snare: 0 !important; --type-hat: 0 !important; --impact-position: -1 !important; --title-burst: 0 !important; --title-flare-0: 0 !important; --title-flare-1: 0 !important; --title-flare-2: 0 !important; --title-flare-3: 0 !important; --title-flare-4: 0 !important; --title-flare-5: 0 !important; }
 }
 
 /* Readable type system: Plex Sans carries content while Plex Mono is reserved
@@ -1104,7 +1138,7 @@ button, input, select, textarea { font-family: inherit; }
 .shared-track-mark, .shared-track-controls small,
 .shared-album-track-list header span, .shared-album-track-list li span, .shared-album-track-list li time,
 .now-playing-copy small, .now-playing-copy > span,
-.now-playing-font-picker, .now-playing-telemetry { font-family: var(--label-font); }
+.now-playing-telemetry { font-family: var(--label-font); }
 
 .brand { font-size: 18px; letter-spacing: .24em; }
 .brand small { font-size: 9px; line-height: 1.35; letter-spacing: .14em; }

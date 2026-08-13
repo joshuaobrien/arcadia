@@ -361,6 +361,7 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
     let analyser: AnalyserNode | undefined
     let frequencies = new Uint8Array(BAR_COUNT)
     const signalTarget = signalTargetRef.current
+    const typographyComparison = Boolean(signalTarget?.querySelector('.font-comparison-copy'))
     const resumeAudioContext = () => {
       if (context?.state === 'suspended') void context.resume().catch(() => { /* Safari requires a later user gesture. */ })
     }
@@ -437,8 +438,9 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
     let appliedScore: VisualScore | undefined
     let lastScoredAudioTime = audio.currentTime
     let scoredEnergyEnvelope = 0
+    let lastScoreStyleAt = -Infinity
     signalTarget?.setAttribute('data-type-section', activeSection)
-    const frameInterval = 30
+    const frameInterval = typographyComparison ? 80 : 30
     const jamBands = Array.from({ length: 6 }, () => 0)
     const titleFlares = Array.from({ length: 6 }, () => 0)
     const previousFrequencies = new Uint8Array(frequencies.length)
@@ -688,60 +690,71 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       const anticipation = nextPeak && nextPeak.time - audio.currentTime < 2 ? 1 - (nextPeak.time - audio.currentTime) / 2 : 0
       const peakCharge = anticipation * (nextPeak?.strength ?? 0)
       const scoredTextSignal = Math.max(displayedSignal, scoredEnergyEnvelope * 0.82 + scoreBeat.pulse * scoredEnergyEnvelope * 0.18)
-      signalTarget?.style.setProperty('--climate-year', String(1979 + scoredTextSignal * 71))
-      signalTarget?.style.setProperty('--climate-pulse', String(1 + energyEnvelope * 0.025 + displayedSignal * 0.055))
-      signalTarget?.style.setProperty('--climate-beat', String(displayedSignal))
-      const reactiveBang = 0.65 + Math.pow(energyEnvelope, 1.7) * 2.15 + Math.pow(displayedSignal, 2.2) * 2.65 + Math.pow(scoredEnergyEnvelope, 1.5) * 1.5 + scoreBeat.pulse * scoredEnergyEnvelope * 0.65
-      signalTarget?.style.setProperty('--jam-bang', String(Math.max(reactiveBang, Math.min(10, titleBurstEnvelope * 16))))
-      signalTarget?.style.setProperty('--jam-punch', String(scoredTextSignal * 10))
-      signalTarget?.style.setProperty('--jam-crumble', String(midEnvelope * 5))
-      signalTarget?.style.setProperty('--jam-splatter', String(sparkEnvelope * 5))
-      signalTarget?.style.setProperty('--jam-beat', String(displayedSignal))
-      signalTarget?.style.setProperty('--jam-mid', String(midEnvelope))
-      signalTarget?.style.setProperty('--jam-spark', String(sparkEnvelope))
-      signalTarget?.style.setProperty('--type-kick', String(kickWaveEnvelope))
-      signalTarget?.style.setProperty('--type-snare', String(drumHitKind === 1 ? drumHitEnvelope : 0))
-      signalTarget?.style.setProperty('--type-hat', String(drumHitKind === 2 ? drumHitEnvelope : 0))
-      const kickWaveDuration = Math.min(720, Math.max(280, kickPeriod * 0.72))
-      const impactProgress = Math.min(1.15, Math.max(-0.15, (time - kickWaveStartedAt) / kickWaveDuration * 1.3 - 0.15))
-      const impactPosition = kickWaveEnvelope > 0.01 ? (kickWaveDirection > 0 ? impactProgress : 1 - impactProgress) : -1
-      signalTarget?.style.setProperty('--kick-wave-duration', String(kickWaveDuration))
-      signalTarget?.style.setProperty('--impact-position', String(impactPosition))
-      signalTarget?.style.setProperty('--score-anticipation', String(anticipation))
-      signalTarget?.style.setProperty('--score-energy', String(scoredEnergyEnvelope))
-      signalTarget?.style.setProperty('--score-beat', String(scoreBeat.pulse))
-      signalTarget?.style.setProperty('--score-breath', String(scoreBeat.wave))
-      signalTarget?.style.setProperty('--score-progress', String(scoreProgress))
-      signalTarget?.style.setProperty('--score-peak-charge', String(peakCharge))
-      signalTarget?.style.setProperty('--title-burst', String(titleBurstEnvelope))
-      titleFlares.forEach((value, index) => signalTarget?.style.setProperty(`--title-flare-${index}`, String(value)))
-      const delightProgress = Math.min(1, Math.max(0, stageAge / 7200))
       const delightDirection = delightEvent % 2 ? -1 : 1
-      signalTarget?.style.setProperty('--delight-level', String(Math.min(1, stageLevel * 0.72 + delightEnvelope * 0.22)))
-      signalTarget?.style.setProperty('--delight-progress', String(delightProgress))
-      signalTarget?.style.setProperty('--delight-offset', `${(delightProgress * 180 - 90) * delightDirection}%`)
-      signalTarget?.style.setProperty('--delight-angle', delightDirection < 0 ? '54deg' : '90deg')
-      signalTarget?.style.setProperty('--delight-scale', String(0.5 + delightProgress * 7))
-      signalTarget?.style.setProperty('--delight-stripe-offset', `${delightProgress * 7.5}vh`)
-      signalTarget?.style.setProperty('--overburn-opacity', String(Math.min(0.82, overburnEnvelope * 0.26 + overburnRelease * 0.72)))
-      signalTarget?.style.setProperty('--overburn-scale', String(overburnActive ? 1 : 1 + (1 - overburnRelease) * 1.8))
-      signalTarget?.style.setProperty('--overburn-cover-brightness', String(1 + overburnLevel * 1.65))
-      signalTarget?.style.setProperty('--overburn-cover-saturation', String(1 + overburnEnvelope * 0.35))
-      signalTarget?.style.setProperty('--overburn-cover-flare', String(Math.min(0.92, overburnEnvelope * 0.46 + overburnRelease * 0.9)))
-      signalTarget?.style.setProperty('--overburn-cover-glow', String(Math.min(0.9, overburnEnvelope * 0.5 + overburnRelease * 0.9)))
-      signalTarget?.style.setProperty('--overburn-cover-radius', `${overburnLevel * 110}px`)
-      signalTarget?.style.setProperty('--overburn-cover-scale', String(1 + overburnEnvelope * 0.035 + overburnRelease * 0.08))
-      signalTarget?.style.setProperty('--overburn-cover-lift', `${overburnLevel * -34}px`)
-      signalTarget?.style.setProperty('--overburn-cover-y', `${12 + overburnLevel * 8}deg`)
-      signalTarget?.style.setProperty('--overburn-cover-x', `${2 + overburnLevel * 5}deg`)
-      signalTarget?.style.setProperty('--overburn-cover-roll', `${overburnLevel * -2.5}deg`)
-      signalTarget?.style.setProperty('--overburn-cover-skew', `${overburnLevel * -2}deg`)
-      signalTarget?.style.setProperty('--overburn-cover-shadow-y', `${30 + overburnLevel * 28}px`)
-      jamBands.forEach((value, index) => signalTarget?.style.setProperty(`--jam-band-${index}`, String(value)))
-      signalTarget?.style.setProperty('--lab-bevel', String(sparkEnvelope * 1000))
-      signalTarget?.style.setProperty('--lab-roundness', String(scoredTextSignal * 1000))
-      signalTarget?.style.setProperty('--lab-quad', String(scoredTextSignal * 1000))
-      signalTarget?.style.setProperty('--lab-scale', String(180 + Math.max(bassEnvelope, scoredEnergyEnvelope * 0.8) * 820))
+      if (!typographyComparison) {
+        signalTarget?.style.setProperty('--climate-year', String(1979 + scoredTextSignal * 71))
+        signalTarget?.style.setProperty('--climate-pulse', String(1 + energyEnvelope * 0.025 + displayedSignal * 0.055))
+        signalTarget?.style.setProperty('--climate-beat', String(displayedSignal))
+        const reactiveBang = 0.65 + Math.pow(energyEnvelope, 1.7) * 2.15 + Math.pow(displayedSignal, 2.2) * 2.65 + Math.pow(scoredEnergyEnvelope, 1.5) * 1.5 + scoreBeat.pulse * scoredEnergyEnvelope * 0.65
+        signalTarget?.style.setProperty('--jam-bang', String(Math.max(reactiveBang, Math.min(10, titleBurstEnvelope * 16))))
+        signalTarget?.style.setProperty('--jam-punch', String(scoredTextSignal * 10))
+        signalTarget?.style.setProperty('--jam-crumble', String(midEnvelope * 5))
+        signalTarget?.style.setProperty('--jam-splatter', String(sparkEnvelope * 5))
+        signalTarget?.style.setProperty('--jam-beat', String(displayedSignal))
+        signalTarget?.style.setProperty('--jam-mid', String(midEnvelope))
+        signalTarget?.style.setProperty('--jam-spark', String(sparkEnvelope))
+        signalTarget?.style.setProperty('--type-kick', String(kickWaveEnvelope))
+        signalTarget?.style.setProperty('--type-snare', String(drumHitKind === 1 ? drumHitEnvelope : 0))
+        signalTarget?.style.setProperty('--type-hat', String(drumHitKind === 2 ? drumHitEnvelope : 0))
+        const kickWaveDuration = Math.min(720, Math.max(280, kickPeriod * 0.72))
+        const impactProgress = Math.min(1.15, Math.max(-0.15, (time - kickWaveStartedAt) / kickWaveDuration * 1.3 - 0.15))
+        const impactPosition = kickWaveEnvelope > 0.01 ? (kickWaveDirection > 0 ? impactProgress : 1 - impactProgress) : -1
+        signalTarget?.style.setProperty('--kick-wave-duration', String(kickWaveDuration))
+        signalTarget?.style.setProperty('--impact-position', String(impactPosition))
+      }
+      if (time - lastScoreStyleAt >= 80) {
+        lastScoreStyleAt = time
+        signalTarget?.style.setProperty('--score-anticipation', String(anticipation))
+        signalTarget?.style.setProperty('--score-energy', String(scoredEnergyEnvelope))
+        signalTarget?.style.setProperty('--score-beat', String(scoreBeat.pulse))
+        signalTarget?.style.setProperty('--score-breath', String(scoreBeat.wave))
+        signalTarget?.style.setProperty('--score-progress', String(scoreProgress))
+        signalTarget?.style.setProperty('--score-peak-charge', String(peakCharge))
+      }
+      if (!typographyComparison) {
+        signalTarget?.style.setProperty('--title-burst', String(titleBurstEnvelope))
+        titleFlares.forEach((value, index) => signalTarget?.style.setProperty(`--title-flare-${index}`, String(value)))
+        const delightProgress = Math.min(1, Math.max(0, stageAge / 7200))
+        signalTarget?.style.setProperty('--delight-level', String(Math.min(1, stageLevel * 0.72 + delightEnvelope * 0.22)))
+        signalTarget?.style.setProperty('--delight-progress', String(delightProgress))
+        signalTarget?.style.setProperty('--delight-offset', `${(delightProgress * 180 - 90) * delightDirection}%`)
+        signalTarget?.style.setProperty('--delight-angle', delightDirection < 0 ? '54deg' : '90deg')
+        signalTarget?.style.setProperty('--delight-scale', String(0.5 + delightProgress * 7))
+        signalTarget?.style.setProperty('--delight-stripe-offset', `${delightProgress * 7.5}vh`)
+        signalTarget?.style.setProperty('--overburn-opacity', String(Math.min(0.82, overburnEnvelope * 0.26 + overburnRelease * 0.72)))
+        signalTarget?.style.setProperty('--overburn-scale', String(overburnActive ? 1 : 1 + (1 - overburnRelease) * 1.8))
+        signalTarget?.style.setProperty('--overburn-cover-brightness', String(1 + overburnLevel * 1.65))
+        signalTarget?.style.setProperty('--overburn-cover-saturation', String(1 + overburnEnvelope * 0.35))
+        signalTarget?.style.setProperty('--overburn-cover-flare', String(Math.min(0.92, overburnEnvelope * 0.46 + overburnRelease * 0.9)))
+        signalTarget?.style.setProperty('--overburn-cover-glow', String(Math.min(0.9, overburnEnvelope * 0.5 + overburnRelease * 0.9)))
+        signalTarget?.style.setProperty('--overburn-cover-radius', `${overburnLevel * 110}px`)
+        signalTarget?.style.setProperty('--overburn-cover-scale', String(1 + overburnEnvelope * 0.035 + overburnRelease * 0.08))
+        signalTarget?.style.setProperty('--overburn-cover-lift', `${overburnLevel * -34}px`)
+        signalTarget?.style.setProperty('--overburn-cover-y', `${12 + overburnLevel * 8}deg`)
+        signalTarget?.style.setProperty('--overburn-cover-x', `${2 + overburnLevel * 5}deg`)
+        signalTarget?.style.setProperty('--overburn-cover-roll', `${overburnLevel * -2.5}deg`)
+        signalTarget?.style.setProperty('--overburn-cover-skew', `${overburnLevel * -2}deg`)
+        signalTarget?.style.setProperty('--overburn-cover-shadow-y', `${30 + overburnLevel * 28}px`)
+        jamBands.forEach((value, index) => signalTarget?.style.setProperty(`--jam-band-${index}`, String(value)))
+        signalTarget?.style.setProperty('--lab-bevel', String(sparkEnvelope * 1000))
+        signalTarget?.style.setProperty('--lab-roundness', String(scoredTextSignal * 1000))
+        signalTarget?.style.setProperty('--lab-quad', String(scoredTextSignal * 1000))
+        signalTarget?.style.setProperty('--lab-scale', String(180 + Math.max(bassEnvelope, scoredEnergyEnvelope * 0.8) * 820))
+      }
+      if (typographyComparison) {
+        frame = requestAnimationFrame(render)
+        return
+      }
       const pulse = 1 + energyEnvelope * 0.12 + bassEnvelope * 0.18 + Math.sin(time * 0.0007) * 0.02
       barMaterials.forEach((material, index) => {
         material.color.lerp(barTargetColors[index], 0.045)
