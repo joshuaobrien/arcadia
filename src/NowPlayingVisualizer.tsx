@@ -72,13 +72,13 @@ function colorDistanceSquared(left: THREE.Color, right: THREE.Color): number {
   return (left.r - right.r) ** 2 + (left.g - right.g) ** 2 + (left.b - right.b) ** 2
 }
 
-function titleColor(source: THREE.Color, hueShift: number, saturationLift: number, lightnessLift: number): THREE.Color {
+function titleColor(source: THREE.Color, lightnessLift: number): THREE.Color {
   const hsl = { h: 0, s: 0, l: 0 }
   source.getHSL(hsl)
   return source.clone().setHSL(
-    (hsl.h + hueShift + 1) % 1,
-    Math.min(0.88, Math.max(0.5, hsl.s + saturationLift)),
-    Math.min(0.78, Math.max(0.48, hsl.l + lightnessLift)),
+    hsl.h,
+    Math.min(0.72, Math.max(0.18, hsl.s * 0.88 + 0.04)),
+    Math.min(0.76, Math.max(0.52, hsl.l + lightnessLift)),
   )
 }
 
@@ -119,7 +119,7 @@ async function extractArtworkPalette(url: string): Promise<VisualizerPalette> {
     .map(bin => styledArtworkColor(bin.red / bin.count, bin.green / bin.count, bin.blue / bin.count))
   if (!colors.length) throw new Error('Artwork has no usable colors')
   const primary = colors[0]
-  const distinct = colors.filter(color => colorDistanceSquared(color, primary) > 0.12)
+  const distinct = colors.filter(color => colorDistanceSquared(color, primary) > 0.05)
   const secondary = distinct[0] ?? primary.clone().offsetHSL(0.14, 0, 0.08)
   const accent = distinct.find(color => colorDistanceSquared(color, secondary) > 0.1) ?? primary.clone().offsetHSL(0.48, 0.08, 0.12)
   return { primary, secondary, accent }
@@ -327,9 +327,9 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
     }
     const applyTitlePalette = (palette: VisualizerPalette) => {
       const target = signalTargetRef.current
-      target?.style.setProperty('--title-primary', titleColor(palette.primary, 0.055, 0.12, 0.12).getStyle())
-      target?.style.setProperty('--title-secondary', titleColor(palette.secondary, -0.055, 0.16, 0.13).getStyle())
-      target?.style.setProperty('--title-accent', titleColor(palette.accent, -0.12, 0.18, 0.1).getStyle())
+      target?.style.setProperty('--title-primary', titleColor(palette.primary, 0.12).getStyle())
+      target?.style.setProperty('--title-secondary', titleColor(palette.secondary, 0.13).getStyle())
+      target?.style.setProperty('--title-accent', titleColor(palette.accent, 0.1).getStyle())
     }
     const barTargetColors = Array.from({ length: BAR_COUNT }, () => new THREE.Color())
     const updateBarPalette = () => {
