@@ -10,5 +10,5 @@
     "skipLibCheck": true,
     "types": ["node", "react", "react-dom"]
   },
-  "include": ["server/**/*.ts", "src/**/*.tsx"]
+  "include": ["server/**/*.ts", "src/**/*.tsx", "e2e/**/*.ts", "playwright.config.ts"]
 }
