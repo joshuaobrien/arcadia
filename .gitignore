@@ -10,3 +10,5 @@ dist/
 .amp/portals/
 test-environment/state/
 test-environment/runtime.env
+playwright-report/
+test-results/
