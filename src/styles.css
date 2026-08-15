@@ -637,7 +637,7 @@ main.library-main { width: min(1380px, calc(100% - 32px)); }
   .owned-album-card:hover, .owned-album-card:focus-within, .artist-card:hover, .artist-card:focus-visible { transform: none; }
 }
 
-/* Cloud Tracks theme: preserve Needle's product structure while carrying the
+/* Cloud Tracks theme: preserve Arcadia's product structure while carrying the
    light, airy visual language of the original app. */
 :root {
   font-family: Arial, Helvetica, sans-serif;

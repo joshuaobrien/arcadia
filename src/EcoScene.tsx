@@ -19,7 +19,7 @@ const ZONE_POSITION: Record<HabitatZone, [number, number, number]> = {
   activity: [3.5, 0.25, -1.4],
 }
 
-/** A responsive habitat whose camera and structures follow Needle's current flow. */
+/** A responsive habitat whose camera and structures follow Arcadia's current flow. */
 export default function EcoScene({ zone, section, activity, playing }: EcoSceneProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const stateRef = useRef({ zone, section, activity, playing })

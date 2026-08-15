@@ -18,7 +18,7 @@ test('Jellyfin adapter reads albums and tracks with API-key authentication', asy
       const url = new URL(input instanceof Request ? input.url : input)
       calls.push(url)
       assert.equal(init?.headers && (init.headers as Record<string, string>).Authorization, 'MediaBrowser Token="secret-key"')
-      assert.equal(init?.headers && (init.headers as Record<string, string>)['X-Needle-Operation-Id'], context.operationId)
+      assert.equal(init?.headers && (init.headers as Record<string, string>)['X-Arcadia-Operation-Id'], context.operationId)
       if (url.searchParams.get('IncludeItemTypes') === 'MusicAlbum') return json({
         Items: [
           {
@@ -109,7 +109,7 @@ test('Jellyfin adapter streams exact audio and forwards authentication and byte 
       assert.equal(url.toString(), `http://jellyfin.test:8096/root/Audio/${trackId}/stream?static=true`)
       const headers = init?.headers as Record<string, string>
       assert.equal(headers.Authorization, 'MediaBrowser Token="secret-key"')
-      assert.equal(headers['X-Needle-Operation-Id'], context.operationId)
+      assert.equal(headers['X-Arcadia-Operation-Id'], context.operationId)
       assert.equal(headers.Range, 'bytes=10-19')
       assert.equal(url.searchParams.has('api_key'), false)
       return new Response('audio bytes', { status: 206, headers: {

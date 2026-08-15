@@ -18,7 +18,7 @@ export class DirectAcquisitionService {
   constructor(readonly repository:AcquisitionRepository,readonly metadata:ReleaseMetadataPort,readonly slskd:DirectSlskdPort,options:DirectAcquisitionOptions={}){this.#root=trim(options.downloadsRoot??'/downloads');this.#mappings=options.pathMappings??[{id:'orb-downloads',providerPrefix:'/downloads',needlePrefix:'/music_path/inbox'}];this.#max=options.maxCandidates??100;this.#lead=options.autoSelectLead??10}
   async search(jobId:string,context:OperationContext):Promise<DirectAcquisitionWorkflow>{
     const job=this.repository.get(jobId);if(!job?.musicBrainzReleaseGroupId||!job.artist||!job.release)throw new Error('Direct acquisition requires artist, release, and MusicBrainz release-group ID')
-    const destination=`needle/${job.id}/${sanitize(`${job.artist} - ${job.release}`)}`;this.repository.beginDirectSearch(job.id,destination)
+    const destination=`arcadia/${job.id}/${sanitize(`${job.artist} - ${job.release}`)}`;this.repository.beginDirectSearch(job.id,destination)
     try{const editions=await this.metadata.listReleaseEditions(job.musicBrainzReleaseGroupId,context);const searches:SearchResults[]=[]
       const queries=[`${job.artist} ${job.release}`,...(job.release.trim().split(/\s+/).length>=2?[job.release]:[])]
       for(const query of queries){const result=await this.slskd.search(query,context);searches.push(result);const ranked=groupAndMatch(searches,job.artist,job.release,editions);if(ranked.some(c=>c.score>=35&&!c.matches[0]?.rejected))break}

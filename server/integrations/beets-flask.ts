@@ -161,7 +161,7 @@ export class BeetsFlaskAdapter implements BeetsImportPort {
     const signal = context.signal ? AbortSignal.any([context.signal, timeout]) : timeout
     let response: Response
     try {
-      response = await this.#fetch(new URL(path, this.#baseUrl), { method: body === undefined ? 'GET' : 'POST', signal, headers: { Accept: 'application/json', 'X-Needle-Operation-Id': context.operationId, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
+      response = await this.#fetch(new URL(path, this.#baseUrl), { method: body === undefined ? 'GET' : 'POST', signal, headers: { Accept: 'application/json', 'X-Arcadia-Operation-Id': context.operationId, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
     } catch (error) {
       if (mutation) throw this.#unknownOutcome(error)
       throw new AdapterError({ code: 'unavailable', adapterId: this.adapterId, message: 'beets-flask is unavailable', retryable: true }, { cause: error })

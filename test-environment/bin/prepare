@@ -12,15 +12,15 @@ fi
 mkdir -p \
   "$state/downloads" "$state/incomplete" \
   "$state/slskd" "$state/beets/beets" "$state/beets/beets-flask" \
-  "$state/testing" "$state/music" "$state/logs" "$state/needle" \
+  "$state/testing" "$state/music" "$state/logs" "$state/arcadia" \
   "$state/jellyfin/config" "$state/jellyfin/cache"
 
 cp "$root/config/slskd/slskd.yml" "$state/slskd/slskd.yml"
 cp "$root/config/beets/beets/config.yaml" "$state/beets/beets/config.yaml"
 cp "$root/config/beets/beets-flask/config.yaml" "$state/beets/beets-flask/config.yaml"
 
-library="$state/music/Needle Test Ensemble/Orb Sessions"
-inbox="$state/downloads/Needle Test Ensemble - Incoming Signals"
+library="$state/music/Arcadia Test Ensemble/Orb Sessions"
+inbox="$state/downloads/Arcadia Test Ensemble - Incoming Signals"
 mkdir -p "$library" "$inbox"
 
 if [ ! -f "$library/cover.jpg" ]; then
@@ -33,8 +33,8 @@ generate_track() {
   [ -f "$destination" ] && return
   ffmpeg -hide_banner -loglevel error -y -f lavfi -i "sine=frequency=${frequency}:duration=12" \
     -c:a libmp3lame -q:a 5 \
-    -metadata title="$title" -metadata artist="Needle Test Ensemble" \
-    -metadata album="$album" -metadata album_artist="Needle Test Ensemble" \
+    -metadata title="$title" -metadata artist="Arcadia Test Ensemble" \
+    -metadata album="$album" -metadata album_artist="Arcadia Test Ensemble" \
     -metadata track="$track" -metadata date="2026" \
     -metadata MUSICBRAINZ_ALBUMID="$album_id" "$destination"
 }

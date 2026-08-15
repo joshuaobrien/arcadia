@@ -4,10 +4,10 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 if command -v amp >/dev/null 2>&1 \
-  && amp orb service list 2>/dev/null | grep -q '^amp-svc-needle-test\.service.* active running'; then
-  amp orb service stop needle-test >/dev/null
+  && amp orb service list 2>/dev/null | grep -q '^amp-svc-arcadia-test\.service.* active running'; then
+  amp orb service stop arcadia-test >/dev/null
 fi
 sudo docker compose down --remove-orphans
 sudo rm -rf state runtime.env
 ./bin/prepare
-echo "Needle test environment reset; restart the needle-test orb service"
+echo "Arcadia test environment reset; restart the arcadia-test orb service"

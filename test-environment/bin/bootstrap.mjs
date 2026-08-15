@@ -4,7 +4,7 @@ import { dirname, resolve } from 'node:path'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const jellyfin = 'http://127.0.0.1:8096'
-const clientAuthorization = 'MediaBrowser Client="NeedleTests", Device="Orb", DeviceId="needle-test", Version="1.0"'
+const clientAuthorization = 'MediaBrowser Client="ArcadiaTests", Device="Orb", DeviceId="arcadia-test", Version="1.0"'
 
 async function waitFor(url, label, timeoutMs = 180_000) {
   const deadline = Date.now() + timeoutMs
@@ -34,10 +34,10 @@ async function bootstrapJellyfin() {
   if (!publicInfo.StartupWizardCompleted) {
     const headers = { 'Content-Type': 'application/json' }
     await json(`${jellyfin}/Startup/Configuration`, { method: 'POST', headers, body: JSON.stringify({
-      ServerName: 'needle-test', UICulture: 'en-US', MetadataCountryCode: 'US', PreferredMetadataLanguage: 'en',
+      ServerName: 'arcadia-test', UICulture: 'en-US', MetadataCountryCode: 'US', PreferredMetadataLanguage: 'en',
     }) })
     await json(`${jellyfin}/Startup/User`)
-    await json(`${jellyfin}/Startup/User`, { method: 'POST', headers, body: JSON.stringify({ Name: 'needle', Password: 'needle-test-password' }) })
+    await json(`${jellyfin}/Startup/User`, { method: 'POST', headers, body: JSON.stringify({ Name: 'arcadia', Password: 'arcadia-test-password' }) })
     await json(`${jellyfin}/Startup/RemoteAccess`, { method: 'POST', headers, body: JSON.stringify({ EnableRemoteAccess: false }) })
     await json(`${jellyfin}/Startup/Complete`, { method: 'POST' })
   }
@@ -45,7 +45,7 @@ async function bootstrapJellyfin() {
   const authentication = await json(`${jellyfin}/Users/AuthenticateByName`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: clientAuthorization },
-    body: JSON.stringify({ Username: 'needle', Pw: 'needle-test-password' }),
+    body: JSON.stringify({ Username: 'arcadia', Pw: 'arcadia-test-password' }),
   })
   const token = authentication.AccessToken
   if (!token) throw new Error('Jellyfin authentication returned no access token')
@@ -60,7 +60,7 @@ async function bootstrapJellyfin() {
     })
   }
 
-  const appName = 'Needle test environment'
+  const appName = 'Arcadia test environment'
   let keys = await json(`${jellyfin}/Auth/Keys`, { headers: { Authorization: authorization } })
   let matches = keys.Items.filter(key => key.AppName === appName)
   if (matches.length === 0) {

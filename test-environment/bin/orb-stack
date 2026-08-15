@@ -22,4 +22,4 @@ sudo --preserve-env=SLSKD_IMAGE,BEETS_FLASK_IMAGE,JELLYFIN_IMAGE,NEEDLE_TEST_SLS
 node ./bin/bootstrap.mjs
 
 exec sudo --preserve-env=PORT,SLSKD_IMAGE,BEETS_FLASK_IMAGE,JELLYFIN_IMAGE \
-  docker compose up --build --remove-orphans needle
+  docker compose up --build --remove-orphans arcadia

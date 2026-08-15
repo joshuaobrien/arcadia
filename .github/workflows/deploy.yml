@@ -28,7 +28,7 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      - name: Deploy Needle
+      - name: Deploy Arcadia
         run: |
           ssh -o StrictHostKeyChecking=no josh@100.112.160.16 \
             bash -s -- "${{ vars.DEPLOY_PATH }}" <<'EOF'

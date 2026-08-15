@@ -46,8 +46,8 @@ test('direct acquisition auto-submits one complete candidate and reconciles its 
   assert.equal(repository.get(jobId)?.state, 'queued')
   assert.deepEqual(workflow.batchIds, ['batch-1'])
   assert.equal(slskd.submissions[0].searchId, 'search')
-  assert.match(slskd.submissions[0].destination, new RegExp(`^needle/${jobId}/Broadcast - Tender Buttons$`))
-  assert.match(workflow.outputNeedlePath!, new RegExp(`^/music_path/inbox/needle/${jobId}/`))
+  assert.match(slskd.submissions[0].destination, new RegExp(`^arcadia/${jobId}/Broadcast - Tender Buttons$`))
+  assert.match(workflow.outputNeedlePath!, new RegExp(`^/music_path/inbox/arcadia/${jobId}/`))
 
   slskd.summary = { state: 'completed', visible: 2, completed: 2, bytesTotal: 2000, bytesTransferred: 2000 }
   await service.reconcile(jobId, context)

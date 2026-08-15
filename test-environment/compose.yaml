@@ -1,4 +1,4 @@
-name: needle-test
+name: arcadia-test
 
 services:
   slskd:
@@ -6,7 +6,7 @@ services:
     init: true
     user: "1000:1000"
     environment:
-      SLSKD_SLSK_USERNAME: ${NEEDLE_TEST_SLSK_USERNAME:-needle-test-offline}
+      SLSKD_SLSK_USERNAME: ${NEEDLE_TEST_SLSK_USERNAME:-arcadia-test-offline}
       SLSKD_SLSK_PASSWORD: ${NEEDLE_TEST_SLSK_PASSWORD:-needle-test-offline}
     volumes:
       - ./state/slskd:/app
@@ -48,7 +48,7 @@ services:
       - "127.0.0.1:8096:8096"
     restart: unless-stopped
 
-  needle:
+  arcadia:
     build:
       context: ..
     init: true
@@ -58,9 +58,9 @@ services:
       NODE_ENV: production
       PORT: "8787"
       MUSIC_LIBRARY_PATH: /music
-      NEEDLE_DATABASE_PATH: /data/needle.sqlite
+      ARCADIA_DATABASE_PATH: /data/arcadia.sqlite
       SLSKD_URL: http://slskd:5030
-      SLSKD_API_KEY: needle-test-slskd-api-key
+      SLSKD_API_KEY: arcadia-test-slskd-api-key
       SLSKD_DOWNLOADS_ROOT: /downloads
       SLSKD_PATH_MAPPINGS: '[{"id":"slskd-downloads","providerPrefix":"/downloads","needlePrefix":"/music_path/inbox"}]'
       BEETS_URL: http://beets-flask:5001
@@ -68,7 +68,7 @@ services:
       TZ: Etc/UTC
     volumes:
       - ./state/music:/music:ro
-      - ./state/needle:/data
+      - ./state/arcadia:/data
     ports:
       - "127.0.0.1:${PORT:-8787}:8787"
     depends_on:

@@ -1,9 +1,9 @@
 services:
-  needle-test:
+  arcadia-test:
     command: ./test-environment/bin/orb-stack
     port: 8787
     healthcheck:
       path: /api/health
     portal:
-      title: Needle test environment
+      title: Arcadia test environment
       description: Production-faithful seeded music stack

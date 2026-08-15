@@ -16,9 +16,9 @@ test('slskd submits exact files using the 0.26 batch request and response envelo
   const adapter = new SlskdAdapter({ baseUrl: 'https://slskd.test', apiKey: 'key', fetch: async (_input, init) => {
     assert.deepEqual(JSON.parse(String(init?.body)), {
       searchId: 'search-id', username: 'peer', files: [{ filename: 'Share\\Album\\01.flac', size: 42 }],
-      options: { destination: 'needle/job/Artist - Album', externalId: 'job' },
+      options: { destination: 'arcadia/job/Artist - Album', externalId: 'job' },
     })
     return json({ batch: { id: 'batch-id', transfers: [] }, failures: [] })
   } })
-  assert.equal(await adapter.submitDownloadBatch('search-id', 'peer', [{ filename: 'Share\\Album\\01.flac', size: 42 }], 'needle/job/Artist - Album', { operationId: 'op' }, 'job'), 'batch-id')
+  assert.equal(await adapter.submitDownloadBatch('search-id', 'peer', [{ filename: 'Share\\Album\\01.flac', size: 42 }], 'arcadia/job/Artist - Album', { operationId: 'op' }, 'job'), 'batch-id')
 })

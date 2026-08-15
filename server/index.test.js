@@ -105,13 +105,13 @@ test('track share capabilities expose one isolated listening experience', async 
     getAlbumArtwork: async id => id === albumId ? { contentType: 'image/jpeg', data: new TextEncoder().encode('shared-art') } : null,
   }
   const repository = new AcquisitionRepository(join(directory, 'needle.sqlite'))
-  const app = buildApp({ staticRoot, publicUrl: 'https://needle.example/', jellyfin, acquisitionRepository: repository, catalog: null, logger: false }); t.after(() => app.close())
-  const forbidden = await app.inject({ method: 'POST', url: `/api/shares/tracks/${trackId}`, headers: { origin: 'https://attacker.example', host: 'needle.example' } })
+  const app = buildApp({ staticRoot, publicUrl: 'https://arcadia.example/', jellyfin, acquisitionRepository: repository, catalog: null, logger: false }); t.after(() => app.close())
+  const forbidden = await app.inject({ method: 'POST', url: `/api/shares/tracks/${trackId}`, headers: { origin: 'https://attacker.example', host: 'arcadia.example' } })
   assert.equal(forbidden.statusCode, 403)
   const created = await app.inject({ method: 'POST', url: `/api/shares/tracks/${trackId}` })
   assert.equal(created.statusCode, 201)
   const path = created.json().path; const token = path.split('/').pop()
-  assert.equal(created.json().url, `https://needle.example${path}`)
+  assert.equal(created.json().url, `https://arcadia.example${path}`)
   assert.match(token, /^[A-Za-z0-9_-]{43}$/)
   const metadata = await app.inject({ url: `/api/shared/tracks/${token}` })
   assert.equal(metadata.json().track.title, 'Echo <Signal>')
@@ -142,11 +142,11 @@ test('album share capabilities expose only the captured album tracks', async t =
     getAlbumArtwork: async id => id === albumId ? { contentType: 'image/jpeg', data: new TextEncoder().encode('album-art') } : null,
   }
   const repository = new AcquisitionRepository(join(directory, 'needle.sqlite'))
-  const app = buildApp({ staticRoot, publicUrl: 'https://needle.example', jellyfin, acquisitionRepository: repository, catalog: null, logger: false }); t.after(() => app.close())
+  const app = buildApp({ staticRoot, publicUrl: 'https://arcadia.example', jellyfin, acquisitionRepository: repository, catalog: null, logger: false }); t.after(() => app.close())
   const created = await app.inject({ method: 'POST', url: `/api/shares/albums/${albumId}` })
   assert.equal(created.statusCode, 201)
   const path = created.json().path; const token = path.split('/').pop()
-  assert.equal(created.json().url, `https://needle.example${path}`)
+  assert.equal(created.json().url, `https://arcadia.example${path}`)
   const metadata = (await app.inject({ url: `/api/shared/albums/${token}` })).json()
   assert.deepEqual(metadata.album, { title: 'Tender Buttons', albumArtist: 'Broadcast', trackCount: 2, hasArtwork: true })
   assert.deepEqual(metadata.tracks.map(track => track.title), ['I Found the F', 'Black Cat'])
@@ -160,8 +160,8 @@ test('album share capabilities expose only the captured album tracks', async t =
 })
 
 test('public share origin rejects paths and non-HTTP protocols', () => {
-  assert.throws(() => buildApp({ publicUrl: 'https://needle.example/music', catalog: null, logger: false }), /must be an origin/)
-  assert.throws(() => buildApp({ publicUrl: 'file:///needle', catalog: null, logger: false }), /must use http or https/)
+  assert.throws(() => buildApp({ publicUrl: 'https://arcadia.example/music', catalog: null, logger: false }), /must be an origin/)
+  assert.throws(() => buildApp({ publicUrl: 'file:///arcadia', catalog: null, logger: false }), /must use http or https/)
 })
 
 test('unified search combines Jellyfin, MusicBrainz, and wanted identity', async t => {
@@ -298,7 +298,7 @@ test('beets preview and import mutations validate current tree and choices', asy
   }
   const app = buildApp({ beets, jellyfin, acquisitionRepository, logger: false }); t.after(() => app.close())
 
-  const portalOrigin = await app.inject({ method: 'POST', url: '/api/imports/preview', headers: { host: '8787-orb.e2b.app', origin: 'https://needle.onamp.dev', 'sec-fetch-site': 'same-origin' }, payload: { providerPath: folder.providerPath, hash: 'stale-hash' } })
+  const portalOrigin = await app.inject({ method: 'POST', url: '/api/imports/preview', headers: { host: '8787-orb.e2b.app', origin: 'https://arcadia.onamp.dev', 'sec-fetch-site': 'same-origin' }, payload: { providerPath: folder.providerPath, hash: 'stale-hash' } })
   assert.equal(portalOrigin.statusCode, 409); assert.equal(calls.length, 0)
   const crossOrigin = await app.inject({ method: 'POST', url: '/api/imports/preview', headers: { origin: 'https://evil.example', 'sec-fetch-site': 'cross-site' }, payload: { providerPath: folder.providerPath, hash: folder.hash } })
   assert.equal(crossOrigin.statusCode, 403); assert.equal(calls.length, 0)
@@ -507,11 +507,11 @@ test('acquisition list enriches jobs by exact MusicBrainz identity', async t => 
 
 test('production app serves static assets while preserving API 404s', async t => {
   const root = await mkdtemp(join(tmpdir(), 'needle-static-')); t.after(() => rm(root, { recursive: true, force: true }))
-  await mkdir(join(root, 'assets')); await writeFile(join(root, 'index.html'), '<main>Needle runtime</main>'); await writeFile(join(root, 'assets', 'app.js'), 'console.log("needle")')
+  await mkdir(join(root, 'assets')); await writeFile(join(root, 'index.html'), '<main>Arcadia runtime</main>'); await writeFile(join(root, 'assets', 'app.js'), 'console.log("arcadia")')
   const app = buildApp({ staticRoot: root, catalog: null, logger: false }); t.after(() => app.close())
-  assert.match((await app.inject({ url: '/' })).body, /Needle runtime/)
+  assert.match((await app.inject({ url: '/' })).body, /Arcadia runtime/)
   assert.match((await app.inject({ url: '/assets/app.js' })).body, /console\.log/)
-  assert.match((await app.inject({ url: '/acquire' })).body, /Needle runtime/)
+  assert.match((await app.inject({ url: '/acquire' })).body, /Arcadia runtime/)
   assert.equal((await app.inject({ url: '/api/does-not-exist' })).json().error.code, 'not-found')
 })
 
