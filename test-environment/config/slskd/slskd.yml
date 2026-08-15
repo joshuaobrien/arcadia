@@ -10,11 +10,11 @@ web:
     disabled: true
   authentication:
     disabled: false
-    username: needle
-    password: needle-test-password
+    username: arcadia
+    password: arcadia-test-password
     api_keys:
-      needle:
-        key: needle-test-slskd-api-key
+      arcadia:
+        key: arcadia-test-slskd-api-key
         role: administrator
         cidr: 0.0.0.0/0,::/0
 

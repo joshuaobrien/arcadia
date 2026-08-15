@@ -2,7 +2,7 @@ export type AdapterKind = 'musicbrainz' | 'beets' | 'slskd'
 export type IsoDateTime = string
 
 export interface OperationContext {
-  /** Needle-generated ID used to correlate logs and remote operations. */
+  /** Arcadia-generated ID used to correlate logs and remote operations. */
   operationId: string
   signal?: AbortSignal
 }
@@ -45,7 +45,7 @@ export interface ProviderRef {
 export interface ServicePath {
   /** Path as seen inside the provider's host or container. */
   providerPath: string
-  /** Resolved path in Needle's filesystem namespace, when a mapping exists. */
+  /** Resolved path in Arcadia's filesystem namespace, when a mapping exists. */
   needlePath?: string
   mappingId?: string
 }

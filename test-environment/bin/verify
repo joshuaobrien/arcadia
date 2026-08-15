@@ -17,7 +17,7 @@ curl -fsS "$base_url/api/services/slskd" \
 curl -fsS "$base_url/api/services/beets" \
   | jq -e '.configured == true and .health.state == "available"' >/dev/null
 curl -fsS "$base_url/api/imports/folders" \
-  | jq -e 'any(.items[]?.children[]?; .album == true and .name == "Needle Test Ensemble - Incoming Signals")' >/dev/null
+  | jq -e 'any(.items[]?.children[]?; .album == true and .name == "Arcadia Test Ensemble - Incoming Signals")' >/dev/null
 slskd_status="$(curl -sS -o /dev/null -w '%{http_code}' 'http://127.0.0.1:5030/health')"
 [ "$slskd_status" = 200 ] || [ "$slskd_status" = 502 ]
-echo "Needle can reach MusicBrainz, slskd, beets-flask, and Jellyfin, browse the seeded inbox, and stream audio"
+echo "Arcadia can reach MusicBrainz, slskd, beets-flask, and Jellyfin, browse the seeded inbox, and stream audio"

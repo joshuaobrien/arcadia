@@ -230,15 +230,16 @@ export function buildApp(options: BuildAppOptions = {}) {
   const app = Fastify({ logger: options.logger ?? true })
   const walkmanPath = options.walkmanPath ?? process.env.WALKMAN_PATH
   const libraryPath = options.libraryPath ?? process.env.MUSIC_LIBRARY_PATH
+  const databasePath = process.env.ARCADIA_DATABASE_PATH ?? process.env.NEEDLE_DATABASE_PATH
   const catalog = options.catalog === undefined ? new MusicBrainzAdapter() : options.catalog
   const jellyfin = options.jellyfin === undefined ? createJellyfinAdapterFromEnv() : options.jellyfin
   const beets = options.beets === undefined ? createBeetsFlaskAdapterFromEnv() : options.beets
   const acquisitionRepository = options.acquisitionRepository === undefined
-    ? process.env.NEEDLE_DATABASE_PATH ? new AcquisitionRepository(process.env.NEEDLE_DATABASE_PATH) : null
+    ? databasePath ? new AcquisitionRepository(databasePath) : null
     : options.acquisitionRepository
   const visualScores = options.visualScores === undefined
-    ? process.env.NEEDLE_DATABASE_PATH
-      ? new VisualScoreService(new VisualScoreRepository(`${process.env.NEEDLE_DATABASE_PATH}.visual-scores`))
+    ? databasePath
+      ? new VisualScoreService(new VisualScoreRepository(`${databasePath}.visual-scores`))
       : null
     : options.visualScores
   const slskd = options.slskd === undefined ? createSlskdAdapterFromEnv() : options.slskd
@@ -250,7 +251,7 @@ export function buildApp(options: BuildAppOptions = {}) {
   const staticRoot = options.staticRoot === undefined
     ? process.env.NODE_ENV === 'production' ? resolve(serverDirectory, '../dist') : null
     : options.staticRoot
-  const publicUrl = configuredPublicUrl(options.publicUrl === undefined ? process.env.NEEDLE_PUBLIC_URL : options.publicUrl)
+  const publicUrl = configuredPublicUrl(options.publicUrl === undefined ? process.env.ARCADIA_PUBLIC_URL ?? process.env.NEEDLE_PUBLIC_URL : options.publicUrl)
   const submittedBeetsPreviews = new Set<string>()
   const submittedBeetsImports = new Set<string>()
   const beetsPreviewSessions = new Map<string, { session: BeetsPreviewSession, cachedAt: number }>()
@@ -555,7 +556,7 @@ export function buildApp(options: BuildAppOptions = {}) {
   }, async (request, reply) => {
     if (!sameOrigin(request, reply)) return
     if (!acquisitionRepository?.createAlbumShare) {
-      return reply.code(503).send({ error: { code: 'unavailable', message: 'Album sharing requires NEEDLE_DATABASE_PATH' } })
+      return reply.code(503).send({ error: { code: 'unavailable', message: 'Album sharing requires ARCADIA_DATABASE_PATH' } })
     }
     const album = await findLibraryAlbum(request.params.albumId, reply)
     if (reply.sent) return
@@ -638,7 +639,7 @@ export function buildApp(options: BuildAppOptions = {}) {
   }, async (request, reply) => {
     if (!sameOrigin(request, reply)) return
     if (!acquisitionRepository?.createTrackShare) {
-      return reply.code(503).send({ error: { code: 'unavailable', message: 'Track sharing requires NEEDLE_DATABASE_PATH' } })
+      return reply.code(503).send({ error: { code: 'unavailable', message: 'Track sharing requires ARCADIA_DATABASE_PATH' } })
     }
     const track = await findLibraryTrack(request.params.trackId, reply)
     if (reply.sent) return
@@ -892,7 +893,7 @@ export function buildApp(options: BuildAppOptions = {}) {
     properties: { id: { type: 'string', minLength: 1, maxLength: 128 } },
   } } }, async (request, reply) => {
     if (!acquisitionRepository?.get) return reply.code(503).send({
-      error: { code: 'unavailable', message: 'Needle acquisition detail persistence is not configured' },
+      error: { code: 'unavailable', message: 'Arcadia acquisition detail persistence is not configured' },
     })
     const job = acquisitionRepository.get(request.params.id)
     if (!job) return reply.code(404).send({ error: { code: 'not-found', message: 'Journey was not found' } })
@@ -979,7 +980,7 @@ export function buildApp(options: BuildAppOptions = {}) {
     if (!acquisitionRepository) return reply.code(503).send({
       error: {
         code: 'unavailable',
-        message: 'Needle acquisition state is not configured',
+        message: 'Arcadia acquisition state is not configured',
       },
     })
     if (!directAcquisition) return reply.code(503).send({
@@ -1279,9 +1280,9 @@ function publicTrackMetadata(track: LibraryCatalogTrack) {
 function configuredPublicUrl(value: string | null | undefined): string | undefined {
   if (!value?.trim()) return undefined
   const url = new URL(value.trim())
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('NEEDLE_PUBLIC_URL must use http or https')
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('ARCADIA_PUBLIC_URL must use http or https')
   if (url.username || url.password || url.search || url.hash || (url.pathname !== '/' && url.pathname !== '')) {
-    throw new Error('NEEDLE_PUBLIC_URL must be an origin without credentials, path, query, or fragment')
+    throw new Error('ARCADIA_PUBLIC_URL must be an origin without credentials, path, query, or fragment')
   }
   return url.origin
 }

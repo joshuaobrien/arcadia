@@ -366,18 +366,18 @@ async function postBeetsMutation(path: string, payload: { providerPath: string; 
   try {
     response = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
   } catch (error) {
-    throw new UnknownSubmissionError(`Needle submission outcome is unknown; do not retry (${errorMessage(error)})`)
+    throw new UnknownSubmissionError(`Arcadia submission outcome is unknown; do not retry (${errorMessage(error)})`)
   }
   let body: BeetsJobAcknowledgement & ErrorResponse
   try {
     body = await response.json() as BeetsJobAcknowledgement & ErrorResponse
   } catch {
-    throw new UnknownSubmissionError('Needle returned an unreadable submission response; do not retry')
+    throw new UnknownSubmissionError('Arcadia returned an unreadable submission response; do not retry')
   }
-  if (body === null || typeof body !== 'object' || Array.isArray(body)) throw new UnknownSubmissionError('Needle returned an invalid submission response; do not retry')
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) throw new UnknownSubmissionError('Arcadia returned an invalid submission response; do not retry')
   if (!response.ok) throw requestError(body, response.status)
   if (response.status !== 202 || typeof body.jobId !== 'string' || !body.jobId || body.kind !== kind || body.providerPath !== payload.providerPath || body.hash !== payload.hash || typeof body.operationId !== 'string' || !body.operationId) {
-    throw new UnknownSubmissionError('Needle returned an invalid submission acknowledgement; do not retry')
+    throw new UnknownSubmissionError('Arcadia returned an invalid submission acknowledgement; do not retry')
   }
   return body
 }
@@ -1186,7 +1186,7 @@ function ArtistDetailHero({ artist, library, catalog, close }: { artist: Library
   </section>
 }
 
-function needleStatus(library: LibraryModel) {
+function arcadiaStatus(library: LibraryModel) {
   if (library.loading) return { label: 'indexing', className: 'degraded' }
   if (library.error) return { label: 'attention', className: 'offline' }
   if (!library.page?.configured || !library.page.mounted) return { label: 'setup needed', className: 'degraded' }
@@ -1199,7 +1199,7 @@ function Sidebar({ view, setView, library, acquisitions }: {
   library: LibraryModel
   acquisitions: AcquisitionsModel
 }) {
-  const status = needleStatus(library)
+  const status = arcadiaStatus(library)
   const incoming = acquisitions.items.filter(item => !['completed', 'failed', 'cancelled'].includes(item.state)).length
   const openLibrarySection = (section: LibrarySection) => {
     setView('library')
@@ -1209,7 +1209,7 @@ function Sidebar({ view, setView, library, acquisitions }: {
     <aside className="sidebar">
       <div className="brand">
         <span className="brand-mark"><Cloud size={22} fill="currentColor" /></span>
-        <span>needle<small>your music library</small></span>
+        <span>arcadia<small>your music library</small></span>
       </div>
       <nav aria-label="Primary">
         <small>LIBRARY</small>
@@ -1272,7 +1272,7 @@ function HomeView({ beets, imports, acquisitions, library, setView, openJourney 
   return (
     <section>
       <div className="page-heading">
-        <div><p>00 / NEEDLE</p><h1>Your music, end to end</h1></div>
+        <div><p>00 / ARCADIA</p><h1>Your music, end to end</h1></div>
         <button className="button" disabled={refreshing} onClick={() => {
           void beets.refresh()
           void imports.refresh()
@@ -1747,7 +1747,7 @@ function LibraryView({ library, acquisitions, playTrack, playback }: { library: 
             </> : unavailable ? <div className="integration-state">
               <LibraryBig size={21} />
               <strong>{library.error || currentPage?.configured ? 'Collection unavailable' : 'Collection needs setup'}</strong>
-              <small>{library.error || currentPage?.configured ? 'Needle cannot read your collection index right now. Check the Jellyfin connection.' : 'Connect your library index to browse music in Needle.'}</small>
+              <small>{library.error || currentPage?.configured ? 'Arcadia cannot read your collection index right now. Check the Jellyfin connection.' : 'Connect your library index to browse music in Arcadia.'}</small>
               <button className="button" onClick={library.refresh}><RefreshCw size={13} /> Retry</button>
             </div> : library.loading ? <div className="idle-state compact"><Disc3 size={28} className="spinning" /><span>Reading {library.section}</span></div> : <>
               {library.section === 'albums' && <div className="album-grid">
@@ -1916,7 +1916,7 @@ function SharedAlbumApp({ token }: { token: string }) {
       .then(value => {
         if (!value.tracks.length) throw new Error('Shared album has no tracks')
         setResponse(value)
-        document.title = `${value.album.title} · Needle`
+        document.title = `${value.album.title} · Arcadia`
       })
       .catch(reason => setError(errorMessage(reason)))
   }, [token])
@@ -1944,7 +1944,7 @@ function SharedAlbumApp({ token }: { token: string }) {
     <Suspense fallback={null}><NowPlayingVisualizer audioRef={audioRef} signalTargetRef={viewRef} selectionKey={currentIndex + 1} artworkUrl={artworkUrl} /></Suspense>
     <div className="now-playing-shade" />
     <div className="now-playing-event-field" aria-hidden="true"><i /><b /></div>
-    <div className="shared-track-mark"><span>NEEDLE</span><small>AN ALBUM SHARED WITH YOU</small></div>
+    <div className="shared-track-mark"><span>ARCADIA</span><small>AN ALBUM SHARED WITH YOU</small></div>
     <div className="now-playing-specimen">
       <div className="now-playing-cover">{artworkUrl ? <img src={artworkUrl} alt="" /> : <Disc3 size={56} />}</div>
       <div className="now-playing-copy">
@@ -1978,7 +1978,7 @@ function SharedTrackApp({ token }: { token: string }) {
     void getJson<SharedTrackResponse>(`/api/shared/tracks/${encodeURIComponent(token)}`)
       .then(value => {
         setResponse(value)
-        document.title = `${value.track.title} · Needle`
+        document.title = `${value.track.title} · Arcadia`
       })
       .catch(reason => setError(errorMessage(reason)))
   }, [token])
@@ -1990,7 +1990,7 @@ function SharedTrackApp({ token }: { token: string }) {
     <Suspense fallback={null}><NowPlayingVisualizer audioRef={audioRef} signalTargetRef={viewRef} selectionKey={1} artworkUrl={artworkUrl} /></Suspense>
     <div className="now-playing-shade" />
     <div className="now-playing-event-field" aria-hidden="true"><i /><b /></div>
-    <div className="shared-track-mark"><span>NEEDLE</span><small>ONE TRACK SHARED WITH YOU</small></div>
+    <div className="shared-track-mark"><span>ARCADIA</span><small>ONE TRACK SHARED WITH YOU</small></div>
     <div className="now-playing-specimen">
       <div className="now-playing-cover">{artworkUrl ? <img src={artworkUrl} alt="" /> : <Disc3 size={56} />}</div>
       <div className="now-playing-copy">
@@ -2146,7 +2146,7 @@ function ActivityView({ acquisitions, imports, openJourney, sectionNumber }: { a
         </section>
         <section className="panel import-history-panel">
           <header><h2>Library commits</h2><span>{imports.items.length}</span></header>
-          {!imports.configured && !imports.loading ? <p className="empty-row">Needle database persistence is not configured</p>
+          {!imports.configured && !imports.loading ? <p className="empty-row">Arcadia database persistence is not configured</p>
             : imports.items.length ? imports.items.map(item => <ImportOperationRow item={item} key={item.id} />)
               : <p className="empty-row">No library commits yet</p>}
         </section>
@@ -2191,7 +2191,7 @@ function ImportsView({ beets }: { beets: BeetsReadModel }) {
       {!available ? <div className="integration-state">
         <PackageOpen size={21} />
         <strong>{beets.loading ? 'Reading the staging area' : beets.error ?? (!beets.status?.configured ? 'Import review needs setup' : 'Import review unavailable')}</strong>
-        <small>{!beets.status?.configured ? 'Connect beets-flask to review and import staged music.' : 'Needle cannot read staged music right now. Check the beets-flask connection.'}</small>
+        <small>{!beets.status?.configured ? 'Connect beets-flask to review and import staged music.' : 'Arcadia cannot read staged music right now. Check the beets-flask connection.'}</small>
         {!beets.loading && <button className="button" onClick={beets.refresh}><RefreshCw size={13} /> Retry</button>}
       </div> : <>
         <div className="inbox-grid">
@@ -2377,15 +2377,15 @@ function ImportReview({ beets, folder }: { beets: BeetsReadModel; folder: BeetsI
               {beets.linkableAcquisitions.map(item => <option value={item.id} key={item.id}>{acquisitionOptionLabel(item)}</option>)}
             </select>
           </label>
-          <p className="lifecycle-note">Needle cannot safely infer this association from metadata alone. A selected journey moves to importing now and completes only after collection verification.</p>
+          <p className="lifecycle-note">Arcadia cannot safely infer this association from metadata alone. A selected journey moves to importing now and completes only after collection verification.</p>
         </section>
         <section className="import-approval panel">
-          {beets.workflowState === 'completed' ? <div className="completion-message"><Check size={18} /><strong>Import complete</strong><small>Needle is waiting to verify this release in your collection.</small></div>
-            : beets.workflowState === 'provider-imported' ? <div className="completion-message"><Check size={18} /><strong>Previously imported</strong><small>This import predates Needle's review record, so its metadata choices cannot be verified.</small></div>
+          {beets.workflowState === 'completed' ? <div className="completion-message"><Check size={18} /><strong>Import complete</strong><small>Arcadia is waiting to verify this release in your collection.</small></div>
+            : beets.workflowState === 'provider-imported' ? <div className="completion-message"><Check size={18} /><strong>Previously imported</strong><small>This import predates Arcadia's review record, so its metadata choices cannot be verified.</small></div>
             : beets.workflowState === 'submission-unknown' ? <div className="completion-message unknown"><Radio size={18} /><strong>Submission outcome unknown</strong><small>Do not retry. Return to Review and inspect the beets-flask status before taking another action.</small></div> : <>
             <label>
               <input type="checkbox" checked={beets.approved} onChange={event => beets.setApproved(event.target.checked)} disabled={busy || !allSelected || !beets.decisionValid} />
-              <span><strong>I approve these choices</strong><small>Needle will apply the selected metadata and duplicate policy. A skipped duplicate may complete without adding another collection copy. Staging files are retained.</small></span>
+              <span><strong>I approve these choices</strong><small>Arcadia will apply the selected metadata and duplicate policy. A skipped duplicate may complete without adding another collection copy. Staging files are retained.</small></span>
             </label>
             <button className="button primary" onClick={beets.importSelection} disabled={!allSelected || !beets.approved || !beets.decisionValid || busy}>
               <ShieldCheck size={13} /> {beets.workflowState === 'importing' ? 'Importing…' : 'Import selected metadata'}
@@ -2746,7 +2746,7 @@ function sourceWarning(sources: MusicSearchResponse['sources']): string {
 }
 
 const root = document.getElementById('root')
-if (!root) throw new Error('Needle root element is missing')
+if (!root) throw new Error('Arcadia root element is missing')
 const sharedTrackMatch = /^\/share\/([A-Za-z0-9_-]{43})\/?$/.exec(window.location.pathname)
 const sharedAlbumMatch = /^\/share\/albums\/([A-Za-z0-9_-]{43})\/?$/.exec(window.location.pathname)
 createRoot(root).render(sharedAlbumMatch ? <SharedAlbumApp token={sharedAlbumMatch[1]} /> : sharedTrackMatch ? <SharedTrackApp token={sharedTrackMatch[1]} /> : <App />)

@@ -12,7 +12,7 @@ test('beets-flask normalizes health, stats, recursive trees, statuses, and opera
     const url = new URL(input instanceof Request ? input.url : input)
     paths.push(url.pathname)
     assert.equal((init?.headers as Record<string, string>).Accept, 'application/json')
-    assert.equal((init?.headers as Record<string, string>)['X-Needle-Operation-Id'], context.operationId)
+    assert.equal((init?.headers as Record<string, string>)['X-Arcadia-Operation-Id'], context.operationId)
     if (url.pathname.endsWith('/config/')) return json({ beets_version: '2.3.1', gui: { secret: 'not projected' } })
     if (url.pathname.endsWith('/stats')) return json([{ name: 'Inbox', path: '/music/inbox', tagged_via_gui: 4, imported_via_gui: 2, size: -1, nFiles: -1, last_created: '2026-08-09T10:00:00' }])
     if (url.pathname.endsWith('/tree')) return json([{ type: 'directory', full_path: '/music/inbox', hash: 'root', is_album: false, children: [{ type: 'file', full_path: '/music/inbox/track.flac', hash: '', is_album: false }, { type: 'archive', full_path: '/music/inbox/album.zip', hash: 'child', is_album: true }] }])
@@ -55,7 +55,7 @@ test('beets-flask submits exact preview and import choices and normalizes candid
   const adapter = new BeetsFlaskAdapter({ baseUrl: 'http://beets.test:5001', fetch: async (input, init) => {
     const path = new URL(input instanceof Request ? input.url : input).pathname
     const body = JSON.parse(String(init?.body)) as Record<string, unknown>
-    const operationId = (init?.headers as Record<string, string>)['X-Needle-Operation-Id']
+    const operationId = (init?.headers as Record<string, string>)['X-Arcadia-Operation-Id']
     requests.push({ path, body, operationId })
     if (path.endsWith('/by_folder')) return json({
       id: 'session-1', folder_path: '/music/inbox/Album', folder_hash: 'album-hash',

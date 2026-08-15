@@ -111,7 +111,7 @@ export class AcquisitionLinkConflictError extends Error {
   constructor(message: string) { super(message); this.name = 'AcquisitionLinkConflictError' }
 }
 
-/** SQLite persistence for Needle-owned acquisition intent. */
+/** SQLite persistence for Arcadia-owned acquisition intent. */
 export class AcquisitionRepository {
   readonly #database: DatabaseSync
 
@@ -356,7 +356,7 @@ export class AcquisitionRepository {
   #migrate(): void {
     const row = this.#database.prepare('PRAGMA user_version').get() as { user_version: number }
     if (row.user_version > SCHEMA_VERSION) {
-      throw new Error(`Needle database schema ${row.user_version} is newer than supported schema ${SCHEMA_VERSION}`)
+      throw new Error(`Arcadia database schema ${row.user_version} is newer than supported schema ${SCHEMA_VERSION}`)
     }
     if (row.user_version < 1) {
       this.#transaction(`

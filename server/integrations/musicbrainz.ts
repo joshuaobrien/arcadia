@@ -35,14 +35,14 @@ export class MusicBrainzAdapter implements CatalogLookupPort, ReleaseMetadataPor
     this.#baseUrl = new URL(options.baseUrl ?? 'https://musicbrainz.org/ws/2/')
     this.#fetch = options.fetch ?? globalThis.fetch
     this.#timeoutMs = options.timeoutMs ?? 10_000
-    this.#userAgent = options.userAgent ?? 'Needle/0.1 (https://github.com/joshuaobrien/needle)'
+    this.#userAgent = options.userAgent ?? 'Arcadia/0.1 (https://github.com/joshuaobrien/needle)'
     this.#requestIntervalMs = options.requestIntervalMs ?? 1_100
   }
 
   async probe(context: OperationContext): Promise<AdapterHealth> {
     const started = performance.now()
     try {
-      await this.#request('artist', { query: 'artist:Needle', limit: 1 }, context)
+      await this.#request('artist', { query: 'artist:Arcadia', limit: 1 }, context)
       return { adapterId: this.adapterId, kind: this.kind, state: 'available', checkedAt: new Date().toISOString(), latencyMs: Math.round(performance.now() - started), apiVersion: 'ws/2' }
     } catch (error) {
       if (!(error instanceof AdapterError)) throw error
@@ -140,7 +140,7 @@ export class MusicBrainzAdapter implements CatalogLookupPort, ReleaseMetadataPor
       catch (cause) { throw this.#error('unavailable', 'MusicBrainz request timed out or was cancelled', true, undefined, cause) }
       let response: Response
       try {
-        response = await this.#fetch(url, { signal, headers: { Accept: 'application/json', 'User-Agent': this.#userAgent, 'X-Needle-Operation-Id': context.operationId } })
+        response = await this.#fetch(url, { signal, headers: { Accept: 'application/json', 'User-Agent': this.#userAgent, 'X-Arcadia-Operation-Id': context.operationId } })
       } catch (cause) {
         throw this.#error('unavailable', signal.aborted ? 'MusicBrainz request timed out or was cancelled' : 'MusicBrainz is unavailable', true, undefined, cause)
       }

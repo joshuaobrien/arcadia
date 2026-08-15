@@ -238,7 +238,7 @@ export class JellyfinAdapter implements LibraryCatalogPort, LibraryCatalogRefres
         headers: {
           Accept: accept,
           Authorization: `MediaBrowser Token="${this.#apiKey}"`,
-          'X-Needle-Operation-Id': context.operationId,
+          'X-Arcadia-Operation-Id': context.operationId,
           ...extraHeaders,
         },
       })

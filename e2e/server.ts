@@ -4,8 +4,8 @@ import type { LibraryAudioResponse, LibraryCatalogPort, LibraryCatalogTrack } fr
 
 const albumId = 'a'.repeat(32)
 const tracks: LibraryCatalogTrack[] = [
-  { id: 'b'.repeat(32), title: 'Signal One', artists: ['Needle Test Ensemble'], albumId, album: 'Static Bloom', albumArtist: 'Needle Test Ensemble', trackNumber: 1, discNumber: 1, durationSeconds: 1, format: 'WAV' },
-  { id: 'c'.repeat(32), title: 'Signal Two', artists: ['Needle Test Ensemble'], albumId, album: 'Static Bloom', albumArtist: 'Needle Test Ensemble', trackNumber: 2, discNumber: 1, durationSeconds: 1, format: 'WAV' },
+  { id: 'b'.repeat(32), title: 'Signal One', artists: ['Arcadia Test Ensemble'], albumId, album: 'Static Bloom', albumArtist: 'Arcadia Test Ensemble', trackNumber: 1, discNumber: 1, durationSeconds: 1, format: 'WAV' },
+  { id: 'c'.repeat(32), title: 'Signal Two', artists: ['Arcadia Test Ensemble'], albumId, album: 'Static Bloom', albumArtist: 'Arcadia Test Ensemble', trackNumber: 2, discNumber: 1, durationSeconds: 1, format: 'WAV' },
 ]
 
 function wavFixture(): Uint8Array {
@@ -58,10 +58,10 @@ function audioResponse(range: string | undefined): LibraryAudioResponse {
 
 const jellyfin: LibraryCatalogPort = {
   async listAlbums() {
-    return { items: [{ id: albumId, title: 'Static Bloom', albumArtist: 'Needle Test Ensemble', year: 2026, trackCount: tracks.length, hasArtwork: false }], total: 1 }
+    return { items: [{ id: albumId, title: 'Static Bloom', albumArtist: 'Arcadia Test Ensemble', year: 2026, trackCount: tracks.length, hasArtwork: false }], total: 1 }
   },
   async listArtists() {
-    return { items: [{ name: 'Needle Test Ensemble', albumCount: 1, representativeAlbumId: albumId }], total: 1 }
+    return { items: [{ name: 'Arcadia Test Ensemble', albumCount: 1, representativeAlbumId: albumId }], total: 1 }
   },
   async listTracks() {
     return { items: tracks, total: tracks.length }

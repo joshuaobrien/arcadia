@@ -11,7 +11,7 @@ export type AcquisitionState =
   | 'failed'
   | 'cancelled'
 
-/** Needle-owned workflow record. Provider records may disappear without deleting this job. */
+/** Arcadia-owned workflow record. Provider records may disappear without deleting this job. */
 export interface AcquisitionJob {
   id: string
   state: AcquisitionState

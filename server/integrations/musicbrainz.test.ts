@@ -12,7 +12,7 @@ test('MusicBrainz searches encode terms and map artist and release-group identit
   const urls: URL[] = []
   const adapter = new MusicBrainzAdapter({ baseUrl: 'https://mb.test/ws/2/', requestIntervalMs: 0, fetch: async (input, init) => {
     const url = new URL(String(input)); urls.push(url)
-    assert.match(String((init?.headers as Record<string, string>)['User-Agent']), /^Needle\//)
+    assert.match(String((init?.headers as Record<string, string>)['User-Agent']), /^Arcadia\//)
     if (url.pathname.endsWith('/artist')) return json({ artists: [{ id: artistId, name: 'A&B', 'sort-name': 'B, A', disambiguation: 'test' }] })
     return json({ 'release-groups': [{ id: groupId, title: 'One', 'primary-type': 'Album', 'secondary-types': ['Compilation'], 'first-release-date': '2020-01-02', 'artist-credit': [{ name: 'A&B', artist: { id: artistId, name: 'A&B' } }] }] })
   } })
