@@ -5,6 +5,7 @@
 //  Created by Joshua O'Brien on 15/8/2026.
 //
 
+import AVFoundation
 import SwiftUI
 
 @main
@@ -12,6 +13,8 @@ struct ArcadiaApp: App {
     private let configuration: Result<AppConfiguration, Error>
     
     init() {
+        AVPlayer.isObservationEnabled = true
+
         configuration = Result {
             try AppConfiguration.load()
         }

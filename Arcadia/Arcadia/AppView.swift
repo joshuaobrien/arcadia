@@ -18,20 +18,26 @@ enum AppSection: String, CaseIterable, Identifiable {
 
 struct AppView: View {
     let api: ArcadiaAPI
-
+    
+    @State private var playerStore = PlayerStore()
     @State private var selection: AppSection? = .albums
 
     var body: some View {
-        NavigationSplitView {
-            List(AppSection.allCases, selection: $selection) { section in
-                Text(section.rawValue.capitalized)
+        VStack(spacing: 0) {
+            NavigationSplitView {
+                List(AppSection.allCases, selection: $selection) { section in
+                    Text(section.rawValue.capitalized)
+                
+                }
+            } detail: {
+                NavigationStack {
+                    ContentView(selection: selection, api: api)
+                }
+            }
             
-            }
-        } detail: {
-            NavigationStack {
-                ContentView(selection: selection, api: api)
-            }
+            PlayerBar()
         }
+        .environment(playerStore)
     }
 }
 

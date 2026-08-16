@@ -10,6 +10,28 @@ import Foundation
 struct ArcadiaAPI {
     let baseURL: URL
     
+    func streamURL(for track: Track) -> URL {
+        baseURL
+            .appending(path: "api")
+            .appending(path: "library")
+            .appending(path: "songs")
+            .appending(path: track.id)
+            .appending(path: "stream")
+    }
+    
+    func artworkURL(for album: Album) -> URL? {
+        guard album.hasArtwork else {
+            return nil
+        }
+        
+        return baseURL
+            .appending(path: "api")
+            .appending(path: "library")
+            .appending(path: "albums")
+            .appending(path: album.id)
+            .appending(path: "artwork")
+    }
+    
     func fetchAlbums() async throws -> AlbumPage {
         let url = baseURL
             .appending(path: "api")
@@ -27,6 +49,32 @@ struct ArcadiaAPI {
         }
         
         return try JSONDecoder().decode(AlbumPage.self, from: data)
+    }
+    
+    func fetchTracks(for album: Album) async throws -> TrackPage {
+        let url = baseURL
+            .appending(path: "api")
+            .appending(path: "library")
+            .appending(path: "albums")
+            .appending(path: album.id)
+            .appending(path: "tracks")
+            .appending(
+                queryItems: [
+                    URLQueryItem(name: "limit", value: "100")
+                ]
+            )
+        
+        let (data, response) = try await URLSession.shared.data(from: url)
+        
+        guard let response = response as? HTTPURLResponse else {
+            throw ArcadiaAPIError.invalidResponse
+        }
+        
+        guard response.statusCode == 200 else {
+            throw ArcadiaAPIError.httpStatus(response.statusCode)
+        }
+        
+        return try JSONDecoder().decode(TrackPage.self, from: data)
     }
 }
 

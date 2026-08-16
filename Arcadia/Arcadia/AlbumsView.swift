@@ -6,7 +6,7 @@
 //
 import SwiftUI
 
-private let minimumAlbumWidth: CGFloat = 160
+private let minimumAlbumWidth: CGFloat = 220
 
 struct AlbumsView: View {
     let api: ArcadiaAPI
@@ -66,9 +66,9 @@ struct AlbumsView: View {
             ) {
                 ForEach(albums) { album in
                     NavigationLink {
-                        AlbumDetailView(album: album)
+                        AlbumDetailView(album: album, api: api)
                     } label: {
-                        AlbumCard(album: album)
+                        AlbumCard(album: album, artworkURL: api.artworkURL(for:album))
                     }
                     .buttonStyle(.plain)
                 }
@@ -78,35 +78,31 @@ struct AlbumsView: View {
         }
     }
 
-        private struct AlbumCard: View {
-            let album: Album
-            
-            var body: some View {
-                VStack(alignment:. leading, spacing: 8) {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(.quaternary)
-                        .aspectRatio(1, contentMode: .fit)
-                        .overlay {
-                            Image(systemName: "opticaldisc")
-                                .font(.largeTitle)
-                                .foregroundColor(.secondary)
-                        }
-                    
-                    Text(album.title)
-                        .font(.headline)
-                        .lineLimit(1)
-                    
-                    Text(album.albumArtist)
+    private struct AlbumCard: View {
+        let album: Album
+        let artworkURL: URL?
+        
+        var body: some View {
+            VStack(alignment:. leading, spacing: 8) {
+                AlbumArtwork(artworkURL: artworkURL)
+                    .aspectRatio(1, contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                
+                Text(album.title)
+                    .font(.headline)
+                    .lineLimit(1)
+                
+                Text(album.albumArtist)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                
+                if let year = album.year {
+                    Text(String(year))
+                        .font(.caption)
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    
-                    if let year = album.year {
-                        Text(String(year))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
                 }
             }
         }
         
+        }
     }
