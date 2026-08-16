@@ -31,7 +31,6 @@ function wavFixture(): Uint8Array {
 }
 
 const audio = wavFixture()
-const port = Number(process.env.PORT ?? 8790)
 
 function audioResponse(range: string | undefined): LibraryAudioResponse {
   if (!range) return {
@@ -81,7 +80,7 @@ const jellyfin: LibraryCatalogPort = {
 const app = buildApp({
   logger: false,
   staticRoot: resolve('dist'),
-  publicUrl: `http://127.0.0.1:${port}`,
+  publicUrl: 'http://127.0.0.1:8790',
   catalog: null,
   jellyfin,
   beets: null,
@@ -91,7 +90,7 @@ const app = buildApp({
   visualScores: null,
 })
 
-await app.listen({ host: '127.0.0.1', port })
+await app.listen({ host: '127.0.0.1', port: 8790 })
 
 async function stop() {
   await app.close()

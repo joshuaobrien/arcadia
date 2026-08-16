@@ -1,22 +1,7 @@
 import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
 
-const MAX_PIXEL_RATIO = 1.35
-const FRAME_INTERVAL = 1000 / 30
-
-function graniteGeometry(): THREE.SphereGeometry {
-  const geometry = new THREE.SphereGeometry(1, 24, 16)
-  const positions = geometry.attributes.position
-  const direction = new THREE.Vector3()
-  for (let index = 0; index < positions.count; index += 1) {
-    direction.fromBufferAttribute(positions, index)
-    const radius = 1 + Math.sin(direction.x * 5.3 + direction.y * 2.1) * 0.055 + Math.cos(direction.z * 6.7 - direction.y * 3.2) * 0.045
-    direction.normalize().multiplyScalar(radius)
-    positions.setXYZ(index, direction.x, direction.y, direction.z)
-  }
-  geometry.computeVertexNormals()
-  return geometry
-}
+const MAX_PIXEL_RATIO = 1.75
 
 export type HabitatZone = 'library' | 'wanted' | 'imports' | 'activity'
 
@@ -27,14 +12,14 @@ interface EcoSceneProps {
   playing: boolean
 }
 
-const ZONE_LOOK_AT: Record<HabitatZone, [number, number, number]> = {
-  library: [1.4, -0.6, -4],
-  wanted: [-3.2, -0.3, -5],
-  imports: [3.8, -0.45, -6],
-  activity: [0, 0.1, -8],
+const ZONE_POSITION: Record<HabitatZone, [number, number, number]> = {
+  library: [1.8, 1.15, -2.2],
+  wanted: [-2.5, 0.65, -1.2],
+  imports: [0.2, 2, -2.8],
+  activity: [3.5, 0.25, -1.4],
 }
 
-/** Arcadia's slow-moving dry-tropical shoreline, shared by every library view. */
+/** A responsive habitat whose camera and structures follow Arcadia's current flow. */
 export default function EcoScene({ zone, section, activity, playing }: EcoSceneProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const stateRef = useRef({ zone, section, activity, playing })
@@ -48,157 +33,155 @@ export default function EcoScene({ zone, section, activity, playing }: EcoSceneP
     if (!host) return
 
     const scene = new THREE.Scene()
-    scene.background = new THREE.Color(0xf1c992)
-    scene.fog = new THREE.Fog(0xe8b77e, 14, 46)
+    scene.background = new THREE.Color(0x071d22)
+    scene.fog = new THREE.FogExp2(0x071d22, 0.055)
 
-    const camera = new THREE.PerspectiveCamera(43, 1, 0.1, 70)
-    camera.position.set(0, 4.8, 11)
+    const camera = new THREE.PerspectiveCamera(48, 1, 0.1, 80)
+    camera.position.set(0, 4.2, 8.8)
+    camera.lookAt(0, -0.7, 0)
 
     let renderer: THREE.WebGLRenderer
     try {
-      renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'low-power' })
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'low-power' })
     } catch {
       return
     }
     renderer.outputColorSpace = THREE.SRGBColorSpace
-    renderer.toneMapping = THREE.ACESFilmicToneMapping
-    renderer.toneMappingExposure = 1.05
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, MAX_PIXEL_RATIO))
-    renderer.domElement.style.cssText = 'display:block;width:100%;height:100%'
+    renderer.domElement.style.display = 'block'
+    renderer.domElement.style.width = '100%'
+    renderer.domElement.style.height = '100%'
     renderer.domElement.setAttribute('aria-hidden', 'true')
     host.appendChild(renderer.domElement)
 
-    const skyLight = new THREE.HemisphereLight(0xffe4b6, 0x496f5b, 2.25)
-    scene.add(skyLight)
-    const sunLight = new THREE.DirectionalLight(0xffc46b, 3.4)
-    sunLight.position.set(-8, 10, 5)
-    scene.add(sunLight)
-    const lagoonLight = new THREE.DirectionalLight(0x6fc6bd, 0.75)
-    lagoonLight.position.set(5, 1, 4)
-    scene.add(lagoonLight)
+    scene.add(new THREE.HemisphereLight(0x8bd8c8, 0x10162b, 1.7))
+    const coralLight = new THREE.DirectionalLight(0xff806f, 1.25)
+    coralLight.position.set(-4, 7, 5)
+    scene.add(coralLight)
+    const violetLight = new THREE.PointLight(0x8668c8, 12, 14)
+    violetLight.position.set(5, 2, -2)
+    scene.add(violetLight)
 
-    const sunMaterial = new THREE.MeshBasicMaterial({ color: 0xffe2a2, transparent: true, opacity: 0.92 })
-    const sun = new THREE.Mesh(new THREE.SphereGeometry(1.7, 24, 16), sunMaterial)
-    sun.position.set(-8.5, 7, -19)
-    scene.add(sun)
-
-    const oceanGeometry = new THREE.PlaneGeometry(56, 40, 34, 24)
-    const oceanBase = new Float32Array(oceanGeometry.attributes.position.array)
-    const oceanMaterial = new THREE.MeshStandardMaterial({ color: 0x438e98, roughness: 0.34, metalness: 0.06, transparent: true, opacity: 0.94, flatShading: false })
-    const ocean = new THREE.Mesh(oceanGeometry, oceanMaterial)
-    ocean.rotation.x = -Math.PI / 2
-    ocean.position.set(0, -2.15, -8)
-    scene.add(ocean)
-
-    const glimmerGeometry = new THREE.PlaneGeometry(4.8, 30)
-    const glimmerMaterial = new THREE.MeshBasicMaterial({ color: 0xffdd9c, transparent: true, opacity: 0.13, blending: THREE.AdditiveBlending, depthWrite: false })
-    const glimmer = new THREE.Mesh(glimmerGeometry, glimmerMaterial)
-    glimmer.rotation.x = -Math.PI / 2
-    glimmer.rotation.z = -0.08
-    glimmer.position.set(-5.1, -2.07, -7)
-    scene.add(glimmer)
-
-    const island = new THREE.Group()
-    island.position.set(0, -1.5, -14)
-    scene.add(island)
-    const graniteMaterials = [0xa87767, 0xb48670, 0x8d675d, 0xbf9477].map(color => new THREE.MeshStandardMaterial({ color, roughness: 0.96, metalness: 0 }))
-    const boulderGeometry = graniteGeometry()
-    const boulders: THREE.Mesh[] = []
-    const boulderPositions: [number, number, number, number][] = [
-      [-8.5, 0.1, 0, 2.7], [-6.2, 0.45, -1, 2.25], [-3.7, 0.05, 0.5, 1.8],
-      [2.8, 0.1, -1.5, 1.85], [5.4, 0.35, -1, 2.35], [8.2, 0.05, 0.4, 2.8],
-    ]
-    boulderPositions.forEach(([x, y, z, scale], index) => {
-      const boulder = new THREE.Mesh(boulderGeometry, graniteMaterials[index % graniteMaterials.length])
-      boulder.position.set(x, y, z)
-      boulder.rotation.set(index * 0.34, index * 0.72, index * 0.15)
-      boulder.scale.set(scale, scale * (0.65 + index % 2 * 0.12), scale * 0.85)
-      island.add(boulder)
-      boulders.push(boulder)
-    })
-
-    const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(30, 8),
-      new THREE.MeshStandardMaterial({ color: 0x7c8f55, roughness: 1, metalness: 0 }),
+    const terrainGeometry = new THREE.PlaneGeometry(18, 14, 20, 14)
+    const terrainPositions = terrainGeometry.attributes.position
+    for (let index = 0; index < terrainPositions.count; index += 1) {
+      const x = terrainPositions.getX(index)
+      const y = terrainPositions.getY(index)
+      const rise = Math.sin(x * 0.78) * 0.3 + Math.cos(y * 0.61) * 0.24 + Math.sin((x + y) * 1.2) * 0.1
+      terrainPositions.setZ(index, rise)
+    }
+    terrainGeometry.computeVertexNormals()
+    const terrain = new THREE.Mesh(
+      terrainGeometry,
+      new THREE.MeshStandardMaterial({ color: 0x164f53, roughness: 0.92, metalness: 0.04, flatShading: true }),
     )
-    ground.rotation.x = -Math.PI / 2
-    ground.position.y = -0.75
-    island.add(ground)
+    terrain.rotation.x = -Math.PI / 2
+    terrain.position.y = -1.9
+    scene.add(terrain)
+    const terrainWireMaterial = new THREE.MeshBasicMaterial({ color: 0x5cae9c, wireframe: true, transparent: true, opacity: 0.14 })
+    const terrainWire = new THREE.Mesh(terrainGeometry, terrainWireMaterial)
+    terrainWire.rotation.copy(terrain.rotation)
+    terrainWire.position.set(0, terrain.position.y + 0.015, 0)
+    scene.add(terrainWire)
 
-    const trunkGeometry = new THREE.CylinderGeometry(0.08, 0.15, 2.2, 7)
-    const trunkMaterial = new THREE.MeshStandardMaterial({ color: 0x76513b, roughness: 1 })
-    const crownGeometry = new THREE.SphereGeometry(0.72, 16, 12)
-    const foliageMaterials = [0x446b4d, 0x577a4d, 0x70834f].map(color => new THREE.MeshStandardMaterial({ color, roughness: 1 }))
-    const trees: THREE.Group[] = []
-    ;[-7.1, -4.7, 3.9, 6.7].forEach((x, index) => {
-      const tree = new THREE.Group()
-      const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial)
-      trunk.position.y = 0.85
-      tree.add(trunk)
-      const crown = new THREE.Mesh(crownGeometry, foliageMaterials[index % foliageMaterials.length])
-      crown.position.y = 2.05
-      crown.scale.set(0.85, 1.3, 0.8)
-      tree.add(crown)
-      tree.position.set(x, 0, -0.4 + index % 2 * 0.5)
-      tree.rotation.z = index % 2 ? 0.08 : -0.06
-      tree.userData.baseRotation = tree.rotation.z
-      island.add(tree)
-      trees.push(tree)
+    const forms = new THREE.Group()
+    scene.add(forms)
+    const formMaterials = [
+      new THREE.MeshStandardMaterial({ color: 0x32a79d, roughness: 0.4, metalness: 0.28, flatShading: true }),
+      new THREE.MeshStandardMaterial({ color: 0x7964ad, roughness: 0.52, metalness: 0.12, flatShading: true }),
+      new THREE.MeshStandardMaterial({ color: 0xe67365, roughness: 0.62, metalness: 0.04, flatShading: true }),
+      new THREE.MeshStandardMaterial({ color: 0x9fca62, roughness: 0.7, metalness: 0.02, flatShading: true }),
+    ]
+    const formGeometries: THREE.BufferGeometry[] = [
+      new THREE.IcosahedronGeometry(0.85, 1),
+      new THREE.OctahedronGeometry(0.72, 1),
+      new THREE.ConeGeometry(0.62, 1.8, 6),
+      new THREE.DodecahedronGeometry(0.58, 0),
+      new THREE.IcosahedronGeometry(0.48, 0),
+    ]
+    const placements = [
+      [-4.1, -0.2, 0.4], [-2.1, 1.2, -1.5], [0.6, 0.1, 0.7], [3.1, 1.25, -1.1], [4.8, -0.35, 1.1],
+    ]
+    const rotatingForms = formGeometries.map((geometry, index) => {
+      const form = new THREE.Mesh(geometry, formMaterials[index % formMaterials.length])
+      form.position.set(...(placements[index] as [number, number, number]))
+      form.rotation.set(index * 0.4, index * 0.75, index * 0.2)
+      form.scale.setScalar(index === 2 ? 1.65 : index % 2 ? 1.35 : 1.2)
+      form.scale.y *= index % 2 ? 1.35 : 1
+      form.userData.baseY = form.position.y
+      forms.add(form)
+      return form
     })
 
-    const birdMaterial = new THREE.LineBasicMaterial({ color: 0x5a493d, transparent: true, opacity: 0.5 })
-    const birds = Array.from({ length: 4 }, (_, index) => {
-      const geometry = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(-0.3, 0, 0), new THREE.Vector3(0, -0.12, 0), new THREE.Vector3(0.3, 0, 0),
-      ])
-      const bird = new THREE.Line(geometry, birdMaterial)
-      bird.position.set(-6 + index * 3.2, 3.3 + index % 2 * 0.5, -9 - index)
-      scene.add(bird)
-      return bird
+    const orbitalGroup = new THREE.Group()
+    orbitalGroup.position.set(1.8, 1.15, -2.2)
+    scene.add(orbitalGroup)
+    const orbitMaterial = new THREE.MeshBasicMaterial({ color: 0x9fe4ca, wireframe: true, transparent: true, opacity: 0.34 })
+    const orbitGeometries = [new THREE.TorusGeometry(2.15, 0.025, 4, 96), new THREE.TorusGeometry(1.65, 0.018, 4, 80), new THREE.TorusKnotGeometry(0.82, 0.12, 80, 6)]
+    const orbits = orbitGeometries.map((geometry, index) => {
+      const orbit = new THREE.Mesh(geometry, orbitMaterial)
+      orbit.rotation.set(Math.PI / (2.8 + index), index * 0.7, index * 0.4)
+      orbitalGroup.add(orbit)
+      return orbit
     })
+    const coreGeometry = new THREE.IcosahedronGeometry(0.58, 2)
+    const coreMaterial = new THREE.MeshStandardMaterial({ color: 0x9bcf68, emissive: 0x254c36, emissiveIntensity: 0.7, roughness: 0.28, metalness: 0.32, flatShading: true })
+    const core = new THREE.Mesh(coreGeometry, coreMaterial)
+    orbitalGroup.add(core)
+
+    const particleGeometry = new THREE.BufferGeometry()
+    const particlePositions = new Float32Array(90 * 3)
+    for (let index = 0; index < 90; index += 1) {
+      particlePositions[index * 3] = (Math.random() - 0.5) * 16
+      particlePositions[index * 3 + 1] = Math.random() * 7 - 2
+      particlePositions[index * 3 + 2] = (Math.random() - 0.5) * 10 - 1
+    }
+    particleGeometry.setAttribute('position', new THREE.BufferAttribute(particlePositions, 3))
+    const particleMaterial = new THREE.PointsMaterial({ color: 0x9fcaac, size: 0.035, transparent: true, opacity: 0.48, depthWrite: false })
+    const particles = new THREE.Points(particleGeometry, particleMaterial)
+    scene.add(particles)
 
     const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
     let reducedMotion = motionQuery.matches
     let animationFrame = 0
-    let previousFrame = 0
-    let pointerX = 0
-    let pointerY = 0
+    let previousTime = 0
+    let cameraTargetX = 0
+    let cameraTargetY = 4.8
 
     const draw = () => renderer.render(scene, camera)
     const animate = (time: number) => {
-      animationFrame = window.requestAnimationFrame(animate)
-      if (document.hidden || reducedMotion || time - previousFrame < FRAME_INTERVAL) return
-      previousFrame = time
-      const habitat = stateRef.current
-      const positions = oceanGeometry.attributes.position
-      const waveStrength = habitat.playing ? 0.14 : habitat.activity > 0 ? 0.1 : 0.055
-      for (let index = 0; index < positions.count; index += 1) {
-        const offset = index * 3
-        const x = oceanBase[offset]
-        const y = oceanBase[offset + 1]
-        positions.setZ(index, Math.sin(x * 0.4 + time * 0.00045) * waveStrength + Math.cos(y * 0.55 - time * 0.00032) * waveStrength * 0.65)
-      }
-      positions.needsUpdate = true
-      if (Math.floor(time / 250) !== Math.floor((time - FRAME_INTERVAL) / 250)) oceanGeometry.computeVertexNormals()
-      const target = ZONE_LOOK_AT[habitat.zone]
-      const sectionShift = habitat.section === 'artists' ? -0.45 : habitat.section === 'songs' ? 0.45 : 0
-      camera.position.x += (pointerX + sectionShift - camera.position.x) * 0.018
-      camera.position.y += (4.8 + pointerY - camera.position.y) * 0.018
-      camera.lookAt(target[0] * 0.16, target[1], target[2])
-      glimmerMaterial.opacity = 0.1 + Math.sin(time * 0.0011) * 0.025 + (habitat.playing ? 0.06 : 0)
-      sunMaterial.opacity = 0.88 + Math.sin(time * 0.00035) * 0.06
-      sunLight.intensity = 3.2 + (habitat.playing ? Math.sin(time * 0.002) * 0.22 : 0) + Math.min(habitat.activity, 4) * 0.08
-      trees.forEach((tree, index) => { tree.rotation.z = Number(tree.userData.baseRotation) + Math.sin(time * 0.00065 + index) * (habitat.playing ? 0.025 : 0.012) })
-      birds.forEach((bird, index) => {
-        bird.position.x += 0.004 + index * 0.0007
-        bird.position.y += Math.sin(time * 0.0008 + index) * 0.0008
-        if (bird.position.x > 8) bird.position.x = -8
+      animationFrame = 0
+      if (document.hidden || reducedMotion) return
+      const delta = Math.min((time - previousTime) / 1000 || 0, 0.05)
+      previousTime = time
+      rotatingForms.forEach((form, index) => {
+        form.rotation.y += delta * (0.08 + index * 0.012)
+        form.rotation.x += delta * 0.025
+        form.position.y = Number(form.userData.baseY) + Math.sin(time * 0.00028 + index * 1.7) * 0.2
       })
-      boulders.forEach((boulder, index) => { boulder.rotation.y += habitat.playing ? 0.00004 * (index % 2 ? 1 : -1) : 0 })
+      orbitalGroup.rotation.y += delta * 0.055
+      orbits.forEach((orbit, index) => { orbit.rotation.z += delta * (index % 2 ? -0.08 : 0.06) })
+      core.rotation.x += delta * 0.09
+      core.rotation.y -= delta * 0.12
+      const habitat = stateRef.current
+      const zonePosition = ZONE_POSITION[habitat.zone]
+      orbitalGroup.position.x += (zonePosition[0] - orbitalGroup.position.x) * 0.025
+      orbitalGroup.position.y += (zonePosition[1] - orbitalGroup.position.y) * 0.025
+      orbitalGroup.position.z += (zonePosition[2] - orbitalGroup.position.z) * 0.025
+      const pulse = habitat.playing || habitat.activity > 0 ? 1 + Math.sin(time * 0.004) * 0.09 : 1
+      core.scale.setScalar(pulse)
+      coreMaterial.emissiveIntensity = habitat.playing ? 1.8 : habitat.activity > 0 ? 1.15 : 0.7
+      particles.rotation.y += delta * 0.012
+      const sectionOffset = habitat.section === 'artists' ? -0.45 : habitat.section === 'songs' ? 0.45 : 0
+      camera.position.x += (cameraTargetX + sectionOffset - camera.position.x) * 0.018
+      camera.position.y += (cameraTargetY - camera.position.y) * 0.018
+      camera.lookAt(zonePosition[0] * 0.12, -0.7, 0)
       draw()
+      animationFrame = window.requestAnimationFrame(animate)
     }
     const startAnimation = () => {
       if (animationFrame || document.hidden || reducedMotion) return
+      previousTime = performance.now()
       animationFrame = window.requestAnimationFrame(animate)
     }
     const stopAnimation = () => {
@@ -217,12 +200,15 @@ export default function EcoScene({ zone, section, activity, playing }: EcoSceneP
     const onVisibilityChange = () => document.hidden ? stopAnimation() : startAnimation()
     const onPointerMove = (event: PointerEvent) => {
       if (reducedMotion) return
-      pointerX = ((event.clientX / window.innerWidth) - 0.5) * 1.8
-      pointerY = -((event.clientY / window.innerHeight) - 0.5) * 0.5
+      cameraTargetX = ((event.clientX / window.innerWidth) - 0.5) * 2.4
+      cameraTargetY = 4.2 - ((event.clientY / window.innerHeight) - 0.5) * 0.9
     }
     const onMotionChange = (event: MediaQueryListEvent) => {
       reducedMotion = event.matches
-      if (reducedMotion) { stopAnimation(); draw() } else startAnimation()
+      if (reducedMotion) {
+        stopAnimation()
+        draw()
+      } else startAnimation()
     }
 
     window.addEventListener('resize', resize)
@@ -238,12 +224,17 @@ export default function EcoScene({ zone, section, activity, playing }: EcoSceneP
       window.removeEventListener('pointermove', onPointerMove)
       document.removeEventListener('visibilitychange', onVisibilityChange)
       motionQuery.removeEventListener('change', onMotionChange)
-      scene.traverse(object => {
-        if (!(object instanceof THREE.Mesh || object instanceof THREE.Line)) return
-        object.geometry.dispose()
-        const materials = Array.isArray(object.material) ? object.material : [object.material]
-        materials.forEach(material => material.dispose())
-      })
+      terrainGeometry.dispose()
+      terrainWireMaterial.dispose()
+      formGeometries.forEach(geometry => geometry.dispose())
+      formMaterials.forEach(material => material.dispose())
+      orbitGeometries.forEach(geometry => geometry.dispose())
+      orbitMaterial.dispose()
+      coreGeometry.dispose()
+      coreMaterial.dispose()
+      ;(terrain.material as THREE.Material).dispose()
+      particleGeometry.dispose()
+      particleMaterial.dispose()
       renderer.dispose()
       renderer.forceContextLoss()
       renderer.domElement.remove()
@@ -251,5 +242,11 @@ export default function EcoScene({ zone, section, activity, playing }: EcoSceneP
     }
   }, [])
 
-  return <div ref={hostRef} className="eco-scene" aria-hidden="true" />
+  return (
+    <div
+      ref={hostRef}
+      className="eco-scene"
+      aria-hidden="true"
+    />
+  )
 }
