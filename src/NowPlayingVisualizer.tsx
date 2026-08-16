@@ -72,20 +72,6 @@ function colorDistanceSquared(left: THREE.Color, right: THREE.Color): number {
   return (left.r - right.r) ** 2 + (left.g - right.g) ** 2 + (left.b - right.b) ** 2
 }
 
-function graniteGeometry(): THREE.SphereGeometry {
-  const geometry = new THREE.SphereGeometry(1, 24, 16)
-  const positions = geometry.attributes.position
-  const direction = new THREE.Vector3()
-  for (let index = 0; index < positions.count; index += 1) {
-    direction.fromBufferAttribute(positions, index)
-    const radius = 1 + Math.sin(direction.x * 5.3 + direction.y * 2.1) * 0.055 + Math.cos(direction.z * 6.7 - direction.y * 3.2) * 0.045
-    direction.normalize().multiplyScalar(radius)
-    positions.setXYZ(index, direction.x, direction.y, direction.z)
-  }
-  geometry.computeVertexNormals()
-  return geometry
-}
-
 function titleColor(source: THREE.Color, lightnessLift: number): THREE.Color {
   const hsl = { h: 0, s: 0, l: 0 }
   source.getHSL(hsl)
@@ -154,8 +140,8 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
     void (async () => {
     const scene = new THREE.Scene()
     const camera = new THREE.PerspectiveCamera(48, 1, 0.1, 60)
-    camera.position.set(0, 3.2, 10.8)
-    camera.lookAt(0, -0.3, -1.8)
+    camera.position.set(0, 4.2, 9.6)
+    camera.lookAt(0, 0, 0)
     const hdrCapable = 'gpu' in navigator && window.matchMedia('(dynamic-range: high)').matches
     let hdrOutput = false
     let renderer: THREE.WebGLRenderer | WebGPURenderer
@@ -183,61 +169,49 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
     renderer.domElement.dataset.outputRange = hdrOutput ? 'hdr' : 'sdr'
     host.appendChild(renderer.domElement)
 
-    scene.fog = new THREE.Fog(0xe8a574, 13, 34)
-    const hemisphereLight = new THREE.HemisphereLight(0xffd6a0, 0x31596a, hdrOutput ? 0.72 : 2.3)
+    const hemisphereLight = new THREE.HemisphereLight(0xa9ffe0, 0x111327, hdrOutput ? 0.65 : 2.2)
     scene.add(hemisphereLight)
-    const sunLight = new THREE.DirectionalLight(0xffa85c, hdrOutput ? 5.5 : 4.2)
-    sunLight.position.set(-6, 7, -8)
-    scene.add(sunLight)
-    const shoreLight = new THREE.PointLight(0xffc27a, hdrOutput ? 10 : 12, 20)
-    shoreLight.position.set(-4, 2, 2)
-    scene.add(shoreLight)
+    const roseLight = new THREE.PointLight(0xff7f8f, hdrOutput ? 8 : 18, 18)
+    roseLight.position.set(-4, 4, 4)
+    scene.add(roseLight)
+    const violetLight = new THREE.PointLight(0x8c70d6, hdrOutput ? 8 : 18, 18)
+    violetLight.position.set(4, 1, 2)
+    scene.add(violetLight)
 
-    const skyGeometry = new THREE.PlaneGeometry(42, 18)
-    const skyMaterial = new THREE.MeshBasicMaterial({ color: 0xd98a68, fog: false })
-    const sky = new THREE.Mesh(skyGeometry, skyMaterial)
-    sky.position.set(0, 4, -18)
-    scene.add(sky)
-    const sunGeometry = new THREE.CircleGeometry(1.35, 32)
-    const sunMaterial = new THREE.MeshBasicMaterial({ color: 0xffd08a, fog: false })
-    const warmSunColor = new THREE.Color(0xffd08a)
-    const warmSkyColor = new THREE.Color(0xd98a68)
-    const warmGlintColor = new THREE.Color(0xffd69a)
-    const paleGlintColor = new THREE.Color(0xffefc5)
-    const sun = new THREE.Mesh(sunGeometry, sunMaterial)
-    sun.position.set(-5.4, 2.4, -16.8)
-    scene.add(sun)
-
-    const oceanGeometry = new THREE.PlaneGeometry(24, 24, 28, 22)
-    oceanGeometry.rotateX(-Math.PI / 2)
-    const oceanBasePositions = Float32Array.from(oceanGeometry.attributes.position.array as ArrayLike<number>)
-    const oceanMaterial = new THREE.MeshStandardMaterial({ color: 0x277b89, emissive: 0x0e3943, emissiveIntensity: hdrOutput ? 0.42 : 0.24, roughness: 0.3, metalness: 0.12, transparent: true, opacity: 0.96 })
-    const ocean = new THREE.Mesh(oceanGeometry, oceanMaterial)
-    ocean.position.set(0, -1.05, -4)
-    scene.add(ocean)
-
-    const headland = new THREE.Group()
-    const rockGeometry = graniteGeometry()
-    const rockMaterials = [0x8c7060, 0xa5866d, 0x705d54].map(color => new THREE.MeshStandardMaterial({ color, roughness: 0.94 }))
-    ;[
-      [-5.4, -0.3, -7.8, 4.4, 2.1, 2.8], [-3.7, -0.65, -6.4, 2.2, 1.3, 1.7],
-      [5.8, -0.35, -9.2, 5.2, 2.5, 3.2], [4.2, -0.7, -6.9, 1.8, 1.1, 1.5],
-      [-4.6, -0.78, 0.4, 1.25, 0.72, 1.05], [4.7, -0.82, 1.2, 1.05, 0.58, 0.82],
-    ].forEach((values, index) => {
-      const rock = new THREE.Mesh(rockGeometry, rockMaterials[index % rockMaterials.length])
-      rock.position.set(values[0], values[1], values[2])
-      rock.scale.set(values[3], values[4], values[5])
-      rock.rotation.set(index * 0.17, index * 0.61, index * -0.08)
-      headland.add(rock)
+    const bars = new THREE.Group()
+    scene.add(bars)
+    const barGeometry = new THREE.BoxGeometry(0.13, 1, 0.13)
+    const barMaterials = Array.from({ length: BAR_COUNT }, () => new THREE.MeshStandardMaterial({ color: 0x8fd8bf, emissive: 0x173f37, emissiveIntensity: 0.8, roughness: 0.3, metalness: 0.35 }))
+    const barMeshes = Array.from({ length: BAR_COUNT }, (_, index) => {
+      const angle = index / BAR_COUNT * Math.PI * 2
+      const bar = new THREE.Mesh(barGeometry, barMaterials[index])
+      bar.position.set(Math.cos(angle) * 3.15, 0, Math.sin(angle) * 3.15)
+      bar.rotation.y = -angle
+      bars.add(bar)
+      return bar
     })
-    scene.add(headland)
 
-    const glintGeometry = new THREE.OctahedronGeometry(0.075, 0)
-    const glintMaterials = Array.from({ length: 16 }, () => new THREE.MeshBasicMaterial({ color: 0xffd69a, transparent: true, opacity: 0 }))
+    const coreGeometry = new THREE.IcosahedronGeometry(1.15, 2)
+    const coreMaterial = new THREE.MeshStandardMaterial({ color: 0x695da3, emissive: 0x352b67, emissiveIntensity: 1.3, roughness: 0.2, metalness: 0.5, flatShading: true, transparent: true, opacity: 0.88 })
+    const core = new THREE.Mesh(coreGeometry, coreMaterial)
+    scene.add(core)
+    const shellGeometry = new THREE.IcosahedronGeometry(1.75, 1)
+    const shellMaterial = new THREE.MeshBasicMaterial({ color: 0xa6e6ce, wireframe: true, transparent: true, opacity: 0.22 })
+    const shell = new THREE.Mesh(shellGeometry, shellMaterial)
+    scene.add(shell)
+    const ringGeometry = new THREE.TorusGeometry(3.15, 0.018, 4, 128)
+    const ringMaterial = new THREE.MeshBasicMaterial({ color: 0x9de0c8, transparent: true, opacity: 0.3 })
+    const ring = new THREE.Mesh(ringGeometry, ringMaterial)
+    ring.rotation.x = Math.PI / 2
+    scene.add(ring)
+
+    const glintGeometry = new THREE.OctahedronGeometry(0.055, 0)
+    const glintMaterials = Array.from({ length: 12 }, () => new THREE.MeshStandardMaterial({ color: 0x101716, emissive: 0xd8fff2, emissiveIntensity: 0, roughness: 0.08, metalness: 0.15, transparent: true, opacity: 0 }))
     const glints = glintMaterials.map((material, index) => {
+      const angle = index / glintMaterials.length * Math.PI * 2
       const glint = new THREE.Mesh(glintGeometry, material)
-      glint.position.set(-4.8 + (index % 4) * 1.1, -0.96, -1.5 - Math.floor(index / 4) * 2.1)
-      glint.scale.set(2.8, 0.1, 0.5)
+      const radius = index % 2 ? 2.15 : 2.65
+      glint.position.set(Math.cos(angle) * radius, 0.35 + Math.sin(index * 1.9) * 0.8, Math.sin(angle) * radius)
       scene.add(glint)
       return glint
     })
@@ -247,7 +221,7 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
     scene.add(jet)
     const jetLookTarget = new THREE.Vector3()
     const jetLightOffset = new THREE.Vector3(0, 1.4, 1.8)
-    const jetFillLight = new THREE.PointLight(0xffd29a, 0, 7)
+    const jetFillLight = new THREE.PointLight(0xf1fff9, 0, 7)
     scene.add(jetFillLight)
     const jetMaterials = new Set<THREE.MeshStandardMaterial>()
     let jetModel: THREE.Group | undefined
@@ -307,9 +281,9 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
     }).catch(() => { /* OVERBURN remains functional if the decorative model cannot load. */ })
 
     const overburnCreatures = [
-      { url: '/models/overburn/frog.glb', size: 1.05, rotation: new THREE.Euler(0, Math.PI / 2, 0), lightColor: 0xffc477 },
-      { url: '/models/overburn/wizard-hat.glb', size: 0.9, rotation: new THREE.Euler(-0.18, 0, 0.12), lightColor: 0xffa866 },
-      { url: '/models/overburn/fish.glb', size: 1.45, rotation: new THREE.Euler(0, Math.PI / 2, 0), lightColor: 0xffd49a },
+      { url: '/models/overburn/frog.glb', size: 1.05, rotation: new THREE.Euler(0, Math.PI / 2, 0), lightColor: 0xc9ffdc },
+      { url: '/models/overburn/wizard-hat.glb', size: 0.9, rotation: new THREE.Euler(-0.18, 0, 0.12), lightColor: 0xbcc4ff },
+      { url: '/models/overburn/fish.glb', size: 1.45, rotation: new THREE.Euler(0, Math.PI / 2, 0), lightColor: 0x8eeeff },
     ].map(config => ({ ...config, group: new THREE.Group(), model: undefined as THREE.Group | undefined, materials: new Set<THREE.Material>(), light: new THREE.PointLight(config.lightColor, 0, 4.5) }))
     overburnCreatures.forEach((creature, index) => {
       creature.group.visible = false
@@ -347,9 +321,9 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
     })
 
     const targetPalette: VisualizerPalette = {
-      primary: new THREE.Color(0x2f8582),
-      secondary: new THREE.Color(0xd06649),
-      accent: new THREE.Color(0xf0b85e),
+      primary: new THREE.Color(0x8fd8bf),
+      secondary: new THREE.Color(0x695da3),
+      accent: new THREE.Color(0xff7f8f),
     }
     const applyTitlePalette = (palette: VisualizerPalette) => {
       const target = signalTargetRef.current
@@ -357,6 +331,18 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       target?.style.setProperty('--title-secondary', titleColor(palette.secondary, 0.13).getStyle())
       target?.style.setProperty('--title-accent', titleColor(palette.accent, 0.1).getStyle())
     }
+    const barTargetColors = Array.from({ length: BAR_COUNT }, () => new THREE.Color())
+    const updateBarPalette = () => {
+      barTargetColors.forEach((color, index) => {
+        const cycle = index / BAR_COUNT * 3
+        const segment = Math.floor(cycle)
+        const blend = cycle - segment
+        const from = segment === 0 ? targetPalette.primary : segment === 1 ? targetPalette.secondary : targetPalette.accent
+        const to = segment === 0 ? targetPalette.secondary : segment === 1 ? targetPalette.accent : targetPalette.primary
+        color.copy(from).lerp(to, blend).offsetHSL(index % 2 ? 0.018 : -0.012, 0.04, index % 3 === 0 ? 0.06 : -0.025)
+      })
+    }
+    updateBarPalette()
     applyTitlePalette(targetPalette)
     let active = true
     if (artworkUrl) {
@@ -365,6 +351,7 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
         targetPalette.primary.copy(palette.primary)
         targetPalette.secondary.copy(palette.secondary)
         targetPalette.accent.copy(palette.accent)
+        updateBarPalette()
         applyTitlePalette(targetPalette)
       }).catch(() => { /* Keep the default habitat palette when artwork cannot be sampled. */ })
     }
@@ -425,7 +412,7 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
     let overburnWasActive = false
     let summonEnvelope = 0
     let lastRenderTime = 0
-    let oceanNormalFrame = 0
+    let stageRotationOffset = 0
     let modelFlowPhase = 0
     let modelTempoEnvelope = 0
     let rhythmicBaseline = 0
@@ -523,6 +510,12 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
         previousFrequencies[index] = frequency
       })
       spectrumReady = true
+      barMeshes.forEach((bar, index) => {
+        const value = frequencies[index % frequencies.length] / 255
+        const height = 0.18 + value * 3.8
+        bar.scale.y += (height - bar.scale.y) * 0.14
+        bar.position.y = (bar.scale.y - 1) * 0.5
+      })
       energy /= audibleBins || 1
       rhythmicEnergy /= rhythmicBins || 1
       midEnergy /= midBins || 1
@@ -749,29 +742,31 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       signalTarget?.style.setProperty('--lab-roundness', String(scoredTextSignal * 1000))
       signalTarget?.style.setProperty('--lab-quad', String(scoredTextSignal * 1000))
       signalTarget?.style.setProperty('--lab-scale', String(180 + Math.max(bassEnvelope, scoredEnergyEnvelope * 0.8) * 820))
-      const waveDrive = 0.08 + bassEnvelope * 0.2 + scoredEnergyEnvelope * 0.12 + scoreBeat.wave * scoredEnergyEnvelope * 0.06
-      const oceanPositions = oceanGeometry.attributes.position
-      for (let index = 0; index < oceanPositions.count; index += 1) {
-        const offset = index * 3
-        const x = oceanBasePositions[offset]
-        const z = oceanBasePositions[offset + 2]
-        const tide = Math.sin(z * 0.72 + time * (0.00055 + bassEnvelope * 0.0003))
-        const crossWave = Math.sin(x * 1.05 - time * 0.00036 + z * 0.24)
-        oceanPositions.setY(index, oceanBasePositions[offset + 1] + tide * waveDrive + crossWave * (0.035 + midEnvelope * 0.055))
-      }
-      oceanPositions.needsUpdate = true
-      oceanNormalFrame = (oceanNormalFrame + 1) % 4
-      if (oceanNormalFrame === 0) oceanGeometry.computeVertexNormals()
-      oceanMaterial.color.lerp(targetPalette.primary, 0.012)
-      oceanMaterial.emissive.copy(targetPalette.secondary).multiplyScalar(hdrOutput ? 0.28 : 0.12)
-      oceanMaterial.emissiveIntensity = (hdrOutput ? 0.45 : 0.25) + trebleEnvelope * 0.28 + delightEnvelope * (hdrOutput ? 1.8 : 0.35)
-      oceanMaterial.roughness = 0.38 - trebleEnvelope * 0.16 - scoreBeat.pulse * scoredEnergyEnvelope * 0.08
-      sunMaterial.color.copy(targetPalette.accent).lerp(warmSunColor, 0.72)
-      sun.scale.setScalar(1 + delightEnvelope * 0.32 + peakCharge * 0.18)
-      skyMaterial.color.copy(targetPalette.secondary).lerp(warmSkyColor, 0.72)
-      hemisphereLight.intensity = (hdrOutput ? 0.72 : 2.3) + overburnLevel * (hdrOutput ? 1.4 : 0.4)
-      sunLight.intensity = (hdrOutput ? 5.5 : 4.2) + drumHitEnvelope * 1.1 + delightEnvelope * (hdrOutput ? 11 : 2.4) + overburnLevel * 4
-      shoreLight.intensity = (hdrOutput ? 10 : 12) + scoreBeat.pulse * scoredEnergyEnvelope * 5 + delightEnvelope * (hdrOutput ? 20 : 5)
+      const pulse = 1 + energyEnvelope * 0.12 + bassEnvelope * 0.18 + Math.sin(time * 0.0007) * 0.02
+      barMaterials.forEach((material, index) => {
+        material.color.lerp(barTargetColors[index], 0.045)
+        material.emissive.copy(material.color).multiplyScalar(hdrOutput ? 1 : 0.28)
+        const reflection = Math.max(0, beatEnvelope - Math.abs((index / BAR_COUNT) - ((time * 0.00018) % 1)) * 2.8)
+        const hitCenter = [0, 1 / 3, 2 / 3][drumHitKind]
+        const hitDistance = Math.abs(index / BAR_COUNT - hitCenter)
+        const wrappedHitDistance = Math.min(hitDistance, 1 - hitDistance)
+        const drumReflection = drumHitEnvelope * Math.max(0, 1 - wrappedHitDistance * 7)
+        const delightPosition = Math.min(1, Math.max(0, (time - delightFlashStartedAt) / 520))
+        const delightReflection = Math.max(0, delightEnvelope - Math.abs(index / BAR_COUNT - delightPosition) * 5.5)
+        material.emissiveIntensity = hdrOutput ? 0.65 + bassEnvelope * 0.35 + reflection * 2.5 + drumReflection * 3.4 + delightReflection * 4.2 + overburnLevel * 7 : 0.8 + drumReflection * 0.38 + delightReflection * 0.45 + overburnLevel
+        material.roughness = 0.34 - midEnvelope * 0.16
+      })
+      coreMaterial.color.lerp(targetPalette.secondary, 0.045)
+      coreMaterial.emissive.copy(coreMaterial.color).multiplyScalar(hdrOutput ? 1 : 0.48)
+      coreMaterial.emissiveIntensity = hdrOutput ? 1.35 + bassEnvelope * 0.65 + drumHitEnvelope * 2.4 + overburnLevel * 6 : 1.3 + drumHitEnvelope * 0.3 + overburnLevel
+      shellMaterial.color.lerp(targetPalette.accent, 0.045)
+      ringMaterial.color.lerp(targetPalette.primary, 0.045)
+      hemisphereLight.color.lerp(targetPalette.primary, 0.045)
+      roseLight.color.lerp(targetPalette.accent, 0.045)
+      violetLight.color.lerp(targetPalette.secondary, 0.045)
+      hemisphereLight.intensity = (hdrOutput ? 0.65 : 2.2) + overburnLevel * (hdrOutput ? 1.4 : 0.4)
+      roseLight.intensity = (hdrOutput ? 8 : 18) + drumHitEnvelope * (hdrOutput ? 4.5 : 1.2) + overburnLevel * (hdrOutput ? 18 : 4)
+      violetLight.intensity = (hdrOutput ? 8 : 18) + drumHitEnvelope * (hdrOutput ? 4.5 : 1.2) + overburnLevel * (hdrOutput ? 18 : 4)
       const jetAngle = modelFlowPhase - Math.PI / 2
       const setJetPosition = (target: THREE.Vector3, angle: number) => target.set(
         Math.sin(angle - Math.PI / 2) * 3.6,
@@ -826,22 +821,30 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
           creature.group.scale.set(1, 1, 1 + Math.sin(modelFlowPhase * 9) * (0.035 + bassEnvelope * 0.045))
         }
       })
-      headland.rotation.z = Math.sin(time * 0.00022) * (0.002 + midEnvelope * 0.004)
+      core.scale.setScalar(pulse)
+      core.rotation.x = time * 0.00008
+      core.rotation.y = time * 0.00013
+      shell.scale.setScalar(1 + energyEnvelope * 0.12 + stageLevel * (0.1 + bassEnvelope * 0.1))
+      shell.rotation.x = -time * 0.0001
+      shell.rotation.y = time * 0.00016
+      stageRotationOffset += stageLevel * 0.00045 * frameFactor * delightDirection
+      bars.rotation.y = time * 0.000025 + stageRotationOffset
+      bars.scale.setScalar(1 + stageLevel * (0.035 + bassEnvelope * 0.045))
+      ring.rotation.z = time * 0.000025
       glints.forEach((glint, index) => {
         const phase = (index * 0.37 + time * 0.00016) % 1
         const delightPhase = Math.max(0, 1 - Math.abs((time - delightFlashStartedAt) / 520 - index / glints.length) * 7)
-        const shimmer = Math.max(0, Math.sin(time * 0.0015 + index * 2.17)) * (0.12 + trebleEnvelope * 0.45)
-        const flash = Math.max(shimmer, sparkEnvelope - phase * 1.8, delightEnvelope * delightPhase, overburnLevel * 0.92)
+        const flash = Math.max(0, sparkEnvelope - phase * 1.8, delightEnvelope * delightPhase, overburnLevel * 0.92)
         const material = glintMaterials[index]
-        material.color.copy(index % 3 === 0 ? targetPalette.accent : warmGlintColor).lerp(paleGlintColor, 0.55)
-        material.opacity = Math.min(0.9, flash * (hdrOutput ? 1 : 0.62))
-        glint.position.x = -4.8 + (index % 4) * 1.1 + Math.sin(time * 0.00035 + index) * 0.16 * (1 + midEnvelope)
-        glint.scale.set(2.5 + flash * 3.2, 0.08, 0.4 + flash * 0.7)
+        material.emissive.copy(index % 3 === 0 ? targetPalette.accent : index % 3 === 1 ? targetPalette.primary : targetPalette.secondary)
+        material.emissiveIntensity = hdrOutput ? flash * (overburnLevel > 0.01 ? 8 : delightPhase > 0 ? 6.5 : 4.5) : flash * 0.9
+        material.opacity = flash * (hdrOutput ? 0.95 : 0.45)
+        glint.scale.setScalar(0.65 + flash * 1.6)
       })
-      camera.position.x = Math.sin(time * 0.00006) * 0.48 + Math.sin(time * 0.0012) * stageLevel * 0.04
-      camera.position.y = 3.2 + Math.sin(time * 0.00019) * (0.035 + midEnvelope * 0.045)
-      camera.position.z = 10.8 - stageLevel * (0.16 + bassEnvelope * 0.2) - overburnLevel * 0.22
-      camera.lookAt(0, -0.3, -1.8)
+      camera.position.x = Math.sin(time * 0.00006) * 0.65 + Math.sin(time * 0.0012) * stageLevel * 0.06
+      camera.position.y = 4.2
+      camera.position.z = 9.6 - stageLevel * (0.22 + bassEnvelope * 0.28) - overburnLevel * 0.28
+      camera.lookAt(0, 0.2, 0)
       renderer.render(scene, camera)
       frame = requestAnimationFrame(render)
     }
@@ -875,14 +878,14 @@ export default function NowPlayingVisualizer({ audioRef, signalTargetRef, select
       source?.disconnect()
       analyser?.disconnect()
       void context?.close()
-      skyGeometry.dispose()
-      skyMaterial.dispose()
-      sunGeometry.dispose()
-      sunMaterial.dispose()
-      oceanGeometry.dispose()
-      oceanMaterial.dispose()
-      rockGeometry.dispose()
-      rockMaterials.forEach(material => material.dispose())
+      barGeometry.dispose()
+      barMaterials.forEach(material => material.dispose())
+      coreGeometry.dispose()
+      coreMaterial.dispose()
+      shellGeometry.dispose()
+      shellMaterial.dispose()
+      ringGeometry.dispose()
+      ringMaterial.dispose()
       glintGeometry.dispose()
       glintMaterials.forEach(material => material.dispose())
       jetModel?.traverse(child => {
