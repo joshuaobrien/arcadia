@@ -8,7 +8,7 @@
 import Foundation
 
 struct TrackPage: Decodable {
-    let total: Int
-    let items: [Track]
-    let nextCursor: String?
+  let total: Int
+  let items: [Track]
+  let nextCursor: String?
 }

@@ -8,10 +8,10 @@
 import Foundation
 
 struct Album: Identifiable, Decodable {
-    let id: String
-    let title: String
-    let albumArtist: String
-    let year: Int?
-    let trackCount: Int?
-    let hasArtwork: Bool
+  let id: String
+  let title: String
+  let albumArtist: String
+  let year: Int?
+  let trackCount: Int?
+  let hasArtwork: Bool
 }

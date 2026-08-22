@@ -7,10 +7,10 @@
 import Foundation
 
 struct PlaybackItem: Identifiable {
-    let track: Track
-    let streamURL: URL
-    
-    var id: String {
-        track.id
-    }
+  let track: Track
+  let streamURL: URL
+
+  var id: String {
+    track.id
+  }
 }

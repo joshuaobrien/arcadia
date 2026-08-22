@@ -8,9 +8,9 @@
 import Foundation
 
 struct AlbumPage: Decodable {
-    let configured: Bool
-    let mounted: Bool
-    let total: Int
-    let items: [Album]
-    let nextCursor: String?
+  let configured: Bool
+  let mounted: Bool
+  let total: Int
+  let items: [Album]
+  let nextCursor: String?
 }

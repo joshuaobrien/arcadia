@@ -10,33 +10,32 @@ import SwiftUI
 
 @main
 struct ArcadiaApp: App {
-    private let configuration: Result<AppConfiguration, Error>
-    
-    init() {
-        AVPlayer.isObservationEnabled = true
+  private let configuration: Result<AppConfiguration, Error>
 
-        configuration = Result {
-            try AppConfiguration.load()
-        }
+  init() {
+    AVPlayer.isObservationEnabled = true
+
+    configuration = Result {
+      try AppConfiguration.load()
     }
-    
-    
-    var body: some Scene {
-        WindowGroup {
-            switch configuration {
-            case .success(let configuration):
-                AppView(
-                    api: ArcadiaAPI(
-                        baseURL: configuration.arcadiaBaseURL
-                    )
-                )
-            case .failure(let error):
-                ContentUnavailableView(
-                    "Configuration Error",
-                    systemImage: "exclamationmark.triangle",
-                    description: Text(error.localizedDescription)
-                )
-            }
-        }
+  }
+
+  var body: some Scene {
+    WindowGroup {
+      switch configuration {
+      case .success(let configuration):
+        AppView(
+          api: ArcadiaAPI(
+            baseURL: configuration.arcadiaBaseURL
+          )
+        )
+      case .failure(let error):
+        ContentUnavailableView(
+          "Configuration Error",
+          systemImage: "exclamationmark.triangle",
+          description: Text(error.localizedDescription)
+        )
+      }
     }
+  }
 }
