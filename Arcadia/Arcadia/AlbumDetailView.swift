@@ -25,19 +25,19 @@ struct AlbumDetailView: View {
     }
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .bottom, spacing: 24) {
+        VStack(alignment: .leading, spacing: DesignTokens.Spacing.m) {
+            HStack(alignment: .bottom, spacing: DesignTokens.Spacing.l) {
                 AlbumArtwork(artworkURL: api.artworkURL(for: album)
                 )
                 .frame(width: 220, height: 220)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .clipShape(RoundedRectangle(cornerRadius: DesignTokens.Spacing.m))
                 .shadow(
                     color: .black.opacity(0.2),
-                    radius: 10,
+                    radius: DesignTokens.Radius.l,
                     y: 5
                 )
                 
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: DesignTokens.Spacing.s) {
                     Text("ALBUM")
                         .font(.caption.monospaced())
                         .foregroundStyle(.secondary)
@@ -49,7 +49,7 @@ struct AlbumDetailView: View {
                         .font(.title2)
                         .foregroundStyle(.secondary)
                     
-                    HStack(spacing: 6) {
+                    HStack(spacing: DesignTokens.Spacing.xs) {
                         if let year = album.year {
                             Text(String(year))
                         }

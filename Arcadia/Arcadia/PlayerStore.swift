@@ -68,16 +68,45 @@ final class PlayerStore {
         currentTime = 0
         duration = track.durationSeconds ?? 0
         
-        let newPlayer = AVPlayer(url: url)
+        // Without precise timing, seeking a streamed FLAC desyncs AVPlayer's
+        // clock from the audio, so it overruns or truncates the end of the
+        // track and AVPlayerItemDidPlayToEndTime may never fire. Costs a
+        // slower initial load.
+        // https://developer.apple.com/forums/thread/665417
+        let asset = AVURLAsset(
+            url: url,
+            options: [AVURLAssetPreferPreciseDurationAndTimingKey: true]
+        )
+
+        let newPlayer = AVPlayer(playerItem: AVPlayerItem(asset: asset))
         player = newPlayer
-        
+
+        // Jellyfin's metadata duration can disagree with the decoded asset.
+        Task { [weak self] in
+            guard let loaded = try? await asset.load(.duration) else {
+                return
+            }
+
+            await MainActor.run {
+                guard let self,
+                      self.currentTrack?.id == track.id,
+                      loaded.seconds.isFinite,
+                      loaded.seconds > 0
+                else {
+                    return
+                }
+
+                self.duration = loaded.seconds
+            }
+        }
+
         if let currentItem = newPlayer.currentItem {
             endObserver = NotificationCenter.default.addObserver(
                 forName: .AVPlayerItemDidPlayToEndTime,
                 object: currentItem,
                 queue: .main
             ) { [weak self] _ in
-                Task { @MainActor [weak self] in
+                MainActor.assumeIsolated {
                     self?.playNext()
                 }
             }
@@ -96,8 +125,8 @@ final class PlayerStore {
             guard time.seconds.isFinite else {
                 return
             }
-            
-            Task { @MainActor [weak self] in
+
+            MainActor.assumeIsolated {
                 self?.currentTime = time.seconds
             }
         }
@@ -108,12 +137,12 @@ final class PlayerStore {
     
     func seek(to seconds: Double, resumeAfterSeeking: Bool) {
         currentTime = seconds
-        
+
         let time = CMTime(
             seconds: seconds,
             preferredTimescale: 600
         )
-        
+
         player?.seek(to: time) { [weak self] finished in
             guard finished, resumeAfterSeeking else {
                 return

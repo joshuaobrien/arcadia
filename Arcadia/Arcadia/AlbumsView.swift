@@ -11,16 +11,30 @@ private let minimumAlbumWidth: CGFloat = 220
 struct AlbumsView: View {
     let api: ArcadiaAPI
     
+    @State private var nextCursor: String?
     @State private var albums: [Album] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
+    @State private var isLoadingNextPage = false
+    @State private var paginationErrorMessage: String?
+    @State private var searchTerm = ""
+    
+    private var normalizedSearchTerm: String? {
+        let term = searchTerm.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        
+        return term.isEmpty ? nil : term
+    }
     
     private func loadAlbums() async {
+        nextCursor = nil
+        paginationErrorMessage = nil
         isLoading = true
         errorMessage = nil
         
         do {
-            let page = try await api.fetchAlbums()
+            let page = try await api.fetchAlbums(term: normalizedSearchTerm)
             
             guard page.configured, page.mounted else {
                 errorMessage = "The Arcadia library is not configured."
@@ -29,11 +43,37 @@ struct AlbumsView: View {
             }
             
             albums = page.items
+            nextCursor = page.nextCursor
         } catch {
             errorMessage = error.localizedDescription
         }
         
         isLoading = false
+    }
+    
+    private func loadNextPage() async {
+        guard let cursor = nextCursor, !isLoadingNextPage else {
+            return
+        }
+        
+        isLoadingNextPage = true
+        paginationErrorMessage = nil
+        
+        defer {
+            isLoadingNextPage = false
+        }
+        
+        do {
+            let page = try await api.fetchAlbums(
+                cursor: cursor,
+                term: normalizedSearchTerm
+            )
+            
+            albums.append(contentsOf: page.items)
+            nextCursor = page.nextCursor
+        } catch {
+            paginationErrorMessage = error.localizedDescription
+        }
     }
     
     var body: some View {
@@ -51,7 +91,17 @@ struct AlbumsView: View {
             }
         }
         .navigationTitle("Albums")
-        .task {
+        .searchable(
+            text: $searchTerm,
+            prompt: "Search albums or artists"
+        )
+        .task(id: searchTerm) {
+            do {
+                try await Task.sleep(for: .milliseconds(300))
+            } catch {
+                return
+            }
+
             await loadAlbums()
         }
     }
@@ -62,7 +112,7 @@ struct AlbumsView: View {
                 columns: [
                     GridItem(.adaptive(minimum: minimumAlbumWidth))
                 ],
-                spacing: 24
+                spacing: DesignTokens.Spacing.xl
             ) {
                 ForEach(albums) { album in
                     NavigationLink {
@@ -71,8 +121,30 @@ struct AlbumsView: View {
                         AlbumCard(album: album, artworkURL: api.artworkURL(for:album))
                     }
                     .buttonStyle(.plain)
+                    .padding()
                 }
-                .padding()
+                
+                if nextCursor != nil {
+                    VStack(spacing: DesignTokens.Spacing.s) {
+                        if isLoadingNextPage {
+                            ProgressView()
+                        } else if let paginationErrorMessage {
+                            Text(paginationErrorMessage)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Button("Try Again") {
+                                Task {
+                                    await loadNextPage()
+                                }
+                            }
+                        } else {
+                            ProgressView()
+                        }
+                    }
+                    .task {
+                        await loadNextPage()
+                    }
+                }
             }
             .navigationTitle("Albums")
         }
@@ -83,10 +155,12 @@ struct AlbumsView: View {
         let artworkURL: URL?
         
         var body: some View {
-            VStack(alignment:. leading, spacing: 8) {
+            VStack(alignment:. leading, spacing: DesignTokens.Spacing.s) {
                 AlbumArtwork(artworkURL: artworkURL)
                     .aspectRatio(1, contentMode: .fit)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .clipShape(
+                        RoundedRectangle(cornerRadius: DesignTokens.Radius.m)
+                    )
                 
                 Text(album.title)
                     .font(.headline)

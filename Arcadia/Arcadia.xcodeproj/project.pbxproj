@@ -89,6 +89,7 @@
 			isa = PBXGroup;
 			children = (
 				0309A2033030872F0066F5FE /* Arcadia */,
+				034AFB833039817400572D41 /* New Group */,
 				0309A211303087300066F5FE /* ArcadiaTests */,
 				0309A21B303087300066F5FE /* ArcadiaUITests */,
 				0309A2023030872F0066F5FE /* Products */,
@@ -103,6 +104,13 @@
 				0309A218303087300066F5FE /* ArcadiaUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		034AFB833039817400572D41 /* New Group */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = "New Group";
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */

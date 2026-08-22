@@ -32,12 +32,39 @@ struct ArcadiaAPI {
             .appending(path: "artwork")
     }
     
-    func fetchAlbums() async throws -> AlbumPage {
+    func fetchAlbums(
+        cursor: String? = nil,
+        limit: Int = 50,
+        term: String? = nil
+    ) async throws -> AlbumPage {
+        var queryItems = [
+            URLQueryItem(name: "limit", value: String(limit)),
+        ]
+        
+        if let cursor {
+            queryItems.append(
+                URLQueryItem(
+                    name: "cursor",
+                    value: cursor
+                )
+            )
+        }
+        
+        if let term, !term.isEmpty {
+            queryItems.append(
+                URLQueryItem(
+                    name: "term",
+                    value: term,
+                )
+            )
+        }
+        
         let url = baseURL
             .appending(path: "api")
             .appending(path: "library")
             .appending(path: "albums")
-        
+            .appending(queryItems: queryItems)
+
         let (data, response) = try await URLSession.shared.data(from: url)
         
         guard let response = response as? HTTPURLResponse else {

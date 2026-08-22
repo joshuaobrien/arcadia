@@ -23,7 +23,7 @@ struct AppView: View {
     @State private var selection: AppSection? = .albums
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: DesignTokens.Spacing.none) {
             NavigationSplitView {
                 List(AppSection.allCases, selection: $selection) { section in
                     Text(section.rawValue.capitalized)

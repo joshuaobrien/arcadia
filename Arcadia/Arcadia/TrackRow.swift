@@ -19,7 +19,7 @@ struct TrackRow: View {
     }
     
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: DesignTokens.Spacing.l) {
             Button {
                 if isCurrentTrack {
                     playerStore.togglePlayback()
@@ -40,7 +40,7 @@ struct TrackRow: View {
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
             
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: DesignTokens.Spacing.s) {
                 Text(track.title ?? "Untitled track")
                     .lineLimit(1)
                 

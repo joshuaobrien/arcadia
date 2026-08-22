@@ -16,7 +16,7 @@ struct PlayerBar: View {
     
     var body: some View {
         if let track = playerStore.currentTrack {
-            VStack(spacing: 6) {
+            VStack(spacing: DesignTokens.Spacing.s) {
                 controls(for: track)
                 progress
             }
@@ -30,7 +30,7 @@ struct PlayerBar: View {
     }
     
     private func controls(for track: Track) -> some View {
-        HStack(spacing: 14) {
+        HStack(spacing: DesignTokens.Spacing.m) {
             Button {
                 playerStore.togglePlayback()
             } label: {
@@ -43,7 +43,7 @@ struct PlayerBar: View {
             }
             .buttonStyle(.borderless)
             
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: DesignTokens.Spacing.s) {
                 Text(track.title ?? "Untitled track")
                     .font(.headline)
                     .lineLimit(1)
@@ -67,7 +67,7 @@ struct PlayerBar: View {
             ? scrubPosition
             : playerStore.currentTime
         
-        return HStack(spacing: 10) {
+        return HStack(spacing: DesignTokens.Spacing.m) {
             Text(formatTime(displayedTime))
                 .frame(width: 42, alignment: .trailing)
             
@@ -116,17 +116,4 @@ struct PlayerBar: View {
              seconds
          )
     }
-        
-    
-    private func formatDuration(_ duration: Double) -> String {
-            let totalSeconds = Int(duration.rounded())
-            let minutes = totalSeconds / 60
-            let seconds = totalSeconds % 60
-
-            return String(
-                format: "%d:%02d",
-                minutes,
-                seconds
-            )
-        }
 }
