@@ -1,0 +1,32 @@
+included:
+  - Arcadia/Arcadia
+
+disabled_rules:
+  # Formatting is owned by swift-format.
+  - line_length
+  - trailing_whitespace
+
+opt_in_rules:
+  - contains_over_filter_count
+  - empty_count
+  - empty_string
+  - fatal_error_message
+  - first_where
+  - force_unwrapping
+  - last_where
+  - redundant_nil_coalescing
+  - unowned_variable_capture
+  - unused_parameter
+
+identifier_name:
+  excluded:
+    - id
+    - xs
+    - s
+    - m
+    - l
+    - xl
+
+function_body_length:
+  warning: 60
+  error: 100
