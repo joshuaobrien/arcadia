@@ -4,6 +4,10 @@
 # Runs on the mini's host runner: clones the golden Xcode image, copies the
 # checkout in, runs the checks, then destroys the clone. The host never runs
 # xcodebuild itself -- it only orchestrates.
+#
+# Host prerequisites: tart, and node (actions/checkout is a JavaScript action;
+# in host mode there is no container to supply a runtime, so the job fails with
+# "Cannot find: node in PATH" without it).
 
 set -euo pipefail
 
