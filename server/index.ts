@@ -802,11 +802,10 @@ export function buildApp(options: BuildAppOptions = {}) {
       term: request.query?.term,
     }, context))
     if (reply.sent || !page) return undefined
-    const origin = publicUrl ?? `${request.protocol}://${request.host}`
     const items = page.items.map(({ hasArtwork, ...album }) => ({
       ...album,
-      artworkUrl: hasArtwork
-        ? `${origin}/api/library/albums/${encodeURIComponent(album.id)}/artwork`
+      artworkPath: hasArtwork
+        ? `/api/library/albums/${encodeURIComponent(album.id)}/artwork`
         : null,
     }))
     return { configured: true, mounted: true, scannedAt: null, ...page, items }

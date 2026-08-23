@@ -54,10 +54,10 @@ test('Jellyfin browsing, artwork, and song streaming are proxied', async t => {
     getAlbumArtwork: async () => ({ contentType: 'image/jpeg', data: new TextEncoder().encode('art') }),
     getTrackAudio: async (_id, range) => { ranges.push(range); return { status: range ? 206 : 200, contentType: 'audio/flac', contentLength: range ? '4' : '10', ...(range ? { contentRange: 'bytes 2-5/10' } : {}), acceptRanges: 'bytes', body: new Response(range ? '2345' : '0123456789').body } },
   }
-  const app = buildApp({ jellyfin, catalog: null, logger: false, publicUrl: 'https://arcadia.example' }); t.after(() => app.close())
+  const app = buildApp({ jellyfin, catalog: null, logger: false }); t.after(() => app.close())
   const album = (await app.inject({ url: '/api/library/albums?term=Broadcast' })).json().items[0]
   assert.equal(album.title, 'Tender Buttons')
-  assert.equal(album.artworkUrl, `https://arcadia.example/api/library/albums/${albumId}/artwork`)
+  assert.equal(album.artworkPath, `/api/library/albums/${albumId}/artwork`)
   assert.equal('hasArtwork' in album, false)
   assert.equal((await app.inject({ url: `/api/library/albums/${albumId}/tracks` })).json().items[0].title, 'I Found the F')
   assert.equal((await app.inject({ url: `/api/library/albums/${albumId}/artwork` })).body, 'art')
