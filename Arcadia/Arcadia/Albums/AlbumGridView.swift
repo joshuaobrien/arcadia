@@ -3,7 +3,7 @@ import SwiftUI
 private let minimumAlbumWidth: CGFloat = 220
 
 struct AlbumGridView: View {
-  
+
   let albums: [Album]
   let hasNextPage: Bool
   let isLoadingNextPage: Bool
