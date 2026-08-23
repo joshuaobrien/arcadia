@@ -43,7 +43,7 @@ jobs:
           fi
 
           if [ ! -d "$needle_dir/.git" ]; then
-            git clone --branch main https://github.com/joshuaobrien/needle.git "$needle_dir"
+            git clone --branch main https://github.com/joshuaobrien/arcadia.git "$needle_dir"
           else
             git -C "$needle_dir" fetch origin main
             git -C "$needle_dir" switch main
