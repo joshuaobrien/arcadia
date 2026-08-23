@@ -5,7 +5,7 @@ struct AlbumCardView: View {
   let title: String
   let artist: String
   let year: String
-  
+
   var body: some View {
     VStack(alignment: .leading, spacing: DesignTokens.Spacing.s) {
       AlbumArtwork(artworkURL: artworkURL)
@@ -13,15 +13,15 @@ struct AlbumCardView: View {
         .clipShape(
           RoundedRectangle(cornerRadius: DesignTokens.Radius.m)
         )
-      
+
       Text(title)
         .font(.headline)
         .lineLimit(1)
-      
+
       Text(artist)
         .foregroundStyle(.secondary)
         .lineLimit(1)
-      
+
       Text(String(year))
         .font(.caption)
         .foregroundStyle(.secondary)

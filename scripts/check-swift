@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+REPOSITORY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPOSITORY_ROOT"
+
+echo "==> Formatting Swift"
+xcrun swift-format format \
+  --configuration .swift-format \
+  --recursive \
+  --in-place \
+  Arcadia/Arcadia
+
+echo "==> Applying SwiftLint fixes"
+mint run swiftlint lint --fix --no-cache
+
+echo "==> Checking SwiftLint"
+mint run swiftlint lint --strict --no-cache
+
+echo "==> Swift checks passed"

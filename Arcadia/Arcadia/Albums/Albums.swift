@@ -2,11 +2,11 @@ import SwiftUI
 
 struct Albums: View {
   @State private var model: AlbumsModel
-  
+
   init(api: ArcadiaAPI) {
     _model = State(initialValue: .init(api: api))
   }
-  
+
   var body: some View {
     Group {
       if model.isLoading {
