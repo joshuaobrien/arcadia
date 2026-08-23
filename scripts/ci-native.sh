@@ -16,11 +16,22 @@ VM="arcadia-ci-${GITHUB_RUN_ID:-$$}"
 VM_USER=admin
 VM_PASS=admin
 SRC_DIR="${1:-$PWD}"
+ARTIFACT_DIR="${ARTIFACT_DIR:-}"
 # SwiftLint is built from source by Mint at the Mintfile-pinned version, which
 # takes ~5 minutes. Share a host directory as the Mint cache so that cost is
 # paid once rather than on every run.
 MINT_CACHE="${MINT_CACHE:-$HOME/.cache/arcadia-ci-mint}"
 mkdir -p "$MINT_CACHE"
+
+if [[ -n "$ARTIFACT_DIR" ]]; then
+  [[ -n "${ARCADIA_BASE_URL:-}" ]] || {
+    echo "ARCADIA_BASE_URL is required when producing a release artifact" >&2
+    exit 1
+  }
+  mkdir -p "$ARTIFACT_DIR"
+  ARTIFACT_DIR="$(cd "$ARTIFACT_DIR" && pwd)"
+  rm -f "$ARTIFACT_DIR/Arcadia.zip"
+fi
 
 cleanup() {
   tart stop "$VM" >/dev/null 2>&1 || true
@@ -33,7 +44,11 @@ echo "==> Cloning $IMAGE -> $VM"
 tart clone "$IMAGE" "$VM"
 
 echo "==> Booting"
-tart run --no-graphics --dir="mint:$MINT_CACHE" "$VM" >/dev/null 2>&1 &
+TART_RUN_ARGS=(--no-graphics "--dir=mint:$MINT_CACHE")
+if [[ -n "$ARTIFACT_DIR" ]]; then
+  TART_RUN_ARGS+=("--dir=artifacts:$ARTIFACT_DIR")
+fi
+tart run "${TART_RUN_ARGS[@]}" "$VM" >/dev/null 2>&1 &
 
 for _ in $(seq 1 60); do
   IP=$(tart ip "$VM" 2>/dev/null) && [ -n "$IP" ] && break
@@ -102,9 +117,23 @@ echo "==> swift-format"
 vm_run "cd /tmp/build && xcrun swift-format lint --configuration .swift-format --recursive --strict Arcadia/Arcadia"
 
 echo "==> Building"
-vm_run "cd /tmp/build/Arcadia && xcodebuild -project Arcadia.xcodeproj -scheme Arcadia -configuration Debug -destination 'platform=macOS' build CODE_SIGNING_ALLOWED=NO | tail -20"
+vm_run "set -o pipefail; cd /tmp/build/Arcadia && xcodebuild -project Arcadia.xcodeproj -scheme Arcadia -configuration Debug -destination 'platform=macOS' build CODE_SIGNING_ALLOWED=NO | tail -20"
 
 echo "==> Testing"
-vm_run "cd /tmp/build/Arcadia && xcodebuild -project Arcadia.xcodeproj -scheme Arcadia -configuration Debug -destination 'platform=macOS' -only-testing:ArcadiaTests test CODE_SIGNING_ALLOWED=NO | tail -20"
+vm_run "set -o pipefail; cd /tmp/build/Arcadia && xcodebuild -project Arcadia.xcodeproj -scheme Arcadia -configuration Debug -destination 'platform=macOS' -only-testing:ArcadiaTests test CODE_SIGNING_ALLOWED=NO | tail -20"
+
+if [[ -n "$ARTIFACT_DIR" ]]; then
+  printf -v ESCAPED_BASE_URL '%q' "$ARCADIA_BASE_URL"
+
+  echo "==> Building unsigned Release artifact"
+  vm_run "set -o pipefail; cd /tmp/build/Arcadia && xcodebuild -project Arcadia.xcodeproj -scheme Arcadia -configuration Release -destination 'platform=macOS' -derivedDataPath /tmp/arcadia-release CODE_SIGNING_ALLOWED=NO ARCADIA_BASE_URL=$ESCAPED_BASE_URL | tail -20"
+
+  echo "==> Packaging Arcadia.zip"
+  vm_run "ditto -c -k --sequesterRsrc --keepParent /tmp/arcadia-release/Build/Products/Release/Arcadia.app '/Volumes/My Shared Files/artifacts/Arcadia.zip'"
+  [[ -f "$ARTIFACT_DIR/Arcadia.zip" ]] || {
+    echo "Release artifact was not copied out of the VM" >&2
+    exit 1
+  }
+fi
 
 echo "==> Done"

@@ -12,7 +12,14 @@ struct AppConfiguration {
   static func load(
     environment: [String: String] = ProcessInfo.processInfo.environment
   ) throws -> AppConfiguration {
-    guard let value = environment["ARCADIA_BASE_URL"], !value.isEmpty
+
+    let environmentValue = environment["ARCADIA_BASE_URL"]
+
+    let bundleValue = Bundle.main.object(forInfoDictionaryKey: "ArcadiaBaseURL") as? String
+
+    guard let value = [environmentValue, bundleValue]
+      .compactMap({ $0 })
+      .first(where: { !$0.isEmpty })
     else {
       throw ConfigurationError.missingArcadiaBaseURL
     }
