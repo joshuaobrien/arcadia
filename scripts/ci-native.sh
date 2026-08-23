@@ -128,6 +128,10 @@ if [[ -n "$ARTIFACT_DIR" ]]; then
   echo "==> Building unsigned Release artifact"
   vm_run "set -o pipefail; cd /tmp/build/Arcadia && xcodebuild -project Arcadia.xcodeproj -scheme Arcadia -configuration Release -destination 'platform=macOS' -derivedDataPath /tmp/arcadia-release CODE_SIGNING_ALLOWED=NO ARCADIA_BASE_URL=$ESCAPED_BASE_URL | tail -20"
 
+  echo "==> Ad-hoc signing Release artifact"
+  vm_run "codesign --force --deep --sign - /tmp/arcadia-release/Build/Products/Release/Arcadia.app"
+  vm_run "codesign --verify --deep --strict --verbose=2 /tmp/arcadia-release/Build/Products/Release/Arcadia.app"
+
   echo "==> Packaging Arcadia.zip"
   vm_run "ditto -c -k --sequesterRsrc --keepParent /tmp/arcadia-release/Build/Products/Release/Arcadia.app '/Volumes/My Shared Files/artifacts/Arcadia.zip'"
   [[ -f "$ARTIFACT_DIR/Arcadia.zip" ]] || {
