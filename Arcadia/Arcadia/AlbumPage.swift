@@ -5,9 +5,7 @@
 //  Created by Joshua O'Brien on 16/8/2026.
 //
 
-import Foundation
-
-struct AlbumPage: Decodable {
+struct AlbumPage {
   let configured: Bool
   let mounted: Bool
   let total: Int

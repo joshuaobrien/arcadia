@@ -28,7 +28,7 @@ struct AlbumDetailView: View {
     VStack(alignment: .leading, spacing: DesignTokens.Spacing.m) {
       HStack(alignment: .bottom, spacing: DesignTokens.Spacing.l) {
         AlbumArtwork(
-          artworkURL: api.artworkURL(for: album)
+          artworkURL: album.artworkURL
         )
         .frame(width: 220, height: 220)
         .clipShape(RoundedRectangle(cornerRadius: DesignTokens.Spacing.m))

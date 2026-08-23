@@ -7,6 +7,23 @@
 
 import Foundation
 
+private struct AlbumResponse: Decodable {
+  let id: String
+  let title: String
+  let albumArtist: String
+  let year: Int?
+  let trackCount: Int?
+  let artworkPath: String?
+}
+
+private struct AlbumPageResponse: Decodable {
+  let configured: Bool
+  let mounted: Bool
+  let total: Int
+  let items: [AlbumResponse]
+  let nextCursor: String?
+}
+
 struct ArcadiaAPI {
   let baseURL: URL
 
@@ -19,23 +36,9 @@ struct ArcadiaAPI {
       .appending(path: "stream")
   }
 
-  func artworkURL(for album: Album) -> URL? {
-    guard album.hasArtwork else {
-      return nil
-    }
-
-    return
-      baseURL
-      .appending(path: "api")
-      .appending(path: "library")
-      .appending(path: "albums")
-      .appending(path: album.id)
-      .appending(path: "artwork")
-  }
-
   func fetchAlbums(
     cursor: String? = nil,
-    limit: Int = 50,
+    limit: Int = 25,
     term: String? = nil
   ) async throws -> AlbumPage {
     var queryItems = [
@@ -77,7 +80,26 @@ struct ArcadiaAPI {
       throw ArcadiaAPIError.httpStatus(response.statusCode)
     }
 
-    return try JSONDecoder().decode(AlbumPage.self, from: data)
+    let pageResponse = try JSONDecoder().decode(AlbumPageResponse.self, from: data)
+
+    return AlbumPage(
+      configured: pageResponse.configured,
+      mounted: pageResponse.mounted,
+      total: pageResponse.total,
+      items: pageResponse.items.map { album in
+        Album(
+          id: album.id,
+          title: album.title,
+          albumArtist: album.albumArtist,
+          year: album.year,
+          trackCount: album.trackCount,
+          artworkURL: album.artworkPath.flatMap { path in
+            URL(string: path, relativeTo: baseURL)?.absoluteURL
+          }
+        )
+      },
+      nextCursor: pageResponse.nextCursor
+    )
   }
 
   func fetchTracks(for album: Album) async throws -> TrackPage {

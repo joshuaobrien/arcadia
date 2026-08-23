@@ -14,7 +14,7 @@ struct ContentView: View {
   var body: some View {
     switch selection {
     case .albums:
-      AlbumsView(api: api)
+      Albums(api: api)
     case .artists:
       Text("Artists")
     case .songs:
