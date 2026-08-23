@@ -801,7 +801,15 @@ export function buildApp(options: BuildAppOptions = {}) {
       limit: request.query?.limit ?? 50,
       term: request.query?.term,
     }, context))
-    return reply.sent ? undefined : { configured: true, mounted: true, scannedAt: null, ...page }
+    if (reply.sent || !page) return undefined
+    const origin = publicUrl ?? `${request.protocol}://${request.host}`
+    const items = page.items.map(({ hasArtwork, ...album }) => ({
+      ...album,
+      artworkUrl: hasArtwork
+        ? `${origin}/api/library/albums/${encodeURIComponent(album.id)}/artwork`
+        : null,
+    }))
+    return { configured: true, mounted: true, scannedAt: null, ...page, items }
   })
   app.get<{ Querystring: LibraryCatalogQuery }>('/api/library/artists', {
     schema: { querystring: libraryAlbumQuerySchema() },
