@@ -17,9 +17,10 @@ struct AppConfiguration {
 
     let bundleValue = Bundle.main.object(forInfoDictionaryKey: "ArcadiaBaseURL") as? String
 
-    guard let value = [environmentValue, bundleValue]
-      .compactMap({ $0 })
-      .first(where: { !$0.isEmpty })
+    guard
+      let value = [environmentValue, bundleValue]
+        .compactMap({ $0 })
+        .first(where: { !$0.isEmpty })
     else {
       throw ConfigurationError.missingArcadiaBaseURL
     }
