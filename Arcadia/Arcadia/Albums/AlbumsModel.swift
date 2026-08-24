@@ -9,10 +9,10 @@ import SwiftUI
 @MainActor
 @Observable
 final class AlbumsModel {
-  private var api: ArcadiaAPI
+  private var albumService: AlbumService
 
-  init(api: ArcadiaAPI) {
-    self.api = api
+  init(albumService: AlbumService) {
+    self.albumService = albumService
   }
 
   var albums: [Album] = []
@@ -32,10 +32,10 @@ final class AlbumsModel {
     }
   }
 
-  private var normalisedSearchTerm: String? {
+  private var normalisedSearchTerm: String {
     let term = searchTerm.trimmingCharacters(in: .whitespacesAndNewlines)
 
-    return term.isEmpty ? nil : term
+    return term.isEmpty ? "" : term
   }
 
   func loadAlbums() async {
@@ -44,10 +44,15 @@ final class AlbumsModel {
     isLoading = true
 
     do {
-      let page = try await api.fetchAlbums(term: normalisedSearchTerm)
+      let response = try await albumService.fetchAlbums(
+        FetchAlbumsRequest(
+          cursor: nil,
+          searchTerm: normalisedSearchTerm
+        )
+      )
 
-      albums = page.items
-      nextCursor = page.nextCursor
+      albums = response.albums
+      nextCursor = response.nextCursor
     } catch {
       errorText = error.localizedDescription
     }
@@ -64,10 +69,15 @@ final class AlbumsModel {
     }
 
     do {
-      let page = try await api.fetchAlbums(cursor: nextCursor, term: normalisedSearchTerm)
+      let response = try await albumService.fetchAlbums(
+        FetchAlbumsRequest(
+          cursor: nextCursor,
+          searchTerm: normalisedSearchTerm
+        )
+      )
 
-      albums.append(contentsOf: page.items)
-      nextCursor = page.nextCursor
+      albums.append(contentsOf: response.albums)
+      nextCursor = response.nextCursor
     } catch {
       errorText = error.localizedDescription
     }
