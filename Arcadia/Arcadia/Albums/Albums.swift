@@ -3,8 +3,8 @@ import SwiftUI
 struct Albums: View {
   @State private var model: AlbumsModel
 
-  init(api: ArcadiaAPI) {
-    _model = State(initialValue: .init(api: api))
+  init(albumService: AlbumService) {
+    _model = State(initialValue: .init(albumService: albumService))
   }
 
   var body: some View {

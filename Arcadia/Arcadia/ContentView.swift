@@ -9,12 +9,18 @@ import SwiftUI
 
 struct ContentView: View {
   let selection: AppSection?
-  let api: ArcadiaAPI
+  let albumService: AlbumService
+
+  init(selection: AppSection?, api: ArcadiaAPI) {
+    self.selection = selection
+
+    self.albumService = AlbumClient(api: api)
+  }
 
   var body: some View {
     switch selection {
     case .albums:
-      Albums(api: api)
+      Albums(albumService: self.albumService)
     case .artists:
       Text("Artists")
     case .songs:

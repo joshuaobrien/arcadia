@@ -1,6 +1,11 @@
 node_modules/
 dist/
 .DS_Store
+
+# Xcode per-user state
+xcuserdata/
+*.xcuserstate
+
 .env
 .env.*
 !.env.example
