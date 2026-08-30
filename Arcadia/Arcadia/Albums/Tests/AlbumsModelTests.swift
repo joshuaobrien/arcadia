@@ -6,13 +6,14 @@
 //
 import Mockable
 import Testing
+
 @testable import Arcadia
 
 @MainActor
 struct AlbumsModelTests {
   let service: MockAlbumService
   let model: AlbumsModel
-  
+
   init() {
     service = MockAlbumService()
     model = AlbumsModel(albumService: service)
@@ -23,12 +24,12 @@ struct AlbumsModelTests {
     given(service)
       .fetchAlbums(.any)
       .willThrow(TestError.expected)
-    
+
     await model.loadAlbums()
-    
+
     #expect(model.errorText != nil)
   }
-  
+
   @Test
   func storesReturnedAlbumsWhenLoadingSucceeds() async {
     let album = Album(
@@ -53,7 +54,7 @@ struct AlbumsModelTests {
 
     #expect(model.albums.map(\.id) == ["1"])
   }
-  
+
   private enum TestError: Error {
     case expected
   }
