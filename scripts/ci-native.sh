@@ -117,16 +117,16 @@ echo "==> swift-format"
 vm_run "cd /tmp/build && xcrun swift-format lint --configuration .swift-format --recursive --strict Arcadia/Arcadia"
 
 echo "==> Building"
-vm_run "set -o pipefail; cd /tmp/build/Arcadia && xcodebuild -project Arcadia.xcodeproj -scheme Arcadia -configuration Debug -destination 'platform=macOS' build CODE_SIGNING_ALLOWED=NO | tail -20"
+vm_run "cd /tmp/build/Arcadia && xcodebuild -project Arcadia.xcodeproj -scheme Arcadia -configuration Debug -destination 'platform=macOS' -skipMacroValidation build CODE_SIGNING_ALLOWED=NO"
 
 echo "==> Testing"
-vm_run "set -o pipefail; cd /tmp/build/Arcadia && xcodebuild -project Arcadia.xcodeproj -scheme Arcadia -configuration Debug -destination 'platform=macOS' -only-testing:ArcadiaTests test CODE_SIGNING_ALLOWED=NO | tail -20"
+vm_run "cd /tmp/build/Arcadia && xcodebuild -project Arcadia.xcodeproj -scheme Arcadia -configuration Debug -destination 'platform=macOS' -skipMacroValidation -only-testing:ArcadiaTests test CODE_SIGNING_ALLOWED=NO"
 
 if [[ -n "$ARTIFACT_DIR" ]]; then
   printf -v ESCAPED_BASE_URL '%q' "$ARCADIA_BASE_URL"
 
   echo "==> Building unsigned Release artifact"
-  vm_run "set -o pipefail; cd /tmp/build/Arcadia && xcodebuild -project Arcadia.xcodeproj -scheme Arcadia -configuration Release -destination 'platform=macOS' -derivedDataPath /tmp/arcadia-release CODE_SIGNING_ALLOWED=NO ARCADIA_BASE_URL=$ESCAPED_BASE_URL | tail -20"
+  vm_run "cd /tmp/build/Arcadia && xcodebuild -project Arcadia.xcodeproj -scheme Arcadia -configuration Release -destination 'platform=macOS' -derivedDataPath /tmp/arcadia-release -skipMacroValidation CODE_SIGNING_ALLOWED=NO ARCADIA_BASE_URL=$ESCAPED_BASE_URL"
 
   echo "==> Ad-hoc signing Release artifact"
   vm_run "codesign --force --deep --sign - /tmp/arcadia-release/Build/Products/Release/Arcadia.app"

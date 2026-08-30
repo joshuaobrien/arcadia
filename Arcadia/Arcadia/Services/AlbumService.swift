@@ -1,3 +1,5 @@
+import Mockable
+
 final class AlbumClient: AlbumService {
   private let api: ArcadiaAPI
 
@@ -26,7 +28,8 @@ final class AlbumClient: AlbumService {
   }
 }
 
-protocol AlbumService {
+@Mockable
+nonisolated protocol AlbumService {
   func fetchAlbums(
     _ request: FetchAlbumsRequest
   ) async throws -> FetchAlbumsResponse
