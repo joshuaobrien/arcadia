@@ -14,7 +14,8 @@ struct ContentView: View {
   init(selection: AppSection?, api: ArcadiaAPI) {
     self.selection = selection
 
-    self.albumService = AlbumClient(api: api)
+    //self.albumService = AlbumClient(api: api)
+    self.albumService = FakeAlbumClient()
   }
 
   var body: some View {

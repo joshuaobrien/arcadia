@@ -1,34 +1,24 @@
-//
-//  AlbumDetailView.swift
-//  Arcadia
-//
-//  Created by Joshua O'Brien on 16/8/2026.
-//
 import SwiftUI
 
-struct AlbumDetailView: View {
-  let album: Album
-  let api: ArcadiaAPI
+struct AlbumDetail: View {
+  @State private var model: AlbumDetailModel
+  private var album: Album
 
-  @State private var tracks: [Track] = []
-  @State private var isLoading = true
-  @State private var errorMessage: String?
-
-  private var playbackQueue: [PlaybackItem] {
-    tracks.map { track in
-      PlaybackItem(
-        track: track,
-        streamURL: api.streamURL(for: track)
-      )
-
-    }
+  init(
+    albumService: AlbumService,
+    album: Album,
+  ) {
+    _model = State(
+      initialValue: .init(albumService: albumService, album: album)
+    )
+    self.album = album
   }
 
   var body: some View {
     VStack(alignment: .leading, spacing: DesignTokens.Spacing.m) {
       HStack(alignment: .bottom, spacing: DesignTokens.Spacing.l) {
         AlbumArtwork(
-          artworkURL: album.artworkURL
+          artworkURL: self.album.artworkURL
         )
         .frame(width: 220, height: 220)
         .clipShape(RoundedRectangle(cornerRadius: DesignTokens.Spacing.m))
@@ -67,20 +57,18 @@ struct AlbumDetailView: View {
 
       Divider()
 
-      if isLoading {
+      if model.isLoading {
         ProgressView("Loading tracks")
-      } else if let errorMessage {
+      } else if let errorText = model.errorText {
         ContentUnavailableView(
           "Couldn't Load Tracks",
           systemImage: "exclamationmark.triangle",
-          description: Text(errorMessage)
+          description: Text(errorText)
         )
       } else {
-        List(tracks) { track in
+        List(model.tracks) { track in
           TrackRow(
             track: track,
-            streamURL: api.streamURL(for: track),
-            queue: playbackQueue,
           )
         }
       }
@@ -88,21 +76,7 @@ struct AlbumDetailView: View {
     .padding()
     .navigationTitle(album.title)
     .task {
-      await loadTracks()
+      await model.onOpen()
     }
-  }
-
-  private func loadTracks() async {
-    isLoading = true
-    errorMessage = nil
-
-    do {
-      let page = try await api.fetchTracks(for: album)
-      tracks = page.items
-    } catch {
-      errorMessage = error.localizedDescription
-    }
-
-    isLoading = false
   }
 }

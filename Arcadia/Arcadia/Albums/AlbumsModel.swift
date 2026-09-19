@@ -6,6 +6,12 @@
 //
 import SwiftUI
 
+enum LoadMode {
+  case loaded
+  case initial
+  case nextPage
+}
+
 @MainActor
 @Observable
 final class AlbumsModel {
@@ -17,8 +23,7 @@ final class AlbumsModel {
 
   var albums: [Album] = []
   private var nextCursor: String?
-  var isLoading = true
-  var isLoadingNextPage = false
+  var loadState = LoadMode.initial
   var errorText: String?
   private var searchTerm = ""
 
@@ -26,10 +31,12 @@ final class AlbumsModel {
     return nextCursor != nil
   }
 
-  func onReachBottom() {
-    Task {
-      await loadNextPage()
-    }
+  func onOpen() async {
+    await load(LoadMode.initial)
+  }
+
+  func onReachBottom() async {
+    await load(LoadMode.nextPage)
   }
 
   private var normalisedSearchTerm: String {
@@ -38,35 +45,9 @@ final class AlbumsModel {
     return term.isEmpty ? "" : term
   }
 
-  func loadAlbums() async {
-    nextCursor = nil
+  private func load(_ mode: LoadMode) async {
     errorText = nil
-    isLoading = true
-
-    do {
-      let response = try await albumService.fetchAlbums(
-        FetchAlbumsRequest(
-          cursor: nil,
-          searchTerm: normalisedSearchTerm
-        )
-      )
-
-      albums = response.albums
-      nextCursor = response.nextCursor
-    } catch {
-      errorText = error.localizedDescription
-    }
-
-    isLoading = false
-  }
-
-  private func loadNextPage() async {
-    errorText = nil
-    isLoadingNextPage = true
-
-    defer {
-      isLoadingNextPage = false
-    }
+    loadState = mode
 
     do {
       let response = try await albumService.fetchAlbums(
@@ -81,5 +62,7 @@ final class AlbumsModel {
     } catch {
       errorText = error.localizedDescription
     }
+
+    loadState = LoadMode.loaded
   }
 }

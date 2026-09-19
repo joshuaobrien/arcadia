@@ -4,6 +4,8 @@ private let minimumAlbumWidth: CGFloat = 220
 
 struct AlbumGridView: View {
 
+  let albumService: AlbumService
+
   let albums: [Album]
   let hasNextPage: Bool
   let isLoadingNextPage: Bool
@@ -19,7 +21,10 @@ struct AlbumGridView: View {
       ) {
         ForEach(albums) { album in
           NavigationLink {
-            Text(album.title)
+            AlbumDetail(
+              albumService: albumService,
+              album: album,
+            )
           } label: {
             AlbumCardView(
               artworkURL: album.artworkURL,

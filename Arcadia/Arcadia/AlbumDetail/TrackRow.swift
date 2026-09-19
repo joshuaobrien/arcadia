@@ -8,29 +8,15 @@
 import SwiftUI
 
 struct TrackRow: View {
-  @Environment(PlayerStore.self) private var playerStore
-
   let track: Track
-  let streamURL: URL
-  let queue: [PlaybackItem]
-
-  private var isCurrentTrack: Bool {
-    playerStore.currentTrack?.id == track.id
-  }
 
   var body: some View {
     HStack(spacing: DesignTokens.Spacing.l) {
       Button {
-        if isCurrentTrack {
-          playerStore.togglePlayback()
-        } else {
-          playerStore.play(track, from: streamURL, in: queue)
-        }
+        print("Hello")
       } label: {
         Image(
-          systemName: isCurrentTrack && playerStore.isPlaying
-            ? "pause.fill"
-            : "play.fill"
+          systemName: "play.fill"
         ).frame(width: 24, height: 24)
       }
       .buttonStyle(.borderless)

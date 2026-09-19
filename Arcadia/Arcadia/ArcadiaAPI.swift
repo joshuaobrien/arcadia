@@ -102,13 +102,13 @@ struct ArcadiaAPI {
     )
   }
 
-  func fetchTracks(for album: Album) async throws -> TrackPage {
+  func fetchTracks(for albumId: String) async throws -> TrackPage {
     let url =
       baseURL
       .appending(path: "api")
       .appending(path: "library")
       .appending(path: "albums")
-      .appending(path: album.id)
+      .appending(path: albumId)
       .appending(path: "tracks")
       .appending(
         queryItems: [
