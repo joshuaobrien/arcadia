@@ -8,32 +8,20 @@
 import SwiftUI
 
 struct TrackRow: View {
-  @Environment(PlayerStore.self) private var playerStore
-
   let track: Track
-  let streamURL: URL
-  let queue: [PlaybackItem]
-
-  private var isCurrentTrack: Bool {
-    playerStore.currentTrack?.id == track.id
-  }
 
   var body: some View {
     HStack(spacing: DesignTokens.Spacing.l) {
       Button {
-        if isCurrentTrack {
-          playerStore.togglePlayback()
-        } else {
-          playerStore.play(track, from: streamURL, in: queue)
-        }
+        print("Hello")
       } label: {
         Image(
-          systemName: isCurrentTrack && playerStore.isPlaying
-            ? "pause.fill"
-            : "play.fill"
+          systemName: "play.fill"
         ).frame(width: 24, height: 24)
       }
       .buttonStyle(.borderless)
+      .accessibilityLabel("Play \(track.title ?? "Untitled track")")
+      .accessibilityIdentifier("track.\(track.id).play")
 
       Text(track.trackNumber.map(String.init) ?? "-")
         .frame(width: 28, alignment: .trailing)
@@ -43,6 +31,7 @@ struct TrackRow: View {
       VStack(alignment: .leading, spacing: DesignTokens.Spacing.s) {
         Text(track.title ?? "Untitled track")
           .lineLimit(1)
+          .accessibilityIdentifier("track.\(track.id).title")
 
         if let artists = track.artists {
           Text(artists.joined(separator: ", "))
@@ -66,6 +55,8 @@ struct TrackRow: View {
         .frame(width: 42, alignment: .trailing)
     }
     .padding(.vertical, 4)
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("track.\(track.id)")
   }
 
   private var formattedDuration: String {

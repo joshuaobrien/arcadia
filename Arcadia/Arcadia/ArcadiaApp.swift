@@ -16,7 +16,9 @@ struct ArcadiaApp: App {
     AVPlayer.isObservationEnabled = true
 
     configuration = Result {
-      try AppConfiguration.load()
+      let value = try AppConfiguration.load()
+      AppDiagnostics.configuration(value)
+      return value
     }
   }
 
@@ -25,9 +27,7 @@ struct ArcadiaApp: App {
       switch configuration {
       case .success(let configuration):
         AppView(
-          api: ArcadiaAPI(
-            baseURL: configuration.arcadiaBaseURL
-          )
+          albumService: configuration.albumService()
         )
       case .failure(let error):
         ContentUnavailableView(
@@ -35,6 +35,7 @@ struct ArcadiaApp: App {
           systemImage: "exclamationmark.triangle",
           description: Text(error.localizedDescription)
         )
+        .accessibilityIdentifier("configuration.error")
       }
     }
   }

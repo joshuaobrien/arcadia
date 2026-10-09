@@ -4,6 +4,8 @@ private let minimumAlbumWidth: CGFloat = 220
 
 struct AlbumGridView: View {
 
+  let albumService: AlbumService
+
   let albums: [Album]
   let hasNextPage: Bool
   let isLoadingNextPage: Bool
@@ -11,6 +13,10 @@ struct AlbumGridView: View {
 
   var body: some View {
     ScrollView {
+      Text("\(albums.count) albums")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .accessibilityIdentifier("albums.count")
       LazyVGrid(
         columns: [
           GridItem(.adaptive(minimum: minimumAlbumWidth))
@@ -19,7 +25,10 @@ struct AlbumGridView: View {
       ) {
         ForEach(albums) { album in
           NavigationLink {
-            Text(album.title)
+            AlbumDetail(
+              albumService: albumService,
+              album: album,
+            )
           } label: {
             AlbumCardView(
               artworkURL: album.artworkURL,
@@ -29,6 +38,7 @@ struct AlbumGridView: View {
             )
           }
           .buttonStyle(.plain)
+          .accessibilityIdentifier("album.\(album.id)")
           .padding()
         }
 
@@ -45,5 +55,6 @@ struct AlbumGridView: View {
       }
       .navigationTitle("Albums")
     }
+    .accessibilityIdentifier("albums.scroll")
   }
 }

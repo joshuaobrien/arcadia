@@ -17,3 +17,7 @@ test-environment/state/
 test-environment/runtime.env
 playwright-report/
 test-results/
+
+# Native task evidence (may contain private backend diagnostics)
+.native-loop/
+__pycache__/

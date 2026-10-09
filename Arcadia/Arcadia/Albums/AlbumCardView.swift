@@ -26,8 +26,5 @@ struct AlbumCardView: View {
         .font(.caption)
         .foregroundStyle(.secondary)
     }
-    .task {
-      print(artworkURL)
-    }
   }
 }

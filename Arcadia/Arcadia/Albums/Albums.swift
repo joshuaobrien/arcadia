@@ -2,28 +2,34 @@ import SwiftUI
 
 struct Albums: View {
   @State private var model: AlbumsModel
+  private var albumService: AlbumService
 
   init(albumService: AlbumService) {
     _model = State(initialValue: .init(albumService: albumService))
+    self.albumService = albumService
   }
 
   var body: some View {
     Group {
-      if model.isLoading {
+      if model.loadState == LoadMode.initial {
         ProgressView("Loading albums")
+          .accessibilityIdentifier("albums.loading")
       } else if model.errorText != nil {
         Text(model.errorText ?? "a")
+          .accessibilityIdentifier("albums.error")
       } else {
         AlbumGridView(
+          albumService: albumService,
+
           albums: model.albums,
           hasNextPage: model.hasNextPage,
-          isLoadingNextPage: model.isLoadingNextPage,
+          isLoadingNextPage: model.loadState == LoadMode.nextPage,
           onReachBottom: model.onReachBottom,
         )
       }
     }
     .task {
-      await model.loadAlbums()
+      await model.onOpen()
     }
   }
 }
