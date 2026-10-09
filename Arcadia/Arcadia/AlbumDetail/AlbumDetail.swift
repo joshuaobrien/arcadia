@@ -59,24 +59,44 @@ struct AlbumDetail: View {
 
       if model.isLoading {
         ProgressView("Loading tracks")
+          .accessibilityIdentifier("tracks.loading")
       } else if let errorText = model.errorText {
         ContentUnavailableView(
           "Couldn't Load Tracks",
           systemImage: "exclamationmark.triangle",
           description: Text(errorText)
         )
+        .accessibilityIdentifier("tracks.error")
       } else {
         List(model.tracks) { track in
           TrackRow(
             track: track,
           )
         }
+        .accessibilityIdentifier("tracks.loaded")
       }
     }
     .padding()
     .navigationTitle(album.title)
+    .navigationBarBackButtonHidden(true)
+    .toolbar {
+      ToolbarItem(placement: .navigation) { AlbumBackButton() }
+    }
     .task {
       await model.onOpen()
     }
+  }
+}
+
+private struct AlbumBackButton: View {
+  @Environment(\.dismiss) private var dismiss
+
+  var body: some View {
+    Button {
+      dismiss()
+    } label: {
+      Label("Back to albums", systemImage: "chevron.left")
+    }
+    .accessibilityIdentifier("albums.back")
   }
 }

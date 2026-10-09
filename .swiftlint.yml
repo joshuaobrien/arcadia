@@ -5,6 +5,7 @@ disabled_rules:
   # Formatting is owned by swift-format.
   - line_length
   - trailing_whitespace
+  - trailing_comma
 
 opt_in_rules:
   - contains_over_filter_count

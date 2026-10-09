@@ -9,8 +9,8 @@ struct AlbumDetailView: View {
         artworkURL: album.artworkURL,
         title: album.title,
         artist: album.albumArtist,
-        year: album.year != nil ? String(album.year!) : "",
-        trackCount: album.trackCount != nil ? String(album.trackCount!) : "",
+        year: album.year.map(String.init) ?? "",
+        trackCount: album.trackCount.map(String.init) ?? "",
       )
 
       Divider()

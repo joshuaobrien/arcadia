@@ -13,8 +13,10 @@ struct Albums: View {
     Group {
       if model.loadState == LoadMode.initial {
         ProgressView("Loading albums")
+          .accessibilityIdentifier("albums.loading")
       } else if model.errorText != nil {
         Text(model.errorText ?? "a")
+          .accessibilityIdentifier("albums.error")
       } else {
         AlbumGridView(
           albumService: albumService,

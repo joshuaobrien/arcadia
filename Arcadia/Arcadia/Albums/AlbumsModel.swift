@@ -46,6 +46,12 @@ final class AlbumsModel {
   }
 
   private func load(_ mode: LoadMode) async {
+    if mode == .nextPage && (loadState != .loaded || nextCursor == nil) { return }
+    if mode == .initial {
+      albums = []
+      nextCursor = nil
+    }
+    AppDiagnostics.event(mode == .nextPage ? "albums.next-page.loading" : "albums.initial.loading")
     errorText = nil
     loadState = mode
 
@@ -59,8 +65,10 @@ final class AlbumsModel {
 
       albums.append(contentsOf: response.albums)
       nextCursor = response.nextCursor
+      AppDiagnostics.event("albums.loaded")
     } catch {
       errorText = error.localizedDescription
+      AppDiagnostics.event("albums.failed")
     }
 
     loadState = LoadMode.loaded

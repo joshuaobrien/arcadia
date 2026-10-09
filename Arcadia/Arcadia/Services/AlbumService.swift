@@ -2,7 +2,7 @@ import Mockable
 
 final class FakeAlbumClient: AlbumService {
 
-  func fetchAlbum(_ request: FetchAlbumRequest) async throws -> FetchAlbumResponse {
+  func fetchAlbum(_: FetchAlbumRequest) async throws -> FetchAlbumResponse {
     return FetchAlbumResponse(
       total: 3,
       items: [
@@ -41,7 +41,7 @@ final class FakeAlbumClient: AlbumService {
     )
   }
 
-  func fetchAlbums(_ request: FetchAlbumsRequest) async throws -> FetchAlbumsResponse {
+  func fetchAlbums(_: FetchAlbumsRequest) async throws -> FetchAlbumsResponse {
     return FetchAlbumsResponse(
       albums: [
         Album(

@@ -13,6 +13,10 @@ struct AlbumGridView: View {
 
   var body: some View {
     ScrollView {
+      Text("\(albums.count) albums")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .accessibilityIdentifier("albums.count")
       LazyVGrid(
         columns: [
           GridItem(.adaptive(minimum: minimumAlbumWidth))
@@ -34,6 +38,7 @@ struct AlbumGridView: View {
             )
           }
           .buttonStyle(.plain)
+          .accessibilityIdentifier("album.\(album.id)")
           .padding()
         }
 
@@ -50,5 +55,6 @@ struct AlbumGridView: View {
       }
       .navigationTitle("Albums")
     }
+    .accessibilityIdentifier("albums.scroll")
   }
 }

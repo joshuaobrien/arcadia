@@ -20,6 +20,8 @@ struct TrackRow: View {
         ).frame(width: 24, height: 24)
       }
       .buttonStyle(.borderless)
+      .accessibilityLabel("Play \(track.title ?? "Untitled track")")
+      .accessibilityIdentifier("track.\(track.id).play")
 
       Text(track.trackNumber.map(String.init) ?? "-")
         .frame(width: 28, alignment: .trailing)
@@ -29,6 +31,7 @@ struct TrackRow: View {
       VStack(alignment: .leading, spacing: DesignTokens.Spacing.s) {
         Text(track.title ?? "Untitled track")
           .lineLimit(1)
+          .accessibilityIdentifier("track.\(track.id).title")
 
         if let artists = track.artists {
           Text(artists.joined(separator: ", "))
@@ -52,6 +55,8 @@ struct TrackRow: View {
         .frame(width: 42, alignment: .trailing)
     }
     .padding(.vertical, 4)
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("track.\(track.id)")
   }
 
   private var formattedDuration: String {

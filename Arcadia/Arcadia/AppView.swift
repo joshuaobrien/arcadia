@@ -16,7 +16,7 @@ enum AppSection: String, CaseIterable, Identifiable {
 }
 
 struct AppView: View {
-  let api: ArcadiaAPI
+  let albumService: AlbumService
 
   @State private var playerStore = PlayerStore()
   @State private var selection: AppSection? = .albums
@@ -30,7 +30,7 @@ struct AppView: View {
         }
       } detail: {
         NavigationStack {
-          ContentView(selection: selection, api: api)
+          ContentView(selection: selection, albumService: albumService)
         }
       }
 

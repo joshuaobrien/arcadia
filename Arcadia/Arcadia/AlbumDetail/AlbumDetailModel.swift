@@ -24,6 +24,7 @@ final class AlbumDetailModel {
   private func load() async {
     errorText = nil
     isLoading = true
+    AppDiagnostics.event("tracks.loading")
 
     do {
       let response = try await albumService.fetchAlbum(
@@ -31,8 +32,10 @@ final class AlbumDetailModel {
       )
 
       tracks = response.items
+      AppDiagnostics.event("tracks.loaded")
     } catch {
       errorText = error.localizedDescription
+      AppDiagnostics.event("tracks.failed")
     }
 
     isLoading = false

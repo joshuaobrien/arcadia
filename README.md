@@ -4,6 +4,8 @@ Arcadia is a personal music acquisition, library, and Sony NW-A55 synchronizatio
 
 ## Development
 
+For the macOS application, use the [background VM development loop](docs/native-feedback-loop.md). Builds, UI tests and app-window screenshots run inside a disposable task VM.
+
 ```sh
 npm install
 amp orb services ensure

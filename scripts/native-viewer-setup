@@ -1,0 +1,45 @@
+#!/usr/bin/env python3
+"""Package the trusted Homebrew viewer as a locally signed, targetable native app."""
+import argparse
+import hashlib
+from pathlib import Path
+import plistlib
+import shutil
+import subprocess
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--output', default='/tmp/ArcadiaNativeViewer.app')
+parser.add_argument('--connection', required=True, help='Task-owned viewer.json produced by native-loop view')
+args = parser.parse_args()
+connection_path = Path(args.connection).resolve()
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent / 'native_loop'))
+from viewer import connection
+config = connection(connection_path)
+viewer = shutil.which('vncviewer')
+if not viewer:
+    raise SystemExit('Install the official Homebrew formula first: brew install tiger-vnc')
+# Verify the installed build; do not re-sign a broken vendor download.
+subprocess.run(['codesign', '--verify', '--strict', viewer], check=True)
+app = Path(args.output).resolve()
+if app.exists():
+    raise SystemExit(f'Output already exists: {app}; choose a fresh --output')
+contents = app / 'Contents'
+(contents / 'MacOS').mkdir(parents=True)
+shutil.copy2(viewer, contents / 'MacOS/vncviewer')
+resources = contents / 'Resources'
+resources.mkdir()
+shutil.copy2(Path(__file__).resolve().parent / 'native_loop/viewer.py', resources / 'viewer.py')
+launcher = contents / 'MacOS/launcher'
+launcher.write_text('#!/usr/bin/python3\nimport os\nfrom pathlib import Path\n'
+                    'root = Path(__file__).resolve().parents[1]\n'
+                    'os.execv("/usr/bin/python3", ["/usr/bin/python3", str(root / "Resources/viewer.py"), '
+                    + repr(str(connection_path)) + ', str(root / "MacOS/vncviewer")])\n')
+launcher.chmod(0o755)
+with (contents / 'Info.plist').open('wb') as output:
+    plistlib.dump({'CFBundleExecutable': 'launcher', 'CFBundleIdentifier': 'tokyo.drift.Arcadia.VMViewer.' + hashlib.sha256(str(app).encode()).hexdigest()[:12],
+                  'CFBundleName': 'vncviewer', 'CFBundleDisplayName': 'Arcadia VM Viewer',
+                  'CFBundlePackageType': 'APPL', 'CFBundleVersion': '1', 'NSHighResolutionCapable': False, 'NSAppSleepDisabled': True}, output)
+subprocess.run(['codesign', '--force', '--sign', '-', str(app)], check=True)
+subprocess.run(['codesign', '--verify', '--deep', '--strict', str(app)], check=True)
+print(app)

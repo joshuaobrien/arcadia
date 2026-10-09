@@ -70,7 +70,7 @@ struct ArcadiaAPI {
       .appending(path: "albums")
       .appending(queryItems: queryItems)
 
-    let (data, response) = try await URLSession.shared.data(from: url)
+    let (data, response) = try await request(url)
 
     guard let response = response as? HTTPURLResponse else {
       throw ArcadiaAPIError.invalidResponse
@@ -102,6 +102,19 @@ struct ArcadiaAPI {
     )
   }
 
+  private func request(_ url: URL) async throws -> (Data, URLResponse) {
+    AppDiagnostics.event("api.request")
+    do {
+      let result = try await URLSession.shared.data(from: url)
+      let successful = (result.1 as? HTTPURLResponse)?.statusCode == 200
+      AppDiagnostics.event(successful ? "api.response.success" : "api.response.failure")
+      return result
+    } catch {
+      AppDiagnostics.event("api.transport.failure")
+      throw error
+    }
+  }
+
   func fetchTracks(for albumId: String) async throws -> TrackPage {
     let url =
       baseURL
@@ -116,7 +129,7 @@ struct ArcadiaAPI {
         ]
       )
 
-    let (data, response) = try await URLSession.shared.data(from: url)
+    let (data, response) = try await request(url)
 
     guard let response = response as? HTTPURLResponse else {
       throw ArcadiaAPIError.invalidResponse

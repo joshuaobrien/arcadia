@@ -11,11 +11,10 @@ struct ContentView: View {
   let selection: AppSection?
   let albumService: AlbumService
 
-  init(selection: AppSection?, api: ArcadiaAPI) {
+  init(selection: AppSection?, albumService: AlbumService) {
     self.selection = selection
 
-    //self.albumService = AlbumClient(api: api)
-    self.albumService = FakeAlbumClient()
+    self.albumService = albumService
   }
 
   var body: some View {
