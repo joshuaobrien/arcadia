@@ -20,9 +20,9 @@ Prerequisites on the VM host: Tart with the pinned official image cached, Python
 
 Use a new lowercase task name each time. `NATIVE_LOOP_HOST` can replace `--host`; omit both when running the orchestrator directly on the Tart host. `--source` selects the checkout; `--artifacts` selects the local export directory (default `.native-loop/<task>`). Keep the same settings for subsequent operations. `--root` selects task state on the VM host, defaulting to `/tmp/arcadia-native-loop-<uid>`.
 
-`start` pins the image by digest, creates task-owned mounts and checks guest readiness. Source and orchestration tools are guest read-only; artifacts are writable. Drivers and source archives have content-addressed filenames to avoid stale shared-folder reads. Each build/test synchronizes the current native source snapshot, including uncommitted changes and file deletions, into a writable guest workspace. Guest DerivedData and package caches survive subsequent iterations in the same task. The manifest records source/driver fingerprints, revision, image, tool versions, timings and statuses. Debug app and UI runner use a task-specific identity and valid ad-hoc signing. Production identity is unchanged.
+`start` pins the image by digest, creates task-owned mounts and checks guest readiness. Source and orchestration tools are guest read-only; artifacts are writable. Whole helper bundles and source archives have content-addressed paths to avoid stale shared-folder reads. Each build/test synchronizes the current native source snapshot, including uncommitted changes and file deletions, into a writable guest workspace. Guest DerivedData and package caches survive subsequent iterations in the same task. The manifest records source/driver fingerprints, revision, image, tool versions, timings and statuses. Debug app and UI runner use a stable development identity inside each task-isolated VM and valid ad-hoc signing. Production identity is unchanged.
 
-Mint tools persist on the VM host at `~/.cache/arcadia-ci-mint`, preserving the old Gitea CI default. `MINT_CACHE` / `--mint-seed` overrides that host path. A fresh VM receives a private copy; after successful lint, the runner atomically publishes the compiled tools under a key derived from the pinned image and Mintfile. Subsequent tasks reuse that seed without rebuilding SwiftLint. Existing legacy `packages`/`bin` caches are imported automatically. Guests never mutate the persistent seed, and app builds/state remain task-local. Never point this cache at DerivedData. Startup uses a bounded guest-agent readiness deadline; a failed startup stops/deletes its clone and retains diagnostics.
+Mint tools persist on the VM host at `~/.cache/arcadia-ci-mint`, preserving the old Gitea CI default. `MINT_CACHE` / `--mint-seed` overrides that host path. A fresh VM receives a private copy; after successful lint, the runner atomically publishes the compiled tools under a key derived from the pinned image and Mintfile. Subsequent tasks reuse that seed without rebuilding SwiftLint. Existing legacy `packages`/`bin` caches are imported automatically. Guests never mutate the persistent seed, and app builds/state remain task-local. Never point the Mint cache at DerivedData; compiled package dependencies use a separate sanitized seed described below. Startup uses a bounded guest-agent readiness deadline; a failed startup stops/deletes its clone and retains diagnostics.
 
 ## Data modes
 
@@ -84,3 +84,28 @@ Runner ownership/archive/export-order checks can run without a VM:
 ```sh
 python3 -m unittest discover -s scripts/native_loop -p 'test_*.py'
 ```
+
+## Faster iterations and screenshot comparisons
+
+Run one relevant test during edits; run the full suite before opening the PR:
+
+```sh
+./scripts/native-loop --host paseo-host test album-browse --only-testing ArcadiaUITests/FeedbackLoopTests/testEmpty
+./scripts/native-loop --host paseo-host test album-browse
+```
+
+`--only-testing` accepts a full XCTest class or method identifier and can be repeated. A run with no passing tests is rejected (including a misspelled filter that Xcode silently skips). A targeted pass is recorded with its filter in the manifest and does not count as a full-suite pass. Filters do not apply to the regression oracle or integration mode.
+
+Capture one test before editing and again after editing:
+
+```sh
+./scripts/native-loop --host paseo-host capture album-browse --only-testing ArcadiaUITests/FeedbackLoopTests/testEmpty --label before
+# edit the app
+./scripts/native-loop --host paseo-host capture album-browse --only-testing ArcadiaUITests/FeedbackLoopTests/testEmpty --label after
+```
+
+This runs the selected test, exports its app-window attachment, and creates `comparison/before.png`, `comparison/after.png`, a provenance manifest and `comparison/README.md` with a ready-to-use comparison table. Upload both images to the PR and replace the relative image links with their attachment links. Captures must have matching pixel dimensions; the command rejects a mismatched pair instead of silently resizing either image. Test launches continue to ignore persisted window state. If a test saves several screenshots, select an exact display name with `--screenshot-name 'Success - library after back'`. `compare` uses the most recent successful matching targeted test without rerunning it. Always inspect both images; this tool prepares the comparison and does not decide whether a visual change is correct.
+
+Progress output identifies source transfer, VM startup, dependency resolution/compilation, app compilation, signing, behavioral tests, cache publication, evidence export and cleanup. Build phases emit a heartbeat every 15 seconds. Raw build logs remain in the artifacts; progress messages do not echo request URLs or secrets. Per-command `.phases.json` files record timings. VM startup, build/test execution and export are separate costs.
+
+Fresh task VMs can reuse a dependency seed stored at `~/.cache/arcadia-native-dependencies` on the VM host (`--dependency-cache` overrides it). The versioned key covers the pinned VM image/toolchain, `Package.resolved` and Xcode project settings. Seeds include package checkouts, dependency products/intermediates, module caches, explicit SDK modules, generated module maps and Xcode build metadata; they exclude Arcadia app/test products and intermediates, index/test logs and app runtime state. Stable paths and a stable development bundle identifier inside each isolated guest preserve dependency signatures. Changing a global bundle identifier per task also changes package build settings and can invalidate dependency reuse. Development identity remains distinct from production; task isolation comes from the fresh VM. Each guest restores a private copy, never writes directly to a shared cache, and rebuilds its own development app in isolated storage. Changed cache inputs clear guest DerivedData and select a new key. Publication is atomic and locked; a checksum mismatch falls back to a cold build. `start --no-dependency-cache` disables restoration and publication for that task. Release builds retain their separate configuration and do not seed this Debug cache. The dependency cache does not change the existing CI or Mint cache.
