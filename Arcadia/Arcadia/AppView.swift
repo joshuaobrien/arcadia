@@ -18,8 +18,14 @@ enum AppSection: String, CaseIterable, Identifiable {
 struct AppView: View {
   let albumService: AlbumService
 
+  @State private var albumsModel: AlbumsModel
   @State private var playerStore = PlayerStore()
   @State private var selection: AppSection? = .albums
+
+  init(albumService: AlbumService) {
+    self.albumService = albumService
+    _albumsModel = State(initialValue: AlbumsModel(albumService: albumService))
+  }
 
   var body: some View {
     VStack(spacing: DesignTokens.Spacing.none) {
@@ -30,7 +36,7 @@ struct AppView: View {
         }
       } detail: {
         NavigationStack {
-          ContentView(selection: selection, albumService: albumService)
+          ContentView(selection: selection, albumService: albumService, albumsModel: albumsModel)
         }
       }
 

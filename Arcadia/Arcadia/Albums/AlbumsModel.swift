@@ -26,12 +26,20 @@ final class AlbumsModel {
   var loadState = LoadMode.initial
   var errorText: String?
   private var searchTerm = ""
+  private var hasOpened = false
 
   var hasNextPage: Bool {
     return nextCursor != nil
   }
 
   func onOpen() async {
+    guard !hasOpened else { return }
+    hasOpened = true
+    await load(LoadMode.initial)
+  }
+
+  func onRetry() async {
+    guard loadState == .loaded, errorText != nil else { return }
     await load(LoadMode.initial)
   }
 

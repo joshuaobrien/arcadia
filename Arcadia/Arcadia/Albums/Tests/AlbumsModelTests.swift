@@ -101,6 +101,8 @@ struct AlbumsModelTests {
     await model.onOpen()
     #expect(model.errorText != nil)
     await model.onOpen()
+    #expect(model.errorText != nil)
+    await model.onRetry()
     #expect(model.errorText == nil)
   }
 

@@ -26,7 +26,7 @@ Mint tools persist on the VM host at `~/.cache/arcadia-ci-mint`, preserving the 
 
 ## Data modes
 
-Debug defaults to `ARCADIA_DATA_MODE=fixtures`, without needing a backend URL. `ARCADIA_FIXTURE_SCENARIO` selects `success`, `empty`, `failure` or `two-page`. Fixtures have stable IDs and bundled artwork; they do not contact a server. Unknown mode/scenario values produce a configuration error.
+Debug defaults to `ARCADIA_DATA_MODE=fixtures`, without needing a backend URL. `ARCADIA_FIXTURE_SCENARIO` selects `success`, `empty`, `failure`, `failure-then-success` or `two-page`. Fixtures have stable IDs and bundled artwork; they do not contact a server. Unknown mode/scenario values produce a configuration error.
 
 `integration` and `live-readonly` require an explicit `ARCADIA_BASE_URL` in development; they never fall back to the production URL embedded in a build. The native client uses GET requests. Live browse is an optional read-only smoke check, not the reproducible acceptance oracle. Release retains its configured backend URL and cannot enable development fixtures.
 
@@ -34,7 +34,8 @@ The behavioral suite checks:
 
 - Success: expected album, loaded artwork, independently targetable track controls, expected track title, and back navigation.
 - Empty: completed loading, zero albums and no request error.
-- Failure: controlled request error and completed loading.
+- Failure: controlled request error, completed loading, and a Retry action that remains available after another failure.
+- Recovery: the first request fails; Retry loads the library and clears the error.
 - Two pages: scrolling loads the second page; expected IDs/count match and duplicate links are rejected.
 
 `oracle` changes the title only in the guest copy, verifies the success assertion fails, restores the file, and verifies the test passes. It rejects a build failure or a mutation that incorrectly passes. This is an assertion sensitivity check, not an audio playback test; track playback remains the existing stub.

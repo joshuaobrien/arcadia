@@ -69,7 +69,31 @@ final class FeedbackLoopTests: XCTestCase {
     XCTAssertFalse(app.staticTexts["albums.empty.title"].exists)
     XCTAssertFalse(app.progressIndicators["albums.loading"].exists)
     XCTAssertFalse(app.staticTexts["albums.count"].exists)
+    XCTAssertEqual(app.staticTexts["albums.error.title"].value as? String, "Couldn’t load albums")
+    let retry = app.buttons["albums.retry"]
+    XCTAssertTrue(retry.exists && retry.isEnabled)
     capture(app, "Failure - request error")
+    retry.click()
+    XCTAssertTrue(error.waitForExistence(timeout: 10))
+    XCTAssertEqual(error.value as? String, "Fixture request failed.")
+    XCTAssertTrue(retry.exists && retry.isEnabled)
+    XCTAssertFalse(app.buttons["album.fixture-1"].exists)
+  }
+
+  @MainActor
+  func testRetryRecovers() {
+    let app = launch("failure-then-success")
+    XCTAssertTrue(app.staticTexts["albums.error"].waitForExistence(timeout: 10))
+    app.buttons["albums.retry"].click()
+    let album = app.buttons["album.fixture-1"]
+    XCTAssertTrue(album.waitForExistence(timeout: 10))
+    XCTAssertTrue(album.label.contains("Hyperballad"))
+    XCTAssertEqual(app.staticTexts["albums.count"].value as? String, "1 albums")
+    XCTAssertFalse(app.staticTexts["albums.error"].exists)
+    XCTAssertFalse(app.staticTexts["albums.error.title"].exists)
+    XCTAssertFalse(app.buttons["albums.retry"].exists)
+    XCTAssertFalse(app.progressIndicators["albums.loading"].exists)
+    capture(app, "Retry - recovered library")
   }
 
   @MainActor

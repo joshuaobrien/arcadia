@@ -21,6 +21,7 @@ struct AppConfiguration {
     case success
     case empty
     case failure
+    case failureThenSuccess = "failure-then-success"
     case twoPage = "two-page"
   }
 
@@ -101,7 +102,7 @@ enum ConfigurationError: LocalizedError {
     case .invalidDataMode:
       "ARCADIA_DATA_MODE must be fixtures, integration, or live-readonly."
     case .invalidFixtureScenario:
-      "ARCADIA_FIXTURE_SCENARIO must be success, empty, failure, or two-page."
+      "ARCADIA_FIXTURE_SCENARIO must be success, empty, failure, failure-then-success, or two-page."
     case .fixturesRequireDebug:
       "Fixtures are available only in development builds."
     }

@@ -1,8 +1,9 @@
 #if DEBUG
   import Foundation
 
-  final class FixtureAlbumClient: AlbumService {
+  actor FixtureAlbumClient: AlbumService {
     private let scenario: AppConfiguration.FixtureScenario
+    private var albumRequests = 0
 
     init(scenario: AppConfiguration.FixtureScenario) {
       self.scenario = scenario
@@ -10,7 +11,10 @@
 
     func fetchAlbums(_ request: FetchAlbumsRequest) async throws -> FetchAlbumsResponse {
       AppDiagnostics.event("albums.request")
-      if scenario == .failure { throw FixtureError.requestFailed }
+      albumRequests += 1
+      if scenario == .failure || (scenario == .failureThenSuccess && albumRequests == 1) {
+        throw FixtureError.requestFailed
+      }
       if scenario == .empty { return FetchAlbumsResponse(albums: [], nextCursor: nil) }
       if scenario == .twoPage {
         if let cursor = request.cursor {

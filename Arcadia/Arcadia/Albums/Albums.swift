@@ -1,11 +1,11 @@
 import SwiftUI
 
 struct Albums: View {
-  @State private var model: AlbumsModel
+  private let model: AlbumsModel
   private var albumService: AlbumService
 
-  init(albumService: AlbumService) {
-    _model = State(initialValue: .init(albumService: albumService))
+  init(albumService: AlbumService, model: AlbumsModel) {
+    self.model = model
     self.albumService = albumService
   }
 
@@ -14,9 +14,21 @@ struct Albums: View {
       if model.loadState == LoadMode.initial {
         ProgressView("Loading albums")
           .accessibilityIdentifier("albums.loading")
-      } else if model.errorText != nil {
-        Text(model.errorText ?? "a")
-          .accessibilityIdentifier("albums.error")
+      } else if let errorText = model.errorText {
+        ContentUnavailableView {
+          Label("Couldn’t load albums", systemImage: "exclamationmark.triangle")
+            .accessibilityIdentifier("albums.error.title")
+        } description: {
+          Text(errorText)
+            .accessibilityIdentifier("albums.error")
+        } actions: {
+          Button("Retry") {
+            Task { await model.onRetry() }
+          }
+          .accessibilityIdentifier("albums.retry")
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .navigationTitle("Albums")
       } else if model.albums.isEmpty {
         ContentUnavailableView {
           Label("No albums yet", systemImage: "music.note.list")
