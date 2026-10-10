@@ -30,6 +30,7 @@ final class FeedbackLoopTests: XCTestCase {
     let album = app.buttons["album.fixture-1"]
     XCTAssertTrue(album.waitForExistence(timeout: 10))
     XCTAssertTrue(album.label.contains("Hyperballad"))
+    XCTAssertFalse(app.staticTexts["albums.empty.title"].exists)
     XCTAssertEqual(app.staticTexts["albums.count"].value as? String, "1 albums")
     album.click()
     XCTAssertTrue(app.staticTexts["track.fixture-1-track-1.title"].waitForExistence(timeout: 10))
@@ -45,12 +46,18 @@ final class FeedbackLoopTests: XCTestCase {
   @MainActor
   func testEmpty() {
     let app = launch("empty")
-    XCTAssertTrue(app.staticTexts["albums.count"].waitForExistence(timeout: 10))
-    XCTAssertEqual(app.staticTexts["albums.count"].value as? String, "0 albums")
+    let title = app.staticTexts["albums.empty.title"]
+    XCTAssertTrue(title.waitForExistence(timeout: 10))
+    XCTAssertEqual(title.value as? String, "No albums yet")
+    XCTAssertEqual(
+      app.staticTexts["albums.empty.description"].value as? String,
+      "Albums will appear here when they’re added to your library."
+    )
+    XCTAssertFalse(app.staticTexts["albums.count"].exists)
     XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'album.'")).count, 0)
     XCTAssertFalse(app.progressIndicators["albums.loading"].exists)
     XCTAssertFalse(app.staticTexts["albums.error"].exists)
-    capture(app, "Empty - loaded library")
+    capture(app, "Empty - no albums yet")
   }
 
   @MainActor
@@ -59,6 +66,7 @@ final class FeedbackLoopTests: XCTestCase {
     let error = app.staticTexts["albums.error"]
     XCTAssertTrue(error.waitForExistence(timeout: 10))
     XCTAssertEqual(error.value as? String, "Fixture request failed.")
+    XCTAssertFalse(app.staticTexts["albums.empty.title"].exists)
     XCTAssertFalse(app.progressIndicators["albums.loading"].exists)
     XCTAssertFalse(app.staticTexts["albums.count"].exists)
     capture(app, "Failure - request error")
