@@ -1,9 +1,23 @@
 import AppKit
+import Darwin
 import Foundation
 
 // Posts actual macOS NX_SYSDEFINED media-key events, not application command handlers.
 let root = URL(fileURLWithPath: CommandLine.arguments[1])
 try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+let descriptor = open(root.appendingPathComponent("owner.lock").path, O_CREAT | O_RDWR, 0o600)
+guard descriptor >= 0 else { exit(2) }
+guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
+  close(descriptor)
+  print("Media-key helper already owns this request directory.")
+  exit(0)
+}
+try Data(String(getpid()).utf8).write(to: root.appendingPathComponent("owner.pid"))
+defer {
+  try? FileManager.default.removeItem(at: root.appendingPathComponent("owner.pid"))
+  flock(descriptor, LOCK_UN)
+  close(descriptor)
+}
 try Data().write(to: root.appendingPathComponent("armed"))
 while !FileManager.default.fileExists(atPath: root.appendingPathComponent("done").path) {
   let request = root.appendingPathComponent("request")

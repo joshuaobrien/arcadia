@@ -9,7 +9,10 @@ func check(_ s: OSStatus, _ operation: String) {
 let out = CommandLine.arguments[1]
 try Data().write(to: URL(fileURLWithPath: out + "/armed"))
 let ready = URL(fileURLWithPath: out + "/target.json")
-while !FileManager.default.fileExists(atPath: ready.path) { Thread.sleep(forTimeInterval: 0.2) }
+while !FileManager.default.fileExists(atPath: ready.path) {
+  if FileManager.default.fileExists(atPath: out + "/done") { exit(0) }
+  Thread.sleep(forTimeInterval: 0.2)
+}
 let target = try JSONSerialization.jsonObject(with: Data(contentsOf: ready)) as! [String: Int]
 var process = AudioObjectID(0)
 var pid = pid_t(target["pid"]!)
