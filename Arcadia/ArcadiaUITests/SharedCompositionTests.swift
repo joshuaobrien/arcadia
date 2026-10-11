@@ -43,12 +43,12 @@ final class SharedCompositionTests: XCTestCase {
     let scroll = app.scrollViews["playlist.scroll"]
     let last = app.descendants(matching: .any).matching(identifier: "playlist.entry.fixture-occurrence-24").firstMatch
     for _ in 0..<12 {
-      if last.exists && last.isHittable { break }
+      if last.exists && last.isHittable && scroll.frame.contains(last.frame) { break }
       scroll.scroll(byDeltaX: 0, deltaY: -500)
     }
-    XCTAssertTrue(last.exists)
+    XCTAssertTrue(last.exists && last.isHittable && scroll.frame.contains(last.frame))
     for _ in 0..<12 {
-      if count.exists && count.isHittable { break }
+      if count.exists && count.isHittable && scroll.frame.contains(count.frame) { break }
       scroll.scroll(byDeltaX: 0, deltaY: 500)
     }
     XCTAssertEqual(count.value as? String, "24 songs")

@@ -85,32 +85,30 @@ struct PlayerBar: View {
 struct PlaybackToggleButton: View {
   @Environment(PlayerStore.self) private var playerStore
   var body: some View {
-          Button {
-            playerStore.togglePlayback()
-          } label: {
-            Image(systemName: playerStore.isPlaybackRequested ? "pause.fill" : "play.fill")
-              .frame(width: 28, height: 28)
-          }
-          .buttonStyle(.borderless)
-          .disabled(playerStore.state == .failed)
-          .accessibilityLabel(playerStore.isPlaybackRequested ? "Pause" : "Resume")
-          .accessibilityIdentifier(playerStore.isPlaybackRequested ? "player.pause" : "player.resume")
-
+    Button {
+      playerStore.togglePlayback()
+    } label: {
+      Image(systemName: playerStore.isPlaybackRequested ? "pause.fill" : "play.fill")
+        .frame(width: 28, height: 28)
+    }
+    .buttonStyle(.borderless)
+    .disabled(playerStore.state == .failed)
+    .accessibilityLabel(playerStore.isPlaybackRequested ? "Pause" : "Resume")
+    .accessibilityIdentifier(playerStore.isPlaybackRequested ? "player.pause" : "player.resume")
   }
 }
 
 struct NextSongButton: View {
   @Environment(PlayerStore.self) private var playerStore
   var body: some View {
-          Button {
-            playerStore.playNext()
-          } label: {
-            Image(systemName: "forward.end.fill")
-          }
-          .buttonStyle(.borderless)
-          .disabled(!playerStore.canAdvance)
-          .accessibilityLabel("Next song")
-          .accessibilityIdentifier("player.next")
-
+    Button {
+      playerStore.playNext()
+    } label: {
+      Image(systemName: "forward.end.fill")
+    }
+    .buttonStyle(.borderless)
+    .disabled(!playerStore.canAdvance)
+    .accessibilityLabel("Next song")
+    .accessibilityIdentifier("player.next")
   }
 }
