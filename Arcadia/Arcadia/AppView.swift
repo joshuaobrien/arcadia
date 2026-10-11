@@ -30,6 +30,7 @@ struct AppView: View {
   @State private var libraryModel: LibraryModel
   @State private var paths: [AppSection: NavigationPath] = [:]
   @AppStorage private var destination: String
+  @AppStorage private var lastLibraryDestination: String
 
   init(albumService: any MusicSource, listeningSession: ListeningSession? = nil) {
     self.albumService = albumService
@@ -39,6 +40,7 @@ struct AppView: View {
     _libraryModel = State(initialValue: LibraryModel(source: albumService))
     let namespace = ProcessInfo.processInfo.environment["ARCADIA_LIBRARY_NAMESPACE"] ?? "default"
     _destination = AppStorage(wrappedValue: "songs", "arcadia.library.destination.\(namespace)")
+    _lastLibraryDestination = AppStorage(wrappedValue: "songs", "arcadia.library.last-category.\(namespace)")
   }
 
   var body: some View {
@@ -98,7 +100,7 @@ struct AppView: View {
       ForEach(sections) { section in
         NavigationStack(path: pathBinding(for: section)) {
           VStack(spacing: 0) {
-            if showsCategories {
+            if showsCategories && selection == section {
               Picker("Library category", selection: categoryBinding) {
                 ForEach([AppSection.songs, .artists, .albums]) { category in
                   Text(category.rawValue.capitalized).tag(category)
@@ -114,15 +116,19 @@ struct AppView: View {
               libraryModel: libraryModel, isActive: selection == section
             )
           }
+          .accessibilityHidden(selection != section)
           .navigationDestination(for: LibraryRoute.self) { route in
-            switch route {
-            case .artist(let artist):
-              ArtistDetail(artist: artist, model: libraryModel.library(for: artist))
-            case .playlist(let playlist):
-              PlaylistDetail(playlist: playlist, source: albumService, isActive: selection == section)
-            case .album(let album):
-              AlbumDetail(albumService: albumService, album: album)
+            Group {
+              switch route {
+              case .artist(let artist):
+                ArtistDetail(artist: artist, model: libraryModel.library(for: artist))
+              case .playlist(let playlist):
+                PlaylistDetail(playlist: playlist, source: albumService, isActive: selection == section)
+              case .album(let album):
+                AlbumDetail(albumService: albumService, album: album)
+              }
             }
+            .accessibilityHidden(selection != section)
           }
         }
         .environment(\.libraryPresentationIsActive, selection == section)
@@ -134,27 +140,34 @@ struct AppView: View {
   }
 
   private var categoryBinding: Binding<AppSection> {
-    Binding(get: { [.songs, .artists, .albums].contains(selection) ? selection : .songs },
-            set: { destination = $0.rawValue })
+    Binding(
+      get: { librarySections.contains(selection) ? selection : lastLibraryCategory },
+      set: {
+        lastLibraryDestination = $0.rawValue
+        destination = $0.rawValue
+      })
   }
 
   #if os(iOS)
     private enum PhoneTab: Hashable { case library, playlists, search }
 
     private var phoneTabBinding: Binding<PhoneTab> {
-      Binding(get: {
-        switch selection {
-        case .playlists: .playlists
-        case .search: .search
-        default: .library
-        }
-      }, set: { tab in
-        switch tab {
-        case .library: destination = "songs"
-        case .playlists: destination = "playlists"
-        case .search: destination = "search"
-        }
-      })
+      Binding(
+        get: {
+          switch selection {
+          case .playlists: .playlists
+          case .search: .search
+          default: .library
+          }
+        },
+        set: { tab in
+          if librarySections.contains(selection) { lastLibraryDestination = selection.rawValue }
+          switch tab {
+          case .library: destination = lastLibraryCategory.rawValue
+          case .playlists: destination = "playlists"
+          case .search: destination = "search"
+          }
+        })
     }
 
     private var phoneShell: some View {
@@ -184,7 +197,9 @@ struct AppView: View {
                 NavigationLink {
                   QueueView(scrollPosition: $queueScrollPosition, scrollOffset: $queueScrollOffset)
                     .navigationTitle("Queue")
-                } label: { Label("Queue", systemImage: "list.bullet") }
+                } label: {
+                  Label("Queue", systemImage: "list.bullet")
+                }
                 .accessibilityIdentifier("queue.toggle")
               }
               ToolbarItem(placement: .topBarTrailing) {
@@ -197,10 +212,25 @@ struct AppView: View {
     }
   #endif
 
+  private var librarySections: [AppSection] { [.songs, .artists, .albums] }
+
+  private var lastLibraryCategory: AppSection {
+    guard let category = AppSection(rawValue: lastLibraryDestination), librarySections.contains(category) else {
+      return .songs
+    }
+    return category
+  }
+
   private var selection: AppSection { AppSection(rawValue: destination) ?? .songs }
 
   private var selectionBinding: Binding<AppSection?> {
-    Binding(get: { selection }, set: { destination = ($0 ?? .songs).rawValue })
+    Binding(
+      get: { selection },
+      set: {
+        let section = $0 ?? .songs
+        if librarySections.contains(section) { lastLibraryDestination = section.rawValue }
+        destination = section.rawValue
+      })
   }
 
   private func pathBinding(for section: AppSection) -> Binding<NavigationPath> {
