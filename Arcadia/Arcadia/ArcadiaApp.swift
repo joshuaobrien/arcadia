@@ -57,5 +57,8 @@ struct ArcadiaApp: App {
         .accessibilityIdentifier("configuration.error")
       }
     }
+    .commands {
+      PlaybackCommands(player: connection?.listeningSession?.player ?? fixtureSession?.player)
+    }
   }
 }

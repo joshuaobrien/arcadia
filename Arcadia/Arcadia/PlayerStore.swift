@@ -42,19 +42,14 @@ final class PlayerStore {
   @ObservationIgnored private var wantsPlayback = false
   @ObservationIgnored private var resolveTask: Task<Void, Never>?
   @ObservationIgnored private var durationTask: Task<Void, Never>?
-  @ObservationIgnored private var timeObserver: Any?
-  @ObservationIgnored private var statusObserver: NSKeyValueObservation?
-  @ObservationIgnored private var transportObserver: NSKeyValueObservation?
-  @ObservationIgnored private var endObserver: NSObjectProtocol?
-  @ObservationIgnored private var failureObserver: NSObjectProtocol?
-  @ObservationIgnored private var restorePosition: Double?
-  @ObservationIgnored private var restorationSeekStarted = false
-  @ObservationIgnored private var resolvedDuration = false
+  @ObservationIgnored private var transportObservation: PlaybackObservation?
+  @ObservationIgnored private let restoration = PausedRestoration()
   @ObservationIgnored private var feedbackTask: Task<Void, Never>?
 
   init(source: any MusicSource) { self.source = source }
 
   func pause() {
+    playbackChoiceRevision = UUID()
     wantsPlayback = false
     player.pause()
     if currentTrack != nil && state != .failed && state != .ended { state = .paused }
@@ -66,7 +61,7 @@ final class PlayerStore {
       return
     }
     wantsPlayback = true
-    if state == .failed, restorePosition != nil {
+    if state == .failed, restoration.position != nil {
       resolveRestoredEntry(entry)
       return
     }
@@ -106,7 +101,7 @@ final class PlayerStore {
 
   func retry() {
     if let entry = currentEntry {
-      if restorePosition != nil { resolveRestoredEntry(entry) } else { start(entry) }
+      if restoration.position != nil { resolveRestoredEntry(entry) } else { start(entry) }
     }
   }
 
@@ -114,7 +109,7 @@ final class PlayerStore {
     invalidate()
     player.pause()
     player.replaceCurrentItem(with: nil)
-    restorePosition = nil
+    restoration.cancel()
     queue = []
     pendingReplacement = nil
     clearQueueFeedback()
@@ -147,7 +142,7 @@ final class PlayerStore {
   }
 
   private func start(_ entry: QueueEntry) {
-    restorePosition = nil
+    restoration.cancel()
     invalidate()
     player.pause()
     player.replaceCurrentItem(with: nil)
@@ -158,17 +153,14 @@ final class PlayerStore {
     wantsPlayback = true
     state = .loading
     errorText = nil
+    resolve(entry)
+  }
+
+  private func resolve(_ entry: QueueEntry) {
     let expected = generation
-    resolveTask = Task { [weak self] in
-      guard let self else { return }
-      do {
-        let resource = try await self.source.playableResource(for: entry.track)
-        guard !Task.isCancelled, self.generation == expected else { return }
-        self.load(resource, generation: expected)
-      } catch {
-        guard !Task.isCancelled, self.generation == expected else { return }
-        self.fail(expected)
-      }
+    resolveTask = PlaybackPreparation.resource(for: entry.track, source: source) { [weak self] resource in
+      guard let self, self.generation == expected else { return }
+      if let resource { self.load(resource, generation: expected) } else { self.fail(expected) }
     }
   }
 
@@ -177,46 +169,29 @@ final class PlayerStore {
     let item = AVPlayerItem(asset: asset)
     player.replaceCurrentItem(with: item)
     observe(item, generation: expected)
-    durationTask = Task { [weak self] in
-      do {
-        let value = try await asset.load(.duration)
-        guard !Task.isCancelled, let self, self.generation == expected,
-          value.seconds.isFinite, value.seconds > 0 else { return }
-        self.duration = value.seconds
-        self.resolvedDuration = true
+    durationTask = PlaybackPreparation.duration(asset) { [weak self] seconds in
+      guard let self, self.generation == expected else { return }
+      if let seconds {
+        self.duration = seconds
+        self.restoration.markDurationResolved()
         self.updateTransport(expected)
-      } catch {
-        guard !Task.isCancelled, let self, self.generation == expected else { return }
-        if self.restorePosition != nil { self.fail(expected) }
+      } else if self.restoration.position != nil {
+        self.fail(expected)
       }
     }
-    if wantsPlayback && restorePosition == nil { player.play() }
+    if wantsPlayback && restoration.position == nil { player.play() }
   }
 
   private func observe(_ item: AVPlayerItem, generation expected: UUID) {
-    statusObserver = item.observe(\.status, options: [.initial, .new]) { [weak self] _, _ in
-      Task { @MainActor [weak self] in self?.updateTransport(expected) }
-    }
-    transportObserver = player.observe(\.timeControlStatus, options: [.initial, .new]) { [weak self] _, _ in
-      Task { @MainActor [weak self] in self?.updateTransport(expected) }
-    }
-    timeObserver = player.addPeriodicTimeObserver(
-      forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main
-    ) { [weak self] time in
-      MainActor.assumeIsolated {
-        guard let self, self.generation == expected, time.seconds.isFinite else { return }
-        if self.restorePosition == nil { self.currentTime = max(0, time.seconds) }
+    transportObservation = PlaybackObservation(player: player, item: item) { [weak self] event in
+      guard let self, self.generation == expected else { return }
+      switch event {
+      case .transport: self.updateTransport(expected)
+      case .position(let position):
+        if self.restoration.position == nil { self.currentTime = max(0, position) }
+      case .finished: self.finished(expected)
+      case .failed: self.fail(expected)
       }
-    }
-    endObserver = NotificationCenter.default.addObserver(
-      forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main
-    ) { [weak self] _ in
-      MainActor.assumeIsolated { self?.finished(expected) }
-    }
-    failureObserver = NotificationCenter.default.addObserver(
-      forName: .AVPlayerItemFailedToPlayToEndTime, object: item, queue: .main
-    ) { [weak self] _ in
-      MainActor.assumeIsolated { self?.fail(expected) }
     }
   }
 
@@ -226,7 +201,7 @@ final class PlayerStore {
       fail(expected)
       return
     }
-    if restorePosition != nil {
+    if restoration.position != nil {
       completeRestorationIfReady(expected)
       return
     }
@@ -265,14 +240,8 @@ final class PlayerStore {
     durationTask?.cancel()
     resolveTask = nil
     durationTask = nil
-    if let timeObserver { player.removeTimeObserver(timeObserver) }
-    timeObserver = nil
-    statusObserver = nil
-    transportObserver = nil
-    if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
-    if let failureObserver { NotificationCenter.default.removeObserver(failureObserver) }
-    endObserver = nil
-    failureObserver = nil
+    transportObservation?.cancel()
+    transportObservation = nil
   }
 }
 
@@ -367,12 +336,9 @@ extension PlayerStore {
 
 extension PlayerStore {
   func exportSession(sourceBinding: UUID) throws -> Data? {
-    guard !queue.isEmpty else { return nil }
-    let position = restorePosition ?? currentTime
-    let snapshot = PlaybackSnapshot(version: 1, sourceBinding: sourceBinding,
-      entries: queue.map(PlaybackSnapshot.Entry.init), currentEntryID: currentEntryID,
-      position: position.isFinite ? max(0, position) : 0)
-    return try JSONEncoder().encode(snapshot)
+    try PlaybackSnapshot.encode(
+      sourceBinding: sourceBinding, entries: queue,
+      currentEntryID: currentEntryID, position: restoration.position ?? currentTime)
   }
 
   func restoreSession(_ data: Data, sourceBinding: UUID) throws {
@@ -389,10 +355,10 @@ extension PlayerStore {
     wantsPlayback = false
     errorText = nil
     if let entry = currentEntry {
-      restorePosition = snapshot.position
+      restoration.install(position: snapshot.position)
       resolveRestoredEntry(entry)
     } else {
-      restorePosition = nil
+      restoration.cancel()
       state = .idle
     }
   }
@@ -401,39 +367,19 @@ extension PlayerStore {
     invalidate()
     player.pause()
     player.replaceCurrentItem(with: nil)
-    restorationSeekStarted = false
-    resolvedDuration = false
+    restoration.prepareAgain()
     state = .loading
     errorText = nil
-    let expected = generation
-    resolveTask = Task { [weak self] in
-      guard let self else { return }
-      do {
-        let resource = try await self.source.playableResource(for: entry.track)
-        guard !Task.isCancelled, self.generation == expected else { return }
-        self.load(resource, generation: expected)
-      } catch {
-        guard !Task.isCancelled, self.generation == expected else { return }
-        self.fail(expected)
-      }
-    }
+    resolve(entry)
   }
 
   private func completeRestorationIfReady(_ expected: UUID) {
-    guard let position = restorePosition, !restorationSeekStarted, resolvedDuration,
-      player.currentItem?.status == .readyToPlay else { return }
-    restorationSeekStarted = true
-    let target = min(max(position, 0), duration)
-    player.seek(to: CMTime(seconds: target, preferredTimescale: 600),
-      toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
-      Task { @MainActor [weak self] in
-        guard let self, self.generation == expected, finished else { return }
-        self.restorePosition = nil
-        let actual = self.player.currentTime().seconds
-        self.currentTime = actual.isFinite ? actual : target
-        if self.wantsPlayback { self.player.play() }
-        self.updateTransport(expected)
-      }
+    restoration.seekIfReady(player: player, duration: duration) { [weak self] position in
+      guard let self, self.generation == expected else { return }
+      self.restoration.cancel()
+      self.currentTime = position
+      if self.wantsPlayback { self.player.play() }
+      self.updateTransport(expected)
     }
   }
 }

@@ -30,7 +30,8 @@ final class SourceConnectionModel {
         let saved = try? JSONDecoder().decode(SecureSourceSession.self, from: session)
         let connection = try await connector.restore(saved?.adapterSession ?? session)
         let binding = saved?.binding ?? UUID()
-        try credentials.save(JSONEncoder().encode(SecureSourceSession(binding: binding, adapterSession: connection.savedSession)))
+        try credentials.save(
+          JSONEncoder().encode(SecureSourceSession(binding: binding, adapterSession: connection.savedSession)))
         listeningSession = ListeningSession(source: connection.source, sourceBinding: binding)
         source = connection.source
       }
@@ -58,7 +59,8 @@ final class SourceConnectionModel {
       }
       let connection = try await connector.connect(server: url, username: username, password: password)
       let binding = UUID()
-      try credentials.save(JSONEncoder().encode(SecureSourceSession(binding: binding, adapterSession: connection.savedSession)))
+      try credentials.save(
+        JSONEncoder().encode(SecureSourceSession(binding: binding, adapterSession: connection.savedSession)))
       listeningSession = ListeningSession(source: connection.source, sourceBinding: binding)
       source = connection.source
       AppDiagnostics.event("source.connected")

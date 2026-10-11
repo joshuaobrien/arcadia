@@ -1,8 +1,9 @@
 import CryptoKit
 import Foundation
 import Observation
+
 #if canImport(AppKit)
-import AppKit
+  import AppKit
 #endif
 
 @MainActor
@@ -11,6 +12,7 @@ final class ListeningSession {
   let player: PlayerStore
   let source: any MusicSource
   private(set) var recoveryMessage: String?
+  @ObservationIgnored private var mediaBridge: MediaPlaybackBridge?
   @ObservationIgnored private let binding: UUID?
   @ObservationIgnored private let file: PlaybackSessionFile?
   @ObservationIgnored private var saveTask: Task<Void, Never>?
@@ -22,21 +24,23 @@ final class ListeningSession {
     player = PlayerStore(source: source)
     binding = sourceBinding
     file = sourceBinding == nil ? nil : PlaybackSessionFile()
+    mediaBridge = MediaPlaybackBridge(player: player, source: source)
     if let binding, let file {
       do {
         if let data = try file.read() { try player.restoreSession(data, sourceBinding: binding) }
       } catch {
-        recoveryMessage = (error as? PlaybackSessionError)?.localizedDescription
+        recoveryMessage =
+          (error as? PlaybackSessionError)?.localizedDescription
           ?? PlaybackSessionError.invalidSnapshot.localizedDescription
       }
       observeChanges()
     }
     #if canImport(AppKit)
-    terminationObserver = NotificationCenter.default.addObserver(
-      forName: NSApplication.willTerminateNotification, object: nil, queue: .main
-    ) { [weak self] _ in
-      MainActor.assumeIsolated { self?.shutdown() }
-    }
+      terminationObserver = NotificationCenter.default.addObserver(
+        forName: NSApplication.willTerminateNotification, object: nil, queue: .main
+      ) { [weak self] _ in
+        MainActor.assumeIsolated { self?.shutdown() }
+      }
     #endif
   }
 
@@ -69,6 +73,8 @@ final class ListeningSession {
   private func closeObservers() {
     saveTask?.cancel()
     saveTask = nil
+    mediaBridge?.close()
+    mediaBridge = nil
     if let terminationObserver { NotificationCenter.default.removeObserver(terminationObserver) }
     terminationObserver = nil
   }
@@ -114,7 +120,8 @@ private struct PlaybackSessionFile {
   }
 
   func write(_ data: Data) throws {
-    try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
+    try FileManager.default.createDirectory(
+      at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
       attributes: [.posixPermissions: 0o700])
     try data.write(to: url, options: .atomic)
     try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)

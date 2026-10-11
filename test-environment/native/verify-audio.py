@@ -8,15 +8,21 @@ from pathlib import Path
 
 parser = argparse.ArgumentParser()
 parser.add_argument('directory', type=Path)
-parser.add_argument('--profile', choices=['transport', 'browsing'], default='transport')
+parser.add_argument('--profile', choices=['transport', 'browsing', 'restart-before', 'restart-after', 'restart-paused-output'], default='transport')
 args = parser.parse_args()
 root = args.directory
 chunks = json.loads((root / 'chunks.json').read_text())
 phases = json.loads((root / 'phases.json').read_text())
 raw = (root / 'captured-float32.raw').read_bytes()
-expected = ({'standalone': 520, 'artist-navigation': 520, 'artist-song': 600}
-            if args.profile == 'browsing' else
-            {'playing': 520, 'paused': None, 'resumed': 520, 'seeked': 680, 'advanced': 600})
+expected = {
+    'browsing': {'standalone': 520, 'artist-navigation': 520, 'artist-song': 600},
+    'transport': {'playing': 520, 'paused': None, 'resumed': 520, 'seeked': 680, 'advanced': 600},
+    'restart-before': {'before-playing': 680},
+    'restart-paused-output': {'restored-paused': None, 'global-resumed': 680},
+    'restart-after': {'restored-resumed': 680, 'media-key-paused': None,
+                      'system-duplicate': 520, 'system-paused': None, 'system-resumed': 520,
+                      'system-advanced': 600},
+}[args.profile]
 summary = []
 for phase in phases:
     selected = [chunk for chunk in chunks if phase['start'] + 0.5 < chunk['time'] < phase['end'] - 0.15]
@@ -47,5 +53,4 @@ for phase in phases:
                     'expected_hz': target, 'power': bands})
 assert {phase['name'] for phase in phases} == set(expected), 'Missing required transport phase'
 (root / 'audio-assertions.json').write_text(json.dumps({'passed': True, 'phases': summary}, indent=2) + '\n')
-print('PASS: actual app PCM verifies ' + ('standalone play, artist navigation and artist-song play'
-      if args.profile == 'browsing' else 'play, pause, resume, seek segment and natural next song'))
+print('PASS: actual app PCM verifies required ' + args.profile + ' phases')

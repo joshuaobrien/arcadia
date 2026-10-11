@@ -51,10 +51,22 @@ struct PlaybackSnapshot: Codable {
       let album = albumID.flatMap { id in
         albumTitle.map { AlbumReference(id: id, title: $0, artworkURL: nil, albumArtist: albumArtist) }
       }
-      return Track(id: id, relativePath: nil, title: title, artists: artists,
+      return Track(
+        id: id, relativePath: nil, title: title, artists: artists,
         trackNumber: trackNumber, discNumber: discNumber, durationSeconds: duration, format: format,
         albumReference: album, artistReferences: nil, artworkURL: nil)
     }
+  }
+
+  static func encode(
+    sourceBinding: UUID, entries: [QueueEntry], currentEntryID: UUID?, position: Double
+  ) throws -> Data? {
+    guard !entries.isEmpty else { return nil }
+    return try JSONEncoder().encode(
+      Self(
+        version: 1, sourceBinding: sourceBinding,
+        entries: entries.map(Entry.init), currentEntryID: currentEntryID,
+        position: position.isFinite ? max(0, position) : 0))
   }
 
   func validate(binding: UUID) throws {
