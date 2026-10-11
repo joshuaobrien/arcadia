@@ -15,9 +15,23 @@ cleanup() {
   trap - EXIT INT TERM
   for phase in before after quiet; do touch "$root/$phase/done" 2>/dev/null || true; done
   if [[ "${owns_media:-0}" == 1 ]]; then touch "$keys/done" 2>/dev/null || true; fi
-  for pid in $owned_pids; do wait "$pid" || true; done
+  for pid in $owned_pids; do
+    for attempt in $(seq 1 20); do
+      kill -0 "$pid" 2>/dev/null || break
+      sleep 0.1
+    done
+    if kill -0 "$pid" 2>/dev/null; then
+      kill -TERM "$pid" 2>/dev/null || true
+      for attempt in $(seq 1 10); do
+        kill -0 "$pid" 2>/dev/null || break
+        sleep 0.1
+      done
+      kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" 2>/dev/null || true
+    fi
+    wait "$pid" || true
+  done
   for phase in before after quiet; do rm -f "$root/$phase/armed"; done
-  rm -f "$keys/armed"
+  if [[ "${owns_media:-0}" == 1 ]]; then rm -f "$keys/armed"; fi
   rmdir "$lock"
   exit "$status"
 }
@@ -26,7 +40,18 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 # Never delete the lock file inode; duplicate media producers cannot acquire it.
 mkdir -p "$keys"
-rm -f "$keys/request" "$keys/completed" "$keys/done" "$keys/armed"
+# Clear stale protocol files only while no legacy media owner holds its lock.
+python3 - "$keys" <<'PYTHON'
+import fcntl, pathlib, sys
+root = pathlib.Path(sys.argv[1])
+with (root / 'owner.lock').open('a') as owner:
+    try:
+        fcntl.flock(owner, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        raise SystemExit('A media-key helper already owns this directory.')
+    for name in ('request', 'completed', 'done', 'armed'):
+        (root / name).unlink(missing_ok=True)
+PYTHON
 rm -rf "$root"
 mkdir -p "$root/before" "$root/after" "$root/quiet"
 media=${ARCADIA_MEDIA_KEY_HELPER:-/tmp/arcadia-media-key}
