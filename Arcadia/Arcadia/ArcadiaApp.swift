@@ -26,9 +26,11 @@ struct ArcadiaApp: App {
     WindowGroup {
       switch configuration {
       case .success(let configuration):
-        AppView(
-          albumService: configuration.albumService()
-        )
+        if configuration.dataMode == .jellyfin {
+          SourceConnectionView(connector: JellyfinConnector())
+        } else {
+          AppView(albumService: configuration.albumService())
+        }
       case .failure(let error):
         ContentUnavailableView(
           "Configuration Error",

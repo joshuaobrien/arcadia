@@ -13,6 +13,7 @@ struct AppConfiguration {
 
   enum DataMode: String {
     case fixtures
+    case jellyfin
     case integration
     case liveReadOnly = "live-readonly"
   }
@@ -33,7 +34,7 @@ struct AppConfiguration {
     #if DEBUG
       let defaultMode = DataMode.fixtures
     #else
-      let defaultMode = DataMode.integration
+      let defaultMode = DataMode.jellyfin
     #endif
     let modeValue = environment["ARCADIA_DATA_MODE"] ?? defaultMode.rawValue
     guard let mode = DataMode(rawValue: modeValue) else {
@@ -42,6 +43,9 @@ struct AppConfiguration {
     let scenarioValue = environment["ARCADIA_FIXTURE_SCENARIO"] ?? "success"
     guard let scenario = FixtureScenario(rawValue: scenarioValue) else {
       throw ConfigurationError.invalidFixtureScenario
+    }
+    if mode == .jellyfin {
+      return AppConfiguration(arcadiaBaseURL: URL(fileURLWithPath: "/"), dataMode: mode, fixtureScenario: scenario)
     }
     if mode == .fixtures {
       #if DEBUG
@@ -100,7 +104,7 @@ enum ConfigurationError: LocalizedError {
     case .invalidArcadiaBaseURL:
       "ARCADIA_BASE_URL must be an HTTP(S) URL without credentials, query, or fragment."
     case .invalidDataMode:
-      "ARCADIA_DATA_MODE must be fixtures, integration, or live-readonly."
+      "ARCADIA_DATA_MODE must be fixtures, jellyfin, integration, or live-readonly."
     case .invalidFixtureScenario:
       "ARCADIA_FIXTURE_SCENARIO must be success, empty, failure, failure-then-success, or two-page."
     case .fixturesRequireDebug:

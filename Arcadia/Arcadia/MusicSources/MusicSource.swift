@@ -1,0 +1,38 @@
+import Foundation
+
+// Grow this existing browsing seam as listening features are implemented.
+nonisolated protocol MusicSource: AlbumService {
+  func artworkData(for url: URL) async throws -> Data
+}
+
+struct ConnectedMusicSource {
+  let source: any MusicSource
+  let savedSession: Data
+}
+
+protocol MusicSourceConnector {
+  func connect(server: URL, username: String, password: String) async throws -> ConnectedMusicSource
+  func restore(_ session: Data) async throws -> ConnectedMusicSource
+}
+
+enum MusicSourceError: LocalizedError {
+  case invalidServer
+  case credentialsRequired
+  case authenticationFailed
+  case unavailable
+  case invalidResponse
+  case invalidCursor
+  case storageFailed
+
+  var errorDescription: String? {
+    switch self {
+    case .invalidServer: "Enter an HTTP or HTTPS server address without credentials, query or fragment."
+    case .credentialsRequired: "Enter your username and password."
+    case .authenticationFailed: "Sign-in failed. Check your username and password, then try again."
+    case .unavailable: "Couldn't reach the music server. Check the address and connection, then try again."
+    case .invalidResponse: "The music server returned an unexpected response. Try again."
+    case .invalidCursor: "Couldn't load the next page. Reload the library."
+    case .storageFailed: "Couldn't securely save your connection. Try again."
+    }
+  }
+}

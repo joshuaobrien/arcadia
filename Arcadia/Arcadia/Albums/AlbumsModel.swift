@@ -27,15 +27,25 @@ final class AlbumsModel {
   var errorText: String?
   private var searchTerm = ""
   private var hasOpened = false
+  @ObservationIgnored private var openingTask: Task<Void, Never>?
 
   var hasNextPage: Bool {
     return nextCursor != nil
   }
 
   func onOpen() async {
+    if let openingTask {
+      await openingTask.value
+      return
+    }
     guard !hasOpened else { return }
     hasOpened = true
-    await load(LoadMode.initial)
+    // The library model owns its initial request. SwiftUI can replace a presentation
+    // task during connection or layout changes without canceling the shared load.
+    let task = Task { await load(LoadMode.initial) }
+    openingTask = task
+    await task.value
+    openingTask = nil
   }
 
   func onRetry() async {

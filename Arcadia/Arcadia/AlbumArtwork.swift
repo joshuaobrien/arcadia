@@ -3,6 +3,7 @@ import SwiftUI
 
 struct AlbumArtwork: View {
   let artworkURL: URL?
+  @Environment(\.musicSource) private var musicSource
   @State private var image: NSImage?
   @State private var isLoading = false
 
@@ -41,6 +42,8 @@ struct AlbumArtwork: View {
       let loaded: NSImage?
       if artworkURL.isFileURL {
         loaded = NSImage(contentsOf: artworkURL)
+      } else if let musicSource {
+        loaded = NSImage(data: try await musicSource.artworkData(for: artworkURL))
       } else {
         let (data, response) = try await URLSession.shared.data(
           for: URLRequest(url: artworkURL, timeoutInterval: 15)

@@ -6,6 +6,8 @@ Arcadia is a personal music acquisition, library, and Sony NW-A55 synchronizatio
 
 For the macOS application, use the [background VM development loop](docs/native-feedback-loop.md). Builds, UI tests and app-window screenshots run inside a disposable task VM.
 
+The native app can connect directly to a Jellyfin music source, storing its session in the platform Keychain. Debug builds default to deterministic fixtures; select `ARCADIA_DATA_MODE=jellyfin` to exercise connection and real browsing. Release builds default to direct source connection. The existing `integration` and `live-readonly` modes retain explicit Arcadia API access during the transition. See the [disposable direct Jellyfin fixture](test-environment/native/README.md) for real-source verification without personal-server changes.
+
 ```sh
 npm install
 amp orb services ensure
