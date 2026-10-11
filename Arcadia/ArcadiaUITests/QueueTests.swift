@@ -15,6 +15,7 @@ final class QueueTests: XCTestCase {
     app.descendants(matching: .any)["album.actions"].click()
     app.menuItems["Add Album to Queue"].click()
     XCTAssertFalse(app.staticTexts["player.title"].exists)
+    revealThirdTrack(app)
     app.buttons["track.fixture-1-track-3.play"].click()
     XCTAssertTrue(app.sheets.buttons["Replace Queue"].waitForExistence(timeout: 5))
     app.sheets.buttons["Cancel"].click()
@@ -85,6 +86,7 @@ final class QueueTests: XCTestCase {
     app.menuItems["Add to Queue"].click()
     XCTAssertTrue(app.staticTexts["queue.feedback"].waitForExistence(timeout: 3))
     XCTAssertFalse(app.staticTexts["queue.heading"].exists)
+    saveWindow(app, name: "queue-added-feedback")
     app.buttons["queue.undo"].click()
     XCTAssertFalse(app.staticTexts["queue.feedback"].exists)
     app.buttons["queue.toggle"].click()
@@ -108,12 +110,14 @@ final class QueueTests: XCTestCase {
     app.buttons["player.pause"].click()
     app.descendants(matching: .any)["track.fixture-1-track-2.actions"].click()
     app.menuItems["Add to Queue"].click()
+    revealThirdTrack(app)
     app.buttons["track.fixture-1-track-3.play"].click()
     let replacement = app.sheets.buttons["Replace Queue"]
     XCTAssertTrue(replacement.waitForExistence(timeout: 5))
     app.sheets.buttons["Cancel"].click()
     XCTAssertEqual(app.staticTexts["player.title"].value as? String, "The First Song")
     XCTAssertTrue(app.buttons["player.resume"].exists)
+    revealThirdTrack(app)
     app.buttons["track.fixture-1-track-3.play"].click()
     XCTAssertTrue(replacement.waitForExistence(timeout: 5))
     replacement.click()
@@ -138,6 +142,7 @@ final class QueueTests: XCTestCase {
     XCTAssertEqual(title.value as? String, "The First Song")
     app.descendants(matching: .any)["track.fixture-1-track-2.actions"].click()
     app.menuItems["Play Next"].click()
+    revealThirdTrack(app)
     app.descendants(matching: .any)["track.fixture-1-track-3.actions"].click()
     app.menuItems["Add to Queue"].click()
     XCTAssertEqual(title.value as? String, "The First Song")
@@ -171,6 +176,7 @@ final class QueueTests: XCTestCase {
       app.descendants(matching: .any)["track.fixture-1-track-2.actions"].click()
       app.menuItems["Add to Queue"].click()
     }
+    revealThirdTrack(app)
     app.descendants(matching: .any)["track.fixture-1-track-3.actions"].click()
     app.menuItems["Add to Queue"].click()
     app.buttons["queue.toggle"].click()
@@ -187,5 +193,22 @@ final class QueueTests: XCTestCase {
     XCTAssertEqual(app.staticTexts["player.title"].value as? String, "The First Song")
     XCTAssertTrue(app.buttons["player.resume"].exists)
     XCTAssertEqual(elapsed.value as? String, pausedPosition)
+    saveWindow(app, name: "queue-edited-occurrences")
+  }
+
+  @MainActor
+  private func revealThirdTrack(_ app: XCUIApplication) {
+    let control = app.buttons["track.fixture-1-track-3.play"]
+    if !control.isHittable { app.typeKey(.escape, modifierFlags: []) }
+    if !control.isHittable { app.buttons["track.fixture-1-track-1.play"].scroll(byDeltaX: 0, deltaY: -180) }
+    XCTAssertTrue(control.isHittable)
+  }
+
+  @MainActor
+  private func saveWindow(_ app: XCUIApplication, name: String) {
+    let attachment = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
+    attachment.name = name
+    attachment.lifetime = .keepAlways
+    add(attachment)
   }
 }

@@ -273,14 +273,20 @@ extension PlayerStore {
     guard !tracks.isEmpty else { return }
     let entries = tracks.map { QueueEntry(track: $0, origin: .manual) }
     queue.insert(contentsOf: entries, at: currentIndex.map { $0 + 1 } ?? 0)
-    showQueueFeedback(entries, message: tracks.count == 1 ? "Playing next: \(tracks[0].title ?? "Song")" : "\(tracks.count) songs will play next")
+    showQueueFeedback(
+      entries,
+      message: tracks.count == 1 ? "Playing next: \(tracks[0].title ?? "Song")" : "\(tracks.count) songs will play next"
+    )
   }
 
   func append(_ tracks: [Track]) {
     guard !tracks.isEmpty else { return }
     let entries = tracks.map { QueueEntry(track: $0, origin: .manual) }
     queue.append(contentsOf: entries)
-    showQueueFeedback(entries, message: tracks.count == 1 ? "Added to queue: \(tracks[0].title ?? "Song")" : "Added \(tracks.count) songs to queue")
+    showQueueFeedback(
+      entries,
+      message: tracks.count == 1
+        ? "Added to queue: \(tracks[0].title ?? "Song")" : "Added \(tracks.count) songs to queue")
   }
 
   func undoAddition(_ feedbackID: UUID) {

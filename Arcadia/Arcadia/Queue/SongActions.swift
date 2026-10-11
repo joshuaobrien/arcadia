@@ -15,10 +15,14 @@ struct SongActionsMenu: View {
   let track: Track
 
   var body: some View {
-    Menu { SongActions(track: track) } label: { Image(systemName: "ellipsis") }
-      .menuStyle(.borderlessButton)
-      .frame(width: 28)
-      .accessibilityLabel("Actions for \(track.title ?? "Untitled track")")
-      .accessibilityIdentifier("track.\(track.id).actions")
+    Menu {
+      SongActions(track: track)
+    } label: {
+      Image(systemName: "ellipsis")
+    }
+    .menuStyle(.borderlessButton)
+    .frame(width: 28)
+    .accessibilityLabel("Actions for \(track.title ?? "Untitled track")")
+    .accessibilityIdentifier("track.\(track.id).actions")
   }
 }

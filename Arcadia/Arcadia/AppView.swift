@@ -54,9 +54,12 @@ struct AppView: View {
       Button("Queue", systemImage: "list.bullet") { isQueuePresented.toggle() }
         .accessibilityIdentifier("queue.toggle")
     }
-    .alert("Replace your queue?", isPresented: Binding(
-      get: { playerStore.needsReplacementConfirmation }, set: { _ in }
-    )) {
+    .alert(
+      "Replace your queue?",
+      isPresented: Binding(
+        get: { playerStore.needsReplacementConfirmation }, set: { _ in }
+      )
+    ) {
       Button("Cancel", role: .cancel) { playerStore.cancelReplacement() }
         .accessibilityIdentifier("queue.replace.cancel")
       Button("Replace Queue", role: .destructive) { playerStore.confirmReplacement() }

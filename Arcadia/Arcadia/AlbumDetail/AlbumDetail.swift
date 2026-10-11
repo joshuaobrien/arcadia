@@ -62,11 +62,13 @@ struct AlbumDetail: View {
         Menu {
           Button("Play Album Next") { playerStore.insertNext(model.tracks) }
           Button("Add Album to Queue") { playerStore.append(model.tracks) }
-        } label: { Image(systemName: "ellipsis") }
-          .menuStyle(.borderlessButton)
-          .frame(width: 28)
-          .accessibilityLabel("Album actions")
-          .accessibilityIdentifier("album.actions")
+        } label: {
+          Image(systemName: "ellipsis")
+        }
+        .menuStyle(.borderlessButton)
+        .frame(width: 28)
+        .accessibilityLabel("Album actions")
+        .accessibilityIdentifier("album.actions")
       }
       .disabled(model.isLoading || model.tracks.isEmpty)
 

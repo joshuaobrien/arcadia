@@ -19,22 +19,44 @@ struct QueueView: View {
           Text("Up Next").font(.headline)
           ForEach(playerStore.upcoming) { entry in
             HStack {
-              Button { playerStore.playQueuedEntry(entry.id) } label: { Image(systemName: "play.fill") }
-                .accessibilityLabel("Play queued \(entry.track.title ?? "song")")
-                .accessibilityIdentifier("queue.play")
-              Text(entry.track.title ?? "Untitled track")
-                .frame(maxWidth: .infinity, alignment: .leading)
-              Button { playerStore.moveUpcoming(entry.id, by: -1) } label: { Image(systemName: "arrow.up") }
-                .disabled(playerStore.upcoming.first?.id == entry.id)
-                .accessibilityLabel("Move \(entry.track.title ?? "song") earlier")
-                .accessibilityIdentifier("queue.move-up")
-              Button { playerStore.moveUpcoming(entry.id, by: 1) } label: { Image(systemName: "arrow.down") }
-                .disabled(playerStore.upcoming.last?.id == entry.id)
-                .accessibilityLabel("Move \(entry.track.title ?? "song") later")
-                .accessibilityIdentifier("queue.move-down")
-              Button { playerStore.removeUpcoming(entry.id) } label: { Image(systemName: "minus.circle") }
-                .accessibilityLabel("Remove \(entry.track.title ?? "song") from queue")
-                .accessibilityIdentifier("queue.remove")
+              Button {
+                playerStore.playQueuedEntry(entry.id)
+              } label: {
+                Image(systemName: "play.fill")
+              }
+              .accessibilityLabel("Play queued \(entry.track.title ?? "song")")
+              .accessibilityIdentifier("queue.play")
+              VStack(alignment: .leading, spacing: 2) {
+                Text(entry.track.title ?? "Untitled track").lineLimit(1)
+                if let artists = entry.track.artists, !artists.isEmpty {
+                  Text(artists.joined(separator: ", "))
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+              }
+              .frame(maxWidth: .infinity, alignment: .leading)
+              Button {
+                playerStore.moveUpcoming(entry.id, by: -1)
+              } label: {
+                Image(systemName: "arrow.up")
+              }
+              .disabled(playerStore.upcoming.first?.id == entry.id)
+              .accessibilityLabel("Move \(entry.track.title ?? "song") earlier")
+              .accessibilityIdentifier("queue.move-up")
+              Button {
+                playerStore.moveUpcoming(entry.id, by: 1)
+              } label: {
+                Image(systemName: "arrow.down")
+              }
+              .disabled(playerStore.upcoming.last?.id == entry.id)
+              .accessibilityLabel("Move \(entry.track.title ?? "song") later")
+              .accessibilityIdentifier("queue.move-down")
+              Button {
+                playerStore.removeUpcoming(entry.id)
+              } label: {
+                Image(systemName: "minus.circle")
+              }
+              .accessibilityLabel("Remove \(entry.track.title ?? "song") from queue")
+              .accessibilityIdentifier("queue.remove")
             }
             .buttonStyle(.borderless)
             .accessibilityElement(children: .contain)
