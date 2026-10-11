@@ -19,6 +19,7 @@ def main():
     parser.add_argument('--root', required=True)
     parser.add_argument('--bind', default='127.0.0.1')
     parser.add_argument('--port', type=int, default=18096)
+    parser.add_argument('--artist-count', type=int, choices=[1,23], default=1)
     args = parser.parse_args()
     root = Path(args.root).resolve()
     state = root / 'fixture.json'
@@ -67,7 +68,8 @@ def main():
     authorization+=', Token="'+auth['AccessToken']+'"'
     for album in range(1,25):
         title='Orb Sessions' if album==1 else f'Fixture Album {album:02}'
-        folder='/music/Arcadia Test Ensemble/'+title
+        artist = 'Arcadia Test Ensemble' if args.artist_count == 1 or album <= 2 else f'Fixture Artist {album-1:02}'
+        folder='/music/'+artist+'/'+title
         docker('exec', name, 'mkdir', '-p', folder)
         docker('exec',name,'/usr/lib/jellyfin-ffmpeg/ffmpeg','-hide_banner','-loglevel','error','-y',
                '-f','lavfi','-i','color=c=0x405b72:s=300x300','-frames:v','1',folder+'/cover.jpg')
@@ -79,8 +81,8 @@ def main():
                      'sine=frequency=680:duration=10[c];[a][b][c]concat=n=3:v=0:a=1'
                      if album == 1 and track == 1 else f'sine=frequency={440+track*80}:duration=12'
                    ), '-c:a','libmp3lame',
-                   '-metadata','title='+song,'-metadata','artist=Arcadia Test Ensemble','-metadata','album='+title,
-                   '-metadata','album_artist=Arcadia Test Ensemble','-metadata','track='+str(track),
+                   '-metadata','title='+song,'-metadata','artist='+artist,'-metadata','album='+title,
+                   '-metadata','album_artist='+artist,'-metadata','track='+str(track),
                    '-metadata','date=2026',folder+f'/{track:02}.mp3')
     request('/Library/VirtualFolders?name=Music&collectionType=music&refreshLibrary=true',
             {'LibraryOptions':{'PathInfos':[{'Path':'/music'}],'EnableInternetProviders':False,
@@ -93,7 +95,18 @@ def main():
         if albums['TotalRecordCount']==24:break
         if time.monotonic()>deadline:raise RuntimeError('Fixture library did not contain 24 albums')
         time.sleep(2)
-    data['version']=info['Version'];data['album_count']=24
+    if args.artist_count == 23:
+        artists=request(f'/Artists?UserId={user}&Limit=100')
+        if artists['TotalRecordCount'] != 23 or len({item['Id'] for item in artists['Items']}) != 23:
+            raise RuntimeError('Richer fixture did not contain 23 distinct artists')
+        artist=next(item for item in artists['Items'] if item['Name']=='Arcadia Test Ensemble')
+        last=next(item for item in artists['Items'] if item['Name']=='Fixture Artist 23')
+        album=next(item for item in albums['Items'] if item['Name']=='Orb Sessions')
+        tracks=request(f'/Items?UserId={user}&ParentId={album["Id"]}&IncludeItemTypes=Audio')['Items']
+        data.update({'artistID':artist['Id'],'lastArtistID':last['Id'],'albumID':album['Id'],
+                     'firstSongID':next(item['Id'] for item in tracks if item['Name']=='First Contact'),
+                     'secondSongID':next(item['Id'] for item in tracks if item['Name']=='Persistent State')})
+    data['version']=info['Version'];data['album_count']=24;data['artist_count']=args.artist_count
     state.write_text(json.dumps(data));state.chmod(0o600)
     (root/'evidence.json').write_text(json.dumps({k:v for k,v in data.items() if k!='password'},indent=2))
     print(json.dumps({'version':info['Version'],'albums':24,'server':base,'image':IMAGE}))

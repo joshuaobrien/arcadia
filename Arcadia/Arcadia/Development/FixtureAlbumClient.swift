@@ -4,6 +4,7 @@
   actor FixtureAlbumClient: MusicSource {
     private let scenario: AppConfiguration.FixtureScenario
     private var albumRequests = 0
+    private var libraryRequests: [String: Int] = [:]
 
     init(scenario: AppConfiguration.FixtureScenario) {
       self.scenario = scenario
@@ -40,6 +41,85 @@
         },
         nextCursor: nil
       )
+    }
+
+    func fetchSongs(_ request: SongBrowseRequest) async throws -> LibraryPage<Track> {
+      try await libraryRequest(key: "songs.\(request.artistID ?? "all")")
+      if scenario == .empty { return LibraryPage(items: [], nextCursor: nil) }
+      var records: [Track]
+      if let artistID = request.artistID {
+        if artistID == "fixture-artist-credit" {
+          records = [librarySong(number: 1, artistNumber: 1)]
+        } else {
+          let number = Int(artistID.replacingOccurrences(of: "fixture-artist-", with: "")) ?? 1
+          records = (1...6).map { librarySong(number: $0, artistNumber: number) }
+        }
+      } else {
+        records = (1...(scenario == .twoPage ? 24 : 3)).map { librarySong(number: $0, artistNumber: 1) }
+      }
+      if !request.searchTerm.isEmpty {
+        records = records.filter { ($0.title ?? "").localizedCaseInsensitiveContains(request.searchTerm) }
+      }
+      return try libraryPage(records, cursor: request.cursor)
+    }
+
+    func fetchArtists(_ request: ArtistBrowseRequest) async throws -> LibraryPage<Artist> {
+      try await libraryRequest(key: "artists")
+      if scenario == .empty { return LibraryPage(items: [], nextCursor: nil) }
+      var records = (1...(scenario == .twoPage ? 24 : 1)).map { fixtureArtist($0) }
+      if !request.searchTerm.isEmpty {
+        records = records.filter { $0.name.localizedCaseInsensitiveContains(request.searchTerm) }
+      }
+      return try libraryPage(records, cursor: request.cursor)
+    }
+
+    func fetchArtistAlbums(artistID: String, cursor: String?) async throws -> FetchAlbumsResponse {
+      try await libraryRequest(key: "releases.\(artistID)")
+      if scenario == .empty || artistID == "fixture-artist-credit" {
+        return FetchAlbumsResponse(albums: [], nextCursor: nil)
+      }
+      let records = try libraryPage(albums(1...2), cursor: cursor)
+      return FetchAlbumsResponse(albums: records.items, nextCursor: records.nextCursor)
+    }
+
+    private func libraryRequest(key: String) async throws {
+      if scenario == .delayedLibrary { try await Task.sleep(for: .seconds(2)) }
+      libraryRequests[key, default: 0] += 1
+      if scenario == .failure || (scenario == .failureThenSuccess && libraryRequests[key] == 1) {
+        throw FixtureError.requestFailed
+      }
+    }
+
+    private func libraryPage<Item>(_ items: [Item], cursor: String?) throws -> LibraryPage<Item> {
+      let offset: Int
+      if let cursor {
+        guard let value = Int(cursor), value >= 0, value <= items.count else { throw FixtureError.invalidCursor }
+        offset = value
+      } else {
+        offset = 0
+      }
+      let end = min(offset + 20, items.count)
+      return LibraryPage(items: Array(items[offset..<end]), nextCursor: end < items.count ? String(end) : nil)
+    }
+
+    private func fixtureArtist(_ number: Int) -> Artist {
+      Artist(id: "fixture-artist-\(number)", name: number == 1 ? "Bjork" : "Fixture Artist \(number)", artworkURL: nil)
+    }
+
+    private func librarySong(number: Int, artistNumber: Int) -> Track {
+      let albumNumber = (number - 1) / 3 + 1
+      let trackNumber = (number - 1) % 3 + 1
+      let artist = fixtureArtist(artistNumber)
+      let albumTitle = albumNumber == 1 ? "Hyperballad" : "Fixture Album \(albumNumber)"
+      let artwork = number == 3 ? nil : Bundle.main.url(forResource: "FixtureArtwork", withExtension: "png")
+      return Track(
+        id: "fixture-\(albumNumber)-track-\(trackNumber)", relativePath: nil,
+        title: albumNumber == 1
+          ? ["The First Song", "The Second Song", "The Third Song"][trackNumber - 1] : "Fixture Song \(number)",
+        artists: [artist.name], trackNumber: trackNumber, discNumber: 1, durationSeconds: 63, format: "MP3",
+        albumReference: AlbumReference(
+          id: "fixture-\(albumNumber)", title: albumTitle, artworkURL: artwork, albumArtist: artist.name),
+        artistReferences: [artist], artworkURL: artwork)
     }
 
     func playableResource(for track: Track) async throws -> PlayableResource {

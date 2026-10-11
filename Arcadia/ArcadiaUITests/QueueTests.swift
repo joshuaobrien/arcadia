@@ -9,7 +9,9 @@ final class QueueTests: XCTestCase {
     app.launchArguments = ["-ApplePersistenceIgnoreState", "YES"]
     app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
     app.launchEnvironment["ARCADIA_FIXTURE_SCENARIO"] = "success"
+    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
     app.launch()
+    app.staticTexts["library.destination.albums"].click()
     XCTAssertTrue(app.buttons["album.fixture-1"].waitForExistence(timeout: 10))
     app.buttons["album.fixture-1"].click()
     app.descendants(matching: .any)["album.actions"].click()
@@ -38,7 +40,9 @@ final class QueueTests: XCTestCase {
     app.launchArguments = ["-ApplePersistenceIgnoreState", "YES"]
     app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
     app.launchEnvironment["ARCADIA_FIXTURE_SCENARIO"] = "success"
+    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
     app.launch()
+    app.staticTexts["library.destination.albums"].click()
     XCTAssertTrue(app.buttons["album.fixture-1"].waitForExistence(timeout: 10))
     app.buttons["album.fixture-1"].click()
     app.buttons["track.fixture-1-track-1.play"].click()
@@ -76,7 +80,9 @@ final class QueueTests: XCTestCase {
     app.launchArguments = ["-ApplePersistenceIgnoreState", "YES"]
     app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
     app.launchEnvironment["ARCADIA_FIXTURE_SCENARIO"] = "success"
+    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
     app.launch()
+    app.staticTexts["library.destination.albums"].click()
     XCTAssertTrue(app.buttons["album.fixture-1"].waitForExistence(timeout: 10))
     app.buttons["album.fixture-1"].click()
     app.buttons["track.fixture-1-track-1.play"].click()
@@ -102,7 +108,9 @@ final class QueueTests: XCTestCase {
     app.launchArguments = ["-ApplePersistenceIgnoreState", "YES"]
     app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
     app.launchEnvironment["ARCADIA_FIXTURE_SCENARIO"] = "success"
+    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
     app.launch()
+    app.staticTexts["library.destination.albums"].click()
     XCTAssertTrue(app.buttons["album.fixture-1"].waitForExistence(timeout: 10))
     app.buttons["album.fixture-1"].click()
     app.buttons["track.fixture-1-track-1.play"].click()
@@ -131,7 +139,9 @@ final class QueueTests: XCTestCase {
     app.launchArguments = ["-ApplePersistenceIgnoreState", "YES"]
     app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
     app.launchEnvironment["ARCADIA_FIXTURE_SCENARIO"] = "success"
+    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
     app.launch()
+    app.staticTexts["library.destination.albums"].click()
     let album = app.buttons["album.fixture-1"]
     XCTAssertTrue(album.waitForExistence(timeout: 10))
     album.click()
@@ -162,7 +172,9 @@ final class QueueTests: XCTestCase {
     app.launchArguments = ["-ApplePersistenceIgnoreState", "YES"]
     app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
     app.launchEnvironment["ARCADIA_FIXTURE_SCENARIO"] = "success"
+    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
     app.launch()
+    app.staticTexts["library.destination.albums"].click()
     XCTAssertTrue(app.buttons["album.fixture-1"].waitForExistence(timeout: 10))
     app.buttons["album.fixture-1"].click()
     app.buttons["track.fixture-1-track-1.play"].click()

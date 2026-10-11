@@ -26,6 +26,7 @@ struct AppConfiguration {
     case twoPage = "two-page"
     case playbackFailure = "playback-failure"
     case delayedPlayback = "delayed-playback"
+    case delayedLibrary = "delayed-library"
   }
 
   static func load(

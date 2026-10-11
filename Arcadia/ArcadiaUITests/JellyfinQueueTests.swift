@@ -18,6 +18,7 @@ final class JellyfinQueueTests: XCTestCase {
     app.launchEnvironment["ARCADIA_DATA_MODE"] = "jellyfin"
     app.launchEnvironment["ARCADIA_SESSION_NAMESPACE"] = UUID().uuidString
     app.launchEnvironment["ARCADIA_RUN_ID"] = ProcessInfo.processInfo.environment["ARCADIA_RUN_ID"] ?? "real-audio-ui"
+    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
     app.launch()
     XCTAssertTrue(app.textFields["source.server"].waitForExistence(timeout: 10))
     app.textFields["source.server"].click()
@@ -30,6 +31,8 @@ final class JellyfinQueueTests: XCTestCase {
     app.secureTextFields["source.password"].typeKey("a", modifierFlags: .command)
     app.secureTextFields["source.password"].typeKey("v", modifierFlags: .command)
     app.buttons["source.connect"].click()
+    XCTAssertTrue(app.staticTexts["library.destination.albums"].waitForExistence(timeout: 20))
+    app.staticTexts["library.destination.albums"].click()
     XCTAssertTrue(app.staticTexts["albums.count"].waitForExistence(timeout: 20))
     let album = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Orb Sessions'")).firstMatch
     for _ in 0..<12 {

@@ -86,10 +86,7 @@ struct AlbumDetail: View {
         .accessibilityIdentifier("tracks.error")
       } else {
         List(model.tracks) { track in
-          HStack {
-            TrackRow(track: track)
-            SongActionsMenu(track: track)
-          }
+          TrackRow(track: track)
         }
         .accessibilityIdentifier("tracks.loaded")
       }

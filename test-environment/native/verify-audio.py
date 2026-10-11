@@ -1,16 +1,22 @@
 #!/usr/bin/env python3
 """Assert actual captured Arcadia output against independent known fixture tones."""
+import argparse
 import array
 import json
 import math
 from pathlib import Path
-import sys
 
-root = Path(sys.argv[1])
+parser = argparse.ArgumentParser()
+parser.add_argument('directory', type=Path)
+parser.add_argument('--profile', choices=['transport', 'browsing'], default='transport')
+args = parser.parse_args()
+root = args.directory
 chunks = json.loads((root / 'chunks.json').read_text())
 phases = json.loads((root / 'phases.json').read_text())
 raw = (root / 'captured-float32.raw').read_bytes()
-expected = {'playing': 520, 'paused': None, 'resumed': 520, 'seeked': 680, 'advanced': 600}
+expected = ({'standalone': 520, 'artist-navigation': 520, 'artist-song': 600}
+            if args.profile == 'browsing' else
+            {'playing': 520, 'paused': None, 'resumed': 520, 'seeked': 680, 'advanced': 600})
 summary = []
 for phase in phases:
     selected = [chunk for chunk in chunks if phase['start'] + 0.5 < chunk['time'] < phase['end'] - 0.15]
@@ -41,4 +47,5 @@ for phase in phases:
                     'expected_hz': target, 'power': bands})
 assert {phase['name'] for phase in phases} == set(expected), 'Missing required transport phase'
 (root / 'audio-assertions.json').write_text(json.dumps({'passed': True, 'phases': summary}, indent=2) + '\n')
-print('PASS: actual app PCM verifies play, pause, resume, seek segment and natural next song')
+print('PASS: actual app PCM verifies ' + ('standalone play, artist navigation and artist-song play'
+      if args.profile == 'browsing' else 'play, pause, resume, seek segment and natural next song'))
