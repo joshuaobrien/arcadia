@@ -81,6 +81,7 @@ final class SessionRestoreTests: XCTestCase {
       app.buttons["player.resume"].click()
       XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 10))
       var phases: [[String: Any]] = []
+      waitForPlaying(app)
       phase("before-playing", phases: &phases)
       try finishCapture(before, phases: phases)
       position = try XCTUnwrap(app.staticTexts["player.elapsed"].value as? String)
@@ -112,6 +113,7 @@ final class SessionRestoreTests: XCTestCase {
       var phases: [[String: Any]] = []
       app.typeKey("p", modifierFlags: [.command, .option])
       XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 10))
+      waitForPlaying(app)
       phase("restored-resumed", phases: &phases)
       let resumedPhase = try XCTUnwrap(phases.last)
       quietPhases.append(["name": "global-resumed", "start": resumedPhase["start"]!, "end": resumedPhase["end"]!])
@@ -127,17 +129,20 @@ final class SessionRestoreTests: XCTestCase {
       controls.buttons["forward.fill"].click()
       let duplicateID = ids[0].replacingOccurrences(of: "queue.entry.", with: "queue.current.")
       XCTAssertTrue(app.descendants(matching: .any)[duplicateID].waitForExistence(timeout: 5))
+      waitForPlaying(app)
       phase("system-duplicate", phases: &phases)
       controls.buttons["pause.fill"].click()
       XCTAssertTrue(app.buttons["player.resume"].waitForExistence(timeout: 5))
       phase("system-paused", phases: &phases)
       controls.buttons["play.fill"].click()
       XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 5))
+      waitForPlaying(app)
       phase("system-resumed", phases: &phases)
       controls.buttons["forward.fill"].click()
       expectation(
         for: NSPredicate(format: "value == %@", "Persistent State"), evaluatedWith: app.staticTexts["player.title"])
       waitForExpectations(timeout: 5)
+      waitForPlaying(app)
       phase("system-advanced", phases: &phases)
       controls.buttons["pause.fill"].click()
       try finishCapture(after, phases: phases)
@@ -146,6 +151,13 @@ final class SessionRestoreTests: XCTestCase {
       app.buttons["player.resume"].click()
       XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 10))
     }
+  }
+
+  @MainActor
+  private func waitForPlaying(_ app: XCUIApplication) {
+    expectation(
+      for: NSPredicate(format: "value == %@", "Playing"), evaluatedWith: app.staticTexts["player.state"])
+    waitForExpectations(timeout: 20)
   }
 
   @MainActor

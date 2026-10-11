@@ -4,7 +4,7 @@
 
 The real playing-restart journey requires independent **before and after process taps**. A tap is associated with a PID, so reusing the pre-termination tap cannot verify the restarted app. Reuse the signed guest helper described in `audio-verification.md`, sequentially arming the runner-container directories `tmp/arcadia-audio-capture-56/before` and `after`. Start the second helper after the first writes its results. The UI test publishes each actual app PID and records phases. Run `SessionRestoreTests/testRealPlayingRestartIsSilentUntilDeliberateResumeAndSystemCommands` explicitly. The ordinary app-process tap can provide no frames before a newly restored process first plays; missing frames never prove silence. Also arm `quiet` with `audio-capture.swift --paused-output`. This creates a separate global output tap and an actual guest audio-engine clock that renders zero samples. It verifies meaningful captured silent buffers, then captures Arcadia's resumed 680 Hz on the same global tap as a positive route calibration. Use `--unmuted` for the task's per-process helpers while the global tap overlaps; Tart remains `--no-audio`, so this changes only guest capture routing. The ordinary helper default remains unchanged.
 
-Require all three independent checks:
+Each active capture phase first requires the public `player.state` to report Playing. A Pause button alone also exists while playback is loading and is not output readiness. Require all three independent checks:
 
 ```bash
 python3 test-environment/native/verify-audio.py CAPTURE/before --profile restart-before
