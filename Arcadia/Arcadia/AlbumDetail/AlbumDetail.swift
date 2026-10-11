@@ -56,9 +56,19 @@ struct AlbumDetail: View {
         }
       }
 
-      Button("Play album", systemImage: "play.fill") { playerStore.play(model.tracks) }
-        .disabled(model.isLoading || model.tracks.isEmpty)
-        .accessibilityIdentifier("album.play")
+      HStack {
+        Button("Play album", systemImage: "play.fill") { playerStore.play(model.tracks) }
+          .accessibilityIdentifier("album.play")
+        Menu {
+          Button("Play Album Next") { playerStore.insertNext(model.tracks) }
+          Button("Add Album to Queue") { playerStore.append(model.tracks) }
+        } label: { Image(systemName: "ellipsis") }
+          .menuStyle(.borderlessButton)
+          .frame(width: 28)
+          .accessibilityLabel("Album actions")
+          .accessibilityIdentifier("album.actions")
+      }
+      .disabled(model.isLoading || model.tracks.isEmpty)
 
       Divider()
 
@@ -74,9 +84,10 @@ struct AlbumDetail: View {
         .accessibilityIdentifier("tracks.error")
       } else {
         List(model.tracks) { track in
-          TrackRow(
-            track: track,
-          )
+          HStack {
+            TrackRow(track: track)
+            SongActionsMenu(track: track)
+          }
         }
         .accessibilityIdentifier("tracks.loaded")
       }

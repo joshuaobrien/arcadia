@@ -5,6 +5,11 @@ import Observation
 @Observable
 final class PlayerStore {
   enum State: String { case idle, loading, playing, paused, failed, ended }
+  struct QueueFeedback: Identifiable {
+    let id = UUID()
+    let message: String
+    fileprivate let entryIDs: Set<UUID>
+  }
 
   private(set) var currentTime: Double = 0
   private(set) var duration: Double = 0
@@ -12,12 +17,19 @@ final class PlayerStore {
   private(set) var queue: [QueueEntry] = []
   private(set) var state: State = .idle
   private(set) var errorText: String?
+  private(set) var pendingReplacement: [Track]?
+  private(set) var queueFeedback: QueueFeedback?
+  var needsReplacementConfirmation: Bool { pendingReplacement != nil }
 
   var currentTrack: Track? { currentEntry?.track }
   var isPlaying: Bool { state == .playing }
   var isPlaybackRequested: Bool { wantsPlayback }
   var canAdvance: Bool { currentIndex.map { queue.indices.contains($0 + 1) } ?? false }
   var currentEntry: QueueEntry? { queue.first { $0.id == currentEntryID } }
+  var upcoming: [QueueEntry] {
+    guard let currentIndex else { return queue }
+    return Array(queue.dropFirst(currentIndex + 1))
+  }
   private var currentIndex: Int? { queue.firstIndex { $0.id == currentEntryID } }
 
   @ObservationIgnored private let source: any MusicSource
@@ -31,14 +43,9 @@ final class PlayerStore {
   @ObservationIgnored private var transportObserver: NSKeyValueObservation?
   @ObservationIgnored private var endObserver: NSObjectProtocol?
   @ObservationIgnored private var failureObserver: NSObjectProtocol?
+  @ObservationIgnored private var feedbackTask: Task<Void, Never>?
 
   init(source: any MusicSource) { self.source = source }
-
-  func play(_ tracks: [Track]) {
-    guard !tracks.isEmpty else { return }
-    queue = tracks.map { QueueEntry(track: $0) }
-    if let first = queue.first { start(first) }
-  }
 
   func pause() {
     wantsPlayback = false
@@ -47,7 +54,10 @@ final class PlayerStore {
   }
 
   func resume() {
-    guard let entry = currentEntry else { return }
+    guard let entry = currentEntry else {
+      if let first = queue.first { playQueuedEntry(first.id) }
+      return
+    }
     wantsPlayback = true
     if state == .ended || state == .failed {
       start(entry)
@@ -59,6 +69,12 @@ final class PlayerStore {
     }
     player.play()
     updateTransport(generation)
+  }
+
+  func playQueuedEntry(_ id: UUID) {
+    guard let entry = queue.first(where: { $0.id == id }) else { return }
+    pendingReplacement = nil
+    if currentEntryID == id { resume() } else { start(entry) }
   }
 
   func togglePlayback() {
@@ -79,6 +95,8 @@ final class PlayerStore {
     player.pause()
     player.replaceCurrentItem(with: nil)
     queue = []
+    pendingReplacement = nil
+    clearQueueFeedback()
     currentEntryID = nil
     currentTime = 0
     duration = 0
@@ -223,4 +241,86 @@ final class PlayerStore {
     endObserver = nil
     failureObserver = nil
   }
+}
+
+// Queue commands preserve the active occurrence and its transport state.
+extension PlayerStore {
+  func play(_ tracks: [Track]) {
+    guard !tracks.isEmpty else { return }
+    if upcoming.contains(where: { $0.origin == .manual }) {
+      pendingReplacement = tracks
+      return
+    }
+    replaceAndPlay(tracks)
+  }
+
+  func cancelReplacement() { pendingReplacement = nil }
+
+  func confirmReplacement() {
+    guard let tracks = pendingReplacement else { return }
+    pendingReplacement = nil
+    replaceAndPlay(tracks)
+  }
+
+  private func replaceAndPlay(_ tracks: [Track]) {
+    pendingReplacement = nil
+    clearQueueFeedback()
+    queue = tracks.map { QueueEntry(track: $0) }
+    if let first = queue.first { start(first) }
+  }
+
+  func insertNext(_ tracks: [Track]) {
+    guard !tracks.isEmpty else { return }
+    let entries = tracks.map { QueueEntry(track: $0, origin: .manual) }
+    queue.insert(contentsOf: entries, at: currentIndex.map { $0 + 1 } ?? 0)
+    showQueueFeedback(entries, message: tracks.count == 1 ? "Playing next: \(tracks[0].title ?? "Song")" : "\(tracks.count) songs will play next")
+  }
+
+  func append(_ tracks: [Track]) {
+    guard !tracks.isEmpty else { return }
+    let entries = tracks.map { QueueEntry(track: $0, origin: .manual) }
+    queue.append(contentsOf: entries)
+    showQueueFeedback(entries, message: tracks.count == 1 ? "Added to queue: \(tracks[0].title ?? "Song")" : "Added \(tracks.count) songs to queue")
+  }
+
+  func undoAddition(_ feedbackID: UUID) {
+    guard let feedback = queueFeedback, feedback.id == feedbackID else { return }
+    let removable = Set(upcoming.map(\.id)).intersection(feedback.entryIDs)
+    queue.removeAll { removable.contains($0.id) }
+    clearQueueFeedback()
+  }
+
+  private func showQueueFeedback(_ entries: [QueueEntry], message: String) {
+    feedbackTask?.cancel()
+    let feedback = QueueFeedback(message: message, entryIDs: Set(entries.map(\.id)))
+    queueFeedback = feedback
+    feedbackTask = Task { [weak self] in
+      try? await Task.sleep(for: .seconds(8))
+      guard !Task.isCancelled, let self, self.queueFeedback?.id == feedback.id else { return }
+      self.queueFeedback = nil
+    }
+  }
+
+  private func clearQueueFeedback() {
+    feedbackTask?.cancel()
+    feedbackTask = nil
+    queueFeedback = nil
+  }
+
+  func removeUpcoming(_ id: UUID) {
+    guard upcoming.contains(where: { $0.id == id }) else { return }
+    queue.removeAll { $0.id == id }
+  }
+
+  func moveUpcoming(_ id: UUID, by distance: Int) {
+    guard let index = queue.firstIndex(where: { $0.id == id }),
+      upcoming.contains(where: { $0.id == id })
+    else { return }
+    let destination = index + distance
+    let firstUpcoming = currentIndex.map { $0 + 1 } ?? 0
+    guard destination >= firstUpcoming, queue.indices.contains(destination) else { return }
+    let entry = queue.remove(at: index)
+    queue.insert(entry, at: destination)
+  }
+
 }
