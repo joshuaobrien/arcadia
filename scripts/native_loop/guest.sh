@@ -3,6 +3,21 @@
 set -euo pipefail
 export PATH="/opt/homebrew/bin:$PATH"
 operation="$1"; task="$2"; run_id="$3"; shift 3
+if [[ "$operation" == test || "$operation" == review || "$operation" == oracle ]]; then
+  case "${1:-}" in
+    '') ;;
+    only-testing)
+      [[ "$#" -gt 1 ]] || { echo 'only-testing requires at least one identifier'; exit 2; }
+      ;;
+    integration)
+      [[ "$#" -eq 2 ]] || { echo 'integration requires one guest URL'; exit 2; }
+      ;;
+    live-review)
+      [[ "$operation" == review ]] || { echo 'live-review requires review operation'; exit 2; }
+      ;;
+    *) echo 'Unknown test arguments; prefix selected identifiers with only-testing'; exit 2 ;;
+  esac
+fi
 exchange='/Volumes/My Shared Files/artifacts'
 tools="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Each VM is task-owned, so stable guest paths preserve dependency build signatures.
@@ -106,6 +121,7 @@ PYTHON
         fi
         if [[ "${1:-}" == only-testing ]]; then
           shift
+          [[ "$#" -gt 0 ]] || { echo "only-testing requires at least one identifier"; exit 2; }
           test_arguments=()
           for identifier in "$@"; do test_arguments+=("-only-testing:$identifier"); done
         fi
@@ -113,14 +129,20 @@ PYTHON
         export TEST_RUNNER_ARCADIA_RUN_ID="$ARCADIA_RUN_ID"
         export TEST_RUNNER_ARCADIA_REVIEW="${ARCADIA_REVIEW:-0}"
         export TEST_RUNNER_ARCADIA_INTEGRATION_URL="${ARCADIA_INTEGRATION_URL:-}"
+        set +e
         logged "$artifacts/test.log" xcodebuild "${common[@]}" "${test_arguments[@]}" -resultBundlePath "$artifacts/tests.xcresult" test
+        test_status=$?
+        set -e
         xcrun xcresulttool get test-results summary --path "$artifacts/tests.xcresult" > "$artifacts/tests-summary.json"
+        xcrun xcresulttool get test-results tests --path "$artifacts/tests.xcresult" > "$artifacts/tests-tree.json"
+        python3 "$tools/verification.py" "$artifacts/tests-tree.json" "$artifacts/verification.json" "${test_arguments[@]}"
         python3 - "$artifacts/tests-summary.json" <<'PYTHON'
 import json, sys
 summary = json.load(open(sys.argv[1]))
 if summary.get('passedTests', 0) < 1 or summary.get('failedTests', 0) != 0:
     raise SystemExit('No passing behavioral tests: check the selected test identifier and skips')
 PYTHON
+        [[ "$test_status" -eq 0 ]] || exit "$test_status"
         codesign --verify --deep --strict "$derived/Build/Products/Debug/ArcadiaUITests-Runner.app" > "$artifacts/runner-signature.log" 2>&1
         ;;
       lint)
