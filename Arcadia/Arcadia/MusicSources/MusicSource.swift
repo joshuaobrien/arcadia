@@ -3,6 +3,7 @@ import Foundation
 // Grow this existing browsing seam as listening features are implemented.
 nonisolated protocol MusicSource: AlbumService {
   func artworkData(for url: URL) async throws -> Data
+  func playableResource(for track: Track) async throws -> PlayableResource
 }
 
 struct ConnectedMusicSource {
@@ -35,4 +36,9 @@ enum MusicSourceError: LocalizedError {
     case .storageFailed: "Couldn't securely save your connection. Try again."
     }
   }
+}
+
+// Resolved access is ephemeral; queues and saved sessions contain song metadata only.
+struct PlayableResource {
+  let url: URL
 }

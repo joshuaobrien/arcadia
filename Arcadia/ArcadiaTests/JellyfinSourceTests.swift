@@ -40,6 +40,18 @@ final class JellyfinSourceTests: XCTestCase {
     XCTAssertEqual(tracks.items.map(\.title), ["First Contact", "Persistent State", "Range Request"])
     XCTAssertEqual(tracks.items.map(\.trackNumber), [1, 2, 3])
     XCTAssertTrue(tracks.items.allSatisfy { ($0.durationSeconds ?? 0) >= 11 })
+    let song = try XCTUnwrap(tracks.items.first)
+    let resource = try await source.playableResource(for: song)
+    var request = URLRequest(url: resource.url)
+    request.setValue("bytes=0-1023", forHTTPHeaderField: "Range")
+    let audio: Data
+    let response: URLResponse
+    do { (audio, response) = try await URLSession.shared.data(for: request) } catch {
+      // Underlying transport errors can include the authenticated URL.
+      throw MusicSourceError.unavailable
+    }
+    XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 206)
+    XCTAssertEqual(audio.count, 1024)
     let restored = try await connector.restore(connection.savedSession)
     let restoredAlbums = try await restored.source.fetchAlbums(
       FetchAlbumsRequest(cursor: nil, searchTerm: "Orb Sessions"))

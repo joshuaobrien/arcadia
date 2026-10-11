@@ -133,6 +133,17 @@ final class JellyfinMusicSource: MusicSource {
     return FetchAlbumResponse(total: total, items: tracks, nextCursor: nil)
   }
 
+  func playableResource(for track: Track) async throws -> PlayableResource {
+    _ = try await request.data(path: ["Users", session.userID, "Items", track.id])
+    return PlayableResource(
+      url: request.url(
+        path: ["Audio", track.id, "stream"],
+        query: [
+          URLQueryItem(name: "static", value: "true"),
+          URLQueryItem(name: "api_key", value: session.token),
+        ]))
+  }
+
   func artworkData(for url: URL) async throws -> Data {
     // Only the adapter's own server receives its authentication header.
     guard url.scheme == session.server.scheme, url.host == session.server.host,

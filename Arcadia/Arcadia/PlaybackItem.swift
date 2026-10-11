@@ -1,16 +1,15 @@
-//
-//  PlaybackItem.swift
-//  Arcadia
-//
-//  Created by Joshua O'Brien on 17/8/2026.
-//
 import Foundation
 
-struct PlaybackItem: Identifiable {
-  let track: Track
-  let streamURL: URL
+struct QueueEntry: Identifiable {
+  enum Origin { case collection, manual }
 
-  var id: String {
-    track.id
+  let id: UUID
+  let track: Track
+  let origin: Origin
+
+  init(track: Track, origin: Origin = .collection, id: UUID = UUID()) {
+    self.id = id
+    self.track = track
+    self.origin = origin
   }
 }

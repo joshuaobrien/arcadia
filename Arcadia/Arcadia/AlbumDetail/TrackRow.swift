@@ -9,11 +9,12 @@ import SwiftUI
 
 struct TrackRow: View {
   let track: Track
+  @Environment(PlayerStore.self) private var playerStore
 
   var body: some View {
     HStack(spacing: DesignTokens.Spacing.l) {
       Button {
-        print("Hello")
+        playerStore.play([track])
       } label: {
         Image(
           systemName: "play.fill"

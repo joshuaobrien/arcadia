@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct AlbumDetail: View {
+  @Environment(PlayerStore.self) private var playerStore
   @State private var model: AlbumDetailModel
   private var album: Album
 
@@ -54,6 +55,10 @@ struct AlbumDetail: View {
           .foregroundStyle(.secondary)
         }
       }
+
+      Button("Play album", systemImage: "play.fill") { playerStore.play(model.tracks) }
+        .disabled(model.isLoading || model.tracks.isEmpty)
+        .accessibilityIdentifier("album.play")
 
       Divider()
 

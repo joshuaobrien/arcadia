@@ -16,14 +16,15 @@ enum AppSection: String, CaseIterable, Identifiable {
 }
 
 struct AppView: View {
-  let albumService: AlbumService
+  let albumService: any MusicSource
 
   @State private var albumsModel: AlbumsModel
-  @State private var playerStore = PlayerStore()
+  @State private var playerStore: PlayerStore
   @State private var selection: AppSection? = .albums
 
-  init(albumService: AlbumService) {
+  init(albumService: any MusicSource) {
     self.albumService = albumService
+    _playerStore = State(initialValue: PlayerStore(source: albumService))
     _albumsModel = State(initialValue: AlbumsModel(albumService: albumService))
   }
 
@@ -43,5 +44,7 @@ struct AppView: View {
       PlayerBar()
     }
     .environment(playerStore)
+    .environment(\.musicSource, albumService)
+    .onDisappear { playerStore.stop() }
   }
 }

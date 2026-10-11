@@ -74,7 +74,11 @@ def main():
         for track in range(1,4) if album==1 else range(1,2):
             song=['First Contact','Persistent State','Range Request'][track-1]
             docker('exec',name,'/usr/lib/jellyfin-ffmpeg/ffmpeg','-hide_banner','-loglevel','error','-y',
-                   '-f','lavfi','-i',f'sine=frequency={440+track*80}:duration=12', '-c:a','libmp3lame',
+                   '-f','lavfi','-i',(
+                     'sine=frequency=520:duration=10[a];sine=frequency=600:duration=10[b];'
+                     'sine=frequency=680:duration=10[c];[a][b][c]concat=n=3:v=0:a=1'
+                     if album == 1 and track == 1 else f'sine=frequency={440+track*80}:duration=12'
+                   ), '-c:a','libmp3lame',
                    '-metadata','title='+song,'-metadata','artist=Arcadia Test Ensemble','-metadata','album='+title,
                    '-metadata','album_artist=Arcadia Test Ensemble','-metadata','track='+str(track),
                    '-metadata','date=2026',folder+f'/{track:02}.mp3')

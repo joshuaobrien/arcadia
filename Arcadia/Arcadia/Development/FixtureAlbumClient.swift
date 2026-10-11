@@ -1,7 +1,7 @@
 #if DEBUG
   import Foundation
 
-  actor FixtureAlbumClient: AlbumService {
+  actor FixtureAlbumClient: MusicSource {
     private let scenario: AppConfiguration.FixtureScenario
     private var albumRequests = 0
 
@@ -40,6 +40,21 @@
         },
         nextCursor: nil
       )
+    }
+
+    func playableResource(for track: Track) async throws -> PlayableResource {
+      if scenario == .playbackFailure {
+        return PlayableResource(url: URL(fileURLWithPath: "/missing-arcadia-fixture-audio.wav"))
+      }
+      if scenario == .delayedPlayback && track.trackNumber == 1 {
+        try await Task.sleep(for: .seconds(2))
+      }
+      return PlayableResource(url: try FixtureAudio.url(for: track))
+    }
+
+    func artworkData(for url: URL) async throws -> Data {
+      guard url.isFileURL else { throw FixtureError.requestFailed }
+      return try Data(contentsOf: url)
     }
 
     private func albums(_ numbers: ClosedRange<Int>) -> [Album] {

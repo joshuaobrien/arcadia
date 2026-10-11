@@ -24,6 +24,8 @@ struct AppConfiguration {
     case failure
     case failureThenSuccess = "failure-then-success"
     case twoPage = "two-page"
+    case playbackFailure = "playback-failure"
+    case delayedPlayback = "delayed-playback"
   }
 
   static func load(
@@ -81,7 +83,7 @@ struct AppConfiguration {
     return AppConfiguration(arcadiaBaseURL: url, dataMode: mode, fixtureScenario: scenario)
   }
 
-  func albumService() -> AlbumService {
+  func albumService() -> any MusicSource {
     #if DEBUG
       if dataMode == .fixtures { return FixtureAlbumClient(scenario: fixtureScenario) }
     #endif
@@ -106,7 +108,7 @@ enum ConfigurationError: LocalizedError {
     case .invalidDataMode:
       "ARCADIA_DATA_MODE must be fixtures, jellyfin, integration, or live-readonly."
     case .invalidFixtureScenario:
-      "ARCADIA_FIXTURE_SCENARIO must be success, empty, failure, failure-then-success, or two-page."
+      "ARCADIA_FIXTURE_SCENARIO must be success, empty, failure, failure-then-success, two-page, playback-failure, or delayed-playback."
     case .fixturesRequireDebug:
       "Fixtures are available only in development builds."
     }
