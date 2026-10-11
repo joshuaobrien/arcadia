@@ -20,9 +20,20 @@ struct SongActionsMenu: View {
     } label: {
       Image(systemName: "ellipsis")
     }
-    .menuStyle(.borderlessButton)
+    .songMenuStyle()
     .frame(width: 28)
     .accessibilityLabel("Actions for \(track.title ?? "Untitled track")")
     .accessibilityIdentifier("track.\(track.id).actions")
+  }
+}
+
+extension View {
+  @ViewBuilder
+  func songMenuStyle() -> some View {
+    #if os(macOS)
+      menuStyle(.borderlessButton)
+    #else
+      self
+    #endif
   }
 }
