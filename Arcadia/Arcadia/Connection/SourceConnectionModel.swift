@@ -9,6 +9,7 @@ final class SourceConnectionModel {
   var password = ""
   var isConnecting = false
   var errorText: String?
+  private(set) var listeningSession: ListeningSession?
   private(set) var source: (any MusicSource)?
   private var hasRestored = false
   private let connector: any MusicSourceConnector
@@ -26,7 +27,11 @@ final class SourceConnectionModel {
     defer { isConnecting = false }
     do {
       if let session = try credentials.read() {
-        let connection = try await connector.restore(session)
+        let saved = try? JSONDecoder().decode(SecureSourceSession.self, from: session)
+        let connection = try await connector.restore(saved?.adapterSession ?? session)
+        let binding = saved?.binding ?? UUID()
+        try credentials.save(JSONEncoder().encode(SecureSourceSession(binding: binding, adapterSession: connection.savedSession)))
+        listeningSession = ListeningSession(source: connection.source, sourceBinding: binding)
         source = connection.source
       }
     } catch {
@@ -52,7 +57,9 @@ final class SourceConnectionModel {
         throw MusicSourceError.credentialsRequired
       }
       let connection = try await connector.connect(server: url, username: username, password: password)
-      try credentials.save(connection.savedSession)
+      let binding = UUID()
+      try credentials.save(JSONEncoder().encode(SecureSourceSession(binding: binding, adapterSession: connection.savedSession)))
+      listeningSession = ListeningSession(source: connection.source, sourceBinding: binding)
       source = connection.source
       AppDiagnostics.event("source.connected")
     } catch {
@@ -65,6 +72,8 @@ final class SourceConnectionModel {
   func disconnect() {
     do {
       try credentials.delete()
+      listeningSession?.discard()
+      listeningSession = nil
       source = nil
       password = ""
       errorText = nil
@@ -72,4 +81,10 @@ final class SourceConnectionModel {
       errorText = MusicSourceError.storageFailed.localizedDescription
     }
   }
+}
+
+// Stored only in Keychain: the opaque adapter credential and stable connection binding.
+private struct SecureSourceSession: Codable {
+  let binding: UUID
+  let adapterSession: Data
 }

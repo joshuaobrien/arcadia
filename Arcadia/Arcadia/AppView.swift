@@ -17,6 +17,7 @@ enum AppSection: String, CaseIterable, Identifiable {
 
 struct AppView: View {
   let albumService: any MusicSource
+  let listeningSession: ListeningSession?
 
   @State private var albumsModel: AlbumsModel
   @State private var playerStore: PlayerStore
@@ -27,9 +28,10 @@ struct AppView: View {
   @State private var paths: [AppSection: NavigationPath] = [:]
   @AppStorage private var destination: String
 
-  init(albumService: any MusicSource) {
+  init(albumService: any MusicSource, listeningSession: ListeningSession? = nil) {
     self.albumService = albumService
-    _playerStore = State(initialValue: PlayerStore(source: albumService))
+    self.listeningSession = listeningSession
+    _playerStore = State(initialValue: listeningSession?.player ?? PlayerStore(source: albumService))
     _albumsModel = State(initialValue: AlbumsModel(albumService: albumService))
     _libraryModel = State(initialValue: LibraryModel(source: albumService))
     let namespace = ProcessInfo.processInfo.environment["ARCADIA_LIBRARY_NAMESPACE"] ?? "default"
@@ -38,6 +40,9 @@ struct AppView: View {
 
   var body: some View {
     VStack(spacing: DesignTokens.Spacing.none) {
+      if let message = listeningSession?.recoveryMessage {
+        Text(message).font(.callout).padding(8).accessibilityIdentifier("session.recovery")
+      }
       NavigationSplitView {
         List(AppSection.allCases, selection: selectionBinding) { section in
           Text(section.rawValue.capitalized)
@@ -93,7 +98,7 @@ struct AppView: View {
     }
     .environment(playerStore)
     .environment(\.musicSource, albumService)
-    .onDisappear { playerStore.stop() }
+
   }
 
   private var selection: AppSection { AppSection(rawValue: destination) ?? .songs }
