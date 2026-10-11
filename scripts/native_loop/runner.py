@@ -85,6 +85,11 @@ def run_with_progress(command, phase, timeout):
             progress(f'{phase}: still running ({time.monotonic() - started:.0f}s elapsed)')
 
 
+def require_running_guest(process, log_path):
+    if process.poll() is not None:
+        raise LoopError(f'Tart exited during startup (exit {process.returncode}); inspect {log_path}')
+
+
 def atomic_json(path, value):
     temporary = path.with_suffix('.tmp')
     temporary.write_text(json.dumps(value, indent=2) + '\n')
@@ -208,23 +213,40 @@ class Task:
                                       'driver_sha256': fingerprint(TOOLS / 'guest.sh'), 'tools_sha256': getattr(self, 'tools_digest', None), 'status': 'running'})
         if operation == 'test':
             filters = ['ArcadiaUITests/FeedbackLoopTests/testIntegrationBrowse'] if getattr(self.args, 'integration', False) else getattr(self.args, 'only_testing', None)
-            self.manifest['runs'][-1].update(tests=filters or 'full', full_suite=not bool(filters))
+            self.manifest['runs'][-1].update(tests=filters or ['ArcadiaTests', 'ArcadiaUITests/FeedbackLoopTests'], full_suite=False, default_suite=not bool(filters))
         self.save()
         progress(f'{operation} started')
         try:
             guest_name = f'{self.tools_digest}/guest.sh'
             archive_name = 'source-' + self.manifest['source_sha256'] + '.tgz'
             command = [self.tart, 'exec', self.manifest['vm'], '/usr/bin/env',
-                 'ARCADIA_SOURCE_ARCHIVE=/Volumes/My Shared Files/source/' + archive_name, '/bin/bash',
+                 'ARCADIA_SOURCE_ARCHIVE=/Volumes/My Shared Files/source/' + archive_name,
+                 'ARCADIA_SOURCE_SHA256=' + self.manifest['source_sha256'], '/bin/bash',
                  '/Volumes/My Shared Files/tools/' + guest_name, operation, self.args.task, run_id, *arguments]
             if operation in {'preflight', 'dependency-save', 'dependency-restore', 'export'}:
                 run_with_progress(command, operation, timeout)
             else:
                 run(command, timeout=timeout)
         except Exception:
+            evidence_path = self.directory / 'artifacts' / run_id / 'verification.json'
+            if evidence_path.exists():
+                self.manifest['runs'][-1].update(json.loads(evidence_path.read_text()))
             self.manifest['runs'][-1]['status'] = 'failed'
             raise
         else:
+            evidence_path = self.directory / 'artifacts' / run_id / 'verification.json'
+            if operation in {'test', 'review', 'oracle'}:
+                if not evidence_path.exists():
+                    self.manifest['runs'][-1]['status'] = 'failed'
+                    raise LoopError('Guest did not export verified executed test identifiers')
+                evidence = json.loads(evidence_path.read_text())
+                if evidence.get('source_sha256') != self.manifest['source_sha256']:
+                    self.manifest['runs'][-1]['status'] = 'failed'
+                    raise LoopError('Guest test evidence does not match the source snapshot')
+                if not evidence.get('verified'):
+                    self.manifest['runs'][-1]['status'] = 'failed'
+                    raise LoopError('Guest test selection was not verified')
+                self.manifest['runs'][-1].update(evidence)
             self.manifest['runs'][-1]['status'] = 'passed'
         finally:
             self.manifest['runs'][-1]['seconds'] = round(time.monotonic() - started, 2)
@@ -288,6 +310,7 @@ class Task:
             deadline = time.monotonic() + 180
             next_report = time.monotonic() + 15
             while time.monotonic() < deadline:
+                require_running_guest(process, self.directory / "vm.log")
                 try:
                     probe = subprocess.run([self.tart, 'exec', self.manifest['vm'], '/usr/bin/true'], capture_output=True, timeout=10)
                     if probe.returncode == 0:
@@ -452,6 +475,22 @@ class Task:
         # Final archive includes cleanup status.
         self.export()
 
+    def ensure_lint(self, force=False):
+        """A successful source/config/toolchain gate is reusable within this task."""
+        key = hashlib.sha256((self.manifest['source_sha256'] + '\0' + self.manifest['image'] + '\0' + self.tools_digest).encode()).hexdigest()
+        if not force and self.manifest.get('lint_verification', {}).get('key') == key:
+            progress('cached lint passed for this source/config/toolchain')
+            return
+        with tarfile.open(self.directory / 'source/source.tgz') as archive:
+            mintfile = archive.extractfile('Mintfile').read()
+        cache_root = Path(self.manifest.get('mint_cache_root', str(Path.home() / '.cache/arcadia-ci-mint')))
+        self.manifest['mint_cache'] = str(cache_root / 'native-loop' / mint_cache_key(self.manifest['image'], mintfile))
+        self.save()
+        self.guest('lint')
+        publish_mint_cache(self.directory / 'mint', self.manifest['mint_cache'])
+        self.manifest['lint_verification'] = {'key': key, 'run_id': self.manifest['runs'][-1]['id'], 'source_sha256': self.manifest['source_sha256']}
+        self.save()
+
     def execute(self):
         if self.args.operation == 'capture':
             self.args.operation = 'test'
@@ -469,39 +508,35 @@ class Task:
             raise LoopError('Task VM is not ready; inspect status/export and start a fresh task')
         if operation in {'build', 'test', 'oracle', 'lint', 'release', 'review'}:
             self.sync_snapshot()
-            if operation in {'build', 'test', 'review', 'oracle'}:
-                self.prepare_dependencies()
-            if operation == 'lint':
-                with tarfile.open(self.directory / 'source/source.tgz') as archive:
-                    mintfile = archive.extractfile('Mintfile').read()
-                cache_root = Path(self.manifest.get('mint_cache_root', str(Path.home() / '.cache/arcadia-ci-mint')))
-                self.manifest['mint_cache'] = str(cache_root / 'native-loop' / mint_cache_key(self.manifest['image'], mintfile))
-                self.save()
-            arguments = []
-            if self.args.integration:
-                if not self.manifest.get('integration'):
-                    raise LoopError('Run integration first; no live backend fallback')
-                arguments = ['integration', self.manifest['integration']['guest_url']]
-            if operation == 'release':
-                if not self.args.base_url:
-                    raise LoopError('--base-url is required for release')
-                arguments = [self.args.base_url]
-            if operation == 'review' and self.args.live_review:
-                arguments = ['live-review', *arguments]
-            if getattr(self.args, 'only_testing', None):
-                arguments = ['only-testing', *self.args.only_testing]
             self.manifest.pop('last_verification', None)
             self.save()
             try:
+                if operation in {'test', 'review', 'oracle', 'lint'}:
+                    self.ensure_lint(force=operation == 'lint')
+                if operation == 'lint':
+                    return
+                if operation in {'build', 'test', 'review', 'oracle'}:
+                    self.prepare_dependencies()
+                arguments = []
+                if self.args.integration:
+                    if not self.manifest.get('integration'):
+                        raise LoopError('Run integration first; no live backend fallback')
+                    arguments = ['integration', self.manifest['integration']['guest_url']]
+                if operation == 'release':
+                    if not self.args.base_url:
+                        raise LoopError('--base-url is required for release')
+                    arguments = [self.args.base_url]
+                if operation == 'review' and self.args.live_review:
+                    arguments = ['live-review', *arguments]
+                if getattr(self.args, 'only_testing', None):
+                    arguments = ['only-testing', *self.args.only_testing]
                 self.guest(operation, *arguments)
                 verification = self.manifest['runs'][-1]
                 self.manifest['last_verification'] = {'run_id': verification['id'], 'operation': operation, 'tests': verification.get('tests', operation)}
                 if operation == 'test' and not getattr(self.args, 'only_testing', None) and not self.args.integration:
-                    self.manifest['last_full_suite'] = {'run_id': self.manifest['last_verification']['run_id'], 'source_sha256': self.manifest['source_sha256']}
+                    self.manifest['last_default_suite'] = {'run_id': self.manifest['last_verification']['run_id'], 'source_sha256': self.manifest['source_sha256']}
                 if operation in {'build', 'test', 'review'}:
                     self.publish_dependencies()
-                if operation == 'lint' and self.manifest.get('mint_cache'):
-                    publish_mint_cache(self.directory / 'mint', self.manifest['mint_cache'])
             finally:
                 self.export()
         elif operation == 'compare':
@@ -694,7 +729,7 @@ def main():
     parser.add_argument('--image', default=os.environ.get('TART_IMAGE', IMAGE))
     parser.add_argument('--integration', action='store_true')
     parser.add_argument('--live-review', action='store_true', help='Opt-in bounded interactive guest session; review is background by default')
-    parser.add_argument('--only-testing', action='append', help='Repeatable XCTest identifier; omit to run the full suite')
+    parser.add_argument('--only-testing', action='append', help='Repeatable XCTest identifier; omit for unit tests plus FeedbackLoopTests')
     parser.add_argument('--label', choices=['before', 'after'], help='Screenshot comparison label')
     parser.add_argument('--screenshot-name', help='Exact attachment display name when a test exports multiple screenshots')
     parser.add_argument('--dependency-cache', help='Versioned dependency cache root on VM host')
@@ -709,6 +744,8 @@ def main():
     try:
         if args.no_dependency_cache and args.operation != 'start':
             raise LoopError('--no-dependency-cache is a task startup setting; use it with start')
+        if args.only_testing and args.integration:
+            raise LoopError('--only-testing and --integration are mutually exclusive')
         if args.only_testing:
             for identifier in args.only_testing:
                 validate_test(identifier)

@@ -41,7 +41,12 @@ class ImprovementsTests(unittest.TestCase):
             task.directory.mkdir()
             task.sync_tools()
             task.manifest = {'runs': [], 'source_sha256': 'source', 'vm': 'owned-vm'}
-            with patch('runner.run'):
+            def guest_result(command, **kwargs):
+                run_id = task.manifest['runs'][-1]['id']
+                output = task.directory / 'artifacts' / run_id
+                output.mkdir(parents=True)
+                (output / 'verification.json').write_text(json.dumps({'verified': True, 'source_sha256': 'source', 'executed_tests': task.manifest['runs'][-1]['tests']}))
+            with patch('runner.run', side_effect=guest_result):
                 task.guest('test')
             record = json.loads(task.path.read_text())['runs'][0]
             self.assertEqual(record['tests'], args.only_testing)
@@ -55,7 +60,12 @@ class ImprovementsTests(unittest.TestCase):
             task.directory.mkdir()
             task.sync_tools()
             task.manifest = {'runs': [], 'source_sha256': 'source', 'vm': 'owned-vm'}
-            with patch('runner.run'):
+            def guest_result(command, **kwargs):
+                run_id = task.manifest['runs'][-1]['id']
+                output = task.directory / 'artifacts' / run_id
+                output.mkdir(parents=True)
+                (output / 'verification.json').write_text(json.dumps({'verified': True, 'source_sha256': 'source', 'executed_tests': task.manifest['runs'][-1]['tests']}))
+            with patch('runner.run', side_effect=guest_result):
                 task.guest('test')
             record = json.loads(task.path.read_text())['runs'][0]
             self.assertFalse(record['full_suite'])
@@ -134,6 +144,71 @@ class ImprovementsTests(unittest.TestCase):
             image.write_bytes(png(900))
             screenshots.capture(root, 'run', 'after', selected)
             self.assertIn('![After](after.png)', (root / 'comparison/README.md').read_text())
+
+
+class GateTests(unittest.TestCase):
+    def test_successful_guest_command_without_executed_evidence_fails(self):
+        with tempfile.TemporaryDirectory() as root:
+            task = runner.Task(argparse.Namespace(root=root, task='task', only_testing=['ArcadiaUITests/FeedbackLoopTests/testEmpty']))
+            task.directory.mkdir()
+            task.sync_tools()
+            task.manifest = {'runs': [], 'source_sha256': 'source', 'vm': 'owned-vm'}
+            with patch('runner.run'), self.assertRaisesRegex(runner.LoopError, 'executed test identifiers'):
+                task.guest('test')
+            self.assertEqual(task.manifest['runs'][-1]['status'], 'failed')
+
+    def test_lint_reuses_exact_source_but_changes_invalidate_and_failure_never_caches(self):
+        import tarfile
+        import io
+        with tempfile.TemporaryDirectory() as root:
+            task = runner.Task(argparse.Namespace(root=root, task='task'))
+            task.directory.mkdir()
+            (task.directory / 'source').mkdir()
+            with tarfile.open(task.directory / 'source/source.tgz', 'w:gz') as archive:
+                entry = tarfile.TarInfo('Mintfile'); entry.size = 4
+                archive.addfile(entry, io.BytesIO(b'tool'))
+            task.tools_digest = 'tools'
+            task.manifest = {'source_sha256': 'one', 'image': 'image', 'runs': []}
+            def passed(operation):
+                task.manifest['runs'].append({'id': 'lint-result'})
+            with patch.object(task, 'guest', side_effect=passed) as guest, patch('runner.publish_mint_cache'):
+                task.ensure_lint(); task.ensure_lint()
+                self.assertEqual(guest.call_count, 1)
+                task.manifest['source_sha256'] = 'two'; task.ensure_lint()
+                self.assertEqual(guest.call_count, 2)
+            task.manifest['source_sha256'] = 'three'
+            with patch.object(task, 'guest', side_effect=runner.LoopError('lint failed')), self.assertRaises(runner.LoopError):
+                task.ensure_lint()
+            self.assertEqual(task.manifest['lint_verification']['source_sha256'], 'two')
+
+    def test_exited_vm_reports_exit_and_saved_log_immediately(self):
+        from types import SimpleNamespace
+        process = SimpleNamespace(poll=lambda: 1, returncode=1)
+        with self.assertRaisesRegex(runner.LoopError, r'exit 1.*vm.log'):
+            runner.require_running_guest(process, Path('/tmp/task/vm.log'))
+
+    def test_lint_failure_clears_old_verification_and_exports_failure(self):
+        from types import SimpleNamespace
+        task = runner.Task(SimpleNamespace(root='/tmp/example', task='task', operation='test', integration=False, only_testing=None))
+        task.manifest = {'state': 'ready', 'last_verification': {'run_id': 'old'}}
+        with patch.object(task, 'load'), patch.object(task, 'sync_tools'), patch.object(task, 'sync_snapshot'), patch.object(task, 'save'), patch.object(task, 'ensure_lint', side_effect=runner.LoopError('lint failed')), patch.object(task, 'export') as export:
+            with self.assertRaisesRegex(runner.LoopError, 'lint failed'):
+                task.execute()
+            self.assertNotIn('last_verification', task.manifest)
+            export.assert_called_once()
+
+    def test_evidence_from_another_source_snapshot_is_rejected(self):
+        with tempfile.TemporaryDirectory() as root:
+            task = runner.Task(argparse.Namespace(root=root, task='task', only_testing=['ArcadiaUITests/FeedbackLoopTests/testEmpty']))
+            task.directory.mkdir(); task.sync_tools()
+            task.manifest = {'runs': [], 'source_sha256': 'new-source', 'vm': 'owned-vm'}
+            def guest_result(command, **kwargs):
+                output = task.directory / 'artifacts' / task.manifest['runs'][-1]['id']
+                output.mkdir(parents=True)
+                (output / 'verification.json').write_text(json.dumps({'verified': True, 'source_sha256': 'old-source'}))
+            with patch('runner.run', side_effect=guest_result), self.assertRaisesRegex(runner.LoopError, 'source snapshot'):
+                task.guest('test')
+            self.assertEqual(task.manifest['runs'][-1]['status'], 'failed')
 
 
 if __name__ == '__main__':
