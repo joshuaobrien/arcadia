@@ -171,6 +171,35 @@ final class JellyfinMusicSource: MusicSource {
       }, nextCursor: nextCursor(offset: offset, page: page))
   }
 
+  func fetchPlaylists(_ input: PlaylistBrowseRequest) async throws -> LibraryPage<Playlist> {
+    let offset = try pageOffset(input.cursor)
+    let page = try await items(query: browseQuery(offset: offset, type: "Playlist", search: input.searchTerm))
+    return LibraryPage(
+      items: page.items.map { Playlist(id: $0.id, title: $0.name, artworkURL: artwork($0)) },
+      nextCursor: nextCursor(offset: offset, page: page))
+  }
+
+  func fetchPlaylistSongs(playlistID: String, cursor: String?) async throws -> LibraryPage<PlaylistSong> {
+    let offset = try pageOffset(cursor)
+    let data = try await request.data(
+      path: ["Playlists", playlistID, "Items"],
+      query: [
+        URLQueryItem(name: "UserId", value: session.userID),
+        URLQueryItem(name: "StartIndex", value: String(offset)),
+        URLQueryItem(name: "Limit", value: "20"),
+        URLQueryItem(name: "Fields", value: "ParentId"),
+      ])
+    let page: Items
+    do { page = try JSONDecoder().decode(Items.self, from: data) } catch { throw MusicSourceError.invalidResponse }
+    guard !page.items.isEmpty || offset >= page.totalRecordCount else { throw MusicSourceError.invalidResponse }
+    // 12.2 repeats PlaylistItemId for repeated songs. Include absolute source
+    // order in occurrence identity, rather than losing repeated entries.
+    let occurrences = page.items.enumerated().map { position, item in
+      PlaylistSong(id: "\(playlistID):\(offset + position):\(item.playlistItemId ?? item.id)", track: song(item))
+    }
+    return LibraryPage(items: occurrences, nextCursor: nextCursor(offset: offset, page: page))
+  }
+
   private func pageOffset(_ cursor: String?) throws -> Int {
     guard let cursor else { return 0 }
     guard let value = Int(cursor), value >= 0 else { throw MusicSourceError.invalidCursor }
@@ -266,6 +295,7 @@ private struct Item: Decodable {
   let albumPrimaryImageTag: String?
   let artistItems: [SourceArtist]?
   let albumArtists: [SourceArtist]?
+  let playlistItemId: String?
 
   enum CodingKeys: String, CodingKey {
     case id = "Id"
@@ -284,6 +314,7 @@ private struct Item: Decodable {
     case albumPrimaryImageTag = "AlbumPrimaryImageTag"
     case artistItems = "ArtistItems"
     case albumArtists = "AlbumArtists"
+    case playlistItemId = "PlaylistItemId"
   }
 }
 

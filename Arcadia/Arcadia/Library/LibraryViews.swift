@@ -3,6 +3,7 @@ import SwiftUI
 enum LibraryRoute: Hashable {
   case artist(Artist)
   case album(Album)
+  case playlist(Playlist)
 }
 
 struct SongsView: View {
@@ -121,7 +122,7 @@ struct ArtistDetail: View {
   }
 }
 
-private struct LibraryPageStatus<Item: Identifiable>: View {
+struct LibraryPageStatus<Item: Identifiable>: View {
   let model: PagedLibrary<Item>
   let noun: String
 

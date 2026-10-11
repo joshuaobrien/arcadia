@@ -35,6 +35,8 @@ final class PagedLibrary<Item: Identifiable> {
     await load(cursor: nextCursor)
   }
 
+  func cancelPendingRequest() { requestTask?.cancel() }
+
   private func load(cursor: String?) async {
     guard !isLoading else { return }
     isLoading = true
@@ -44,10 +46,12 @@ final class PagedLibrary<Item: Identifiable> {
       defer { isLoading = false }
       do {
         let page = try await fetch(cursor)
+        guard !Task.isCancelled else { return }
         var identities = Set(items.map(\.id))
         items.append(contentsOf: page.items.filter { identities.insert($0.id).inserted })
         nextCursor = page.nextCursor
       } catch {
+        guard !Task.isCancelled else { return }
         errorText = error.localizedDescription
       }
     }
@@ -62,11 +66,15 @@ final class PagedLibrary<Item: Identifiable> {
 final class LibraryModel {
   let songs: PagedLibrary<Track>
   let artists: PagedLibrary<Artist>
+  let playlists: PagedLibrary<Playlist>
+  let search: LibrarySearchModel
   private let source: any MusicSource
   private var artistLibraries: [String: ArtistLibraryModel] = [:]
 
   init(source: any MusicSource) {
     self.source = source
+    search = LibrarySearchModel(source: source)
+    playlists = PagedLibrary { try await source.fetchPlaylists(PlaylistBrowseRequest(cursor: $0, searchTerm: "")) }
     songs = PagedLibrary { try await source.fetchSongs(SongBrowseRequest(cursor: $0, searchTerm: "")) }
     artists = PagedLibrary { try await source.fetchArtists(ArtistBrowseRequest(cursor: $0, searchTerm: "")) }
   }

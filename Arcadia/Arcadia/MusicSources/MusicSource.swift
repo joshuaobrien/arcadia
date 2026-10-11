@@ -6,6 +6,9 @@ nonisolated protocol MusicSource: AlbumService {
   func playableResource(for track: Track) async throws -> PlayableResource
   func fetchSongs(_ request: SongBrowseRequest) async throws -> LibraryPage<Track>
   func fetchArtists(_ request: ArtistBrowseRequest) async throws -> LibraryPage<Artist>
+  func fetchSearch(_ request: LibrarySearchRequest) async throws -> LibraryPage<LibrarySearchResult>
+  func fetchPlaylists(_ request: PlaylistBrowseRequest) async throws -> LibraryPage<Playlist>
+  func fetchPlaylistSongs(playlistID: String, cursor: String?) async throws -> LibraryPage<PlaylistSong>
   func fetchArtistAlbums(artistID: String, cursor: String?) async throws -> FetchAlbumsResponse
 }
 
@@ -51,6 +54,31 @@ struct PlayableResource {
 // Transitional Arcadia API sources retain album browsing until they support the
 // richer source contract. Unsupported destinations fail explicitly.
 extension MusicSource {
+  func fetchSearch(_ input: LibrarySearchRequest) async throws -> LibraryPage<LibrarySearchResult> {
+    switch input.category {
+    case .songs:
+      let page = try await fetchSongs(SongBrowseRequest(cursor: input.cursor, searchTerm: input.query))
+      return LibraryPage(items: page.items.map(LibrarySearchResult.song), nextCursor: page.nextCursor)
+    case .artists:
+      let page = try await fetchArtists(ArtistBrowseRequest(cursor: input.cursor, searchTerm: input.query))
+      return LibraryPage(items: page.items.map(LibrarySearchResult.artist), nextCursor: page.nextCursor)
+    case .albums:
+      let page = try await fetchAlbums(FetchAlbumsRequest(cursor: input.cursor, searchTerm: input.query))
+      return LibraryPage(items: page.albums.map(LibrarySearchResult.album), nextCursor: page.nextCursor)
+    case .playlists:
+      let page = try await fetchPlaylists(PlaylistBrowseRequest(cursor: input.cursor, searchTerm: input.query))
+      return LibraryPage(items: page.items.map(LibrarySearchResult.playlist), nextCursor: page.nextCursor)
+    }
+  }
+
+  func fetchPlaylists(_: PlaylistBrowseRequest) async throws -> LibraryPage<Playlist> {
+    throw MusicSourceError.unsupportedBrowsing
+  }
+
+  func fetchPlaylistSongs(playlistID _: String, cursor _: String?) async throws -> LibraryPage<PlaylistSong> {
+    throw MusicSourceError.unsupportedBrowsing
+  }
+
   func fetchSongs(_: SongBrowseRequest) async throws -> LibraryPage<Track> {
     throw MusicSourceError.unsupportedBrowsing
   }

@@ -11,6 +11,8 @@ enum AppSection: String, CaseIterable, Identifiable {
   case songs
   case artists
   case albums
+  case playlists
+  case search
 
   var id: Self { self }
 }
@@ -61,6 +63,8 @@ struct AppView: View {
                 switch route {
                 case .artist(let artist):
                   ArtistDetail(artist: artist, model: libraryModel.library(for: artist))
+                case .playlist(let playlist):
+                  PlaylistDetail(playlist: playlist, source: albumService, isActive: selection == section)
                 case .album(let album):
                   AlbumDetail(albumService: albumService, album: album)
                 }
