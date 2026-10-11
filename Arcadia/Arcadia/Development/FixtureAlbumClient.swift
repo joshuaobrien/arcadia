@@ -11,6 +11,13 @@
     }
 
     func fetchAlbums(_ request: FetchAlbumsRequest) async throws -> FetchAlbumsResponse {
+      if !request.searchTerm.isEmpty {
+        try await libraryRequest(key: "search.albums.\(request.searchTerm)")
+        let records = scenario == .empty ? [] : albums(1...(scenario == .twoPage ? 24 : 1))
+        let matches = records.filter { $0.title.localizedCaseInsensitiveContains(request.searchTerm) }
+        let page = try libraryPage(matches, cursor: request.cursor)
+        return FetchAlbumsResponse(albums: page.items, nextCursor: page.nextCursor)
+      }
       AppDiagnostics.event("albums.request")
       albumRequests += 1
       if scenario == .failure || (scenario == .failureThenSuccess && albumRequests == 1) {
@@ -44,7 +51,15 @@
     }
 
     func fetchSongs(_ request: SongBrowseRequest) async throws -> LibraryPage<Track> {
-      try await libraryRequest(key: "songs.\(request.artistID ?? "all")")
+      if scenario == .pagedSearchFailure, request.cursor != nil, !request.searchTerm.isEmpty {
+        let key = "later-search.\(request.searchTerm)"
+        libraryRequests[key, default: 0] += 1
+        if libraryRequests[key] == 1 { throw FixtureError.requestFailed }
+      }
+      if scenario == .delayedSearch && request.searchTerm == "First" {
+        await Task.detached { try? await Task.sleep(for: .seconds(3)) }.value
+      }
+      try await libraryRequest(key: "songs.\(request.artistID ?? "all").\(request.searchTerm)")
       if scenario == .empty { return LibraryPage(items: [], nextCursor: nil) }
       var records: [Track]
       if let artistID = request.artistID {
@@ -55,7 +70,9 @@
           records = (1...6).map { librarySong(number: $0, artistNumber: number) }
         }
       } else {
-        records = (1...(scenario == .twoPage ? 24 : 3)).map { librarySong(number: $0, artistNumber: 1) }
+        records = (1...((scenario == .twoPage || scenario == .pagedSearchFailure) ? 24 : 3)).map {
+          librarySong(number: $0, artistNumber: 1)
+        }
       }
       if !request.searchTerm.isEmpty {
         records = records.filter { ($0.title ?? "").localizedCaseInsensitiveContains(request.searchTerm) }
@@ -64,7 +81,7 @@
     }
 
     func fetchArtists(_ request: ArtistBrowseRequest) async throws -> LibraryPage<Artist> {
-      try await libraryRequest(key: "artists")
+      try await libraryRequest(key: "artists.\(request.searchTerm)")
       if scenario == .empty { return LibraryPage(items: [], nextCursor: nil) }
       var records = (1...(scenario == .twoPage ? 24 : 1)).map { fixtureArtist($0) }
       if !request.searchTerm.isEmpty {
@@ -82,7 +99,34 @@
       return FetchAlbumsResponse(albums: records.items, nextCursor: records.nextCursor)
     }
 
+    func fetchPlaylists(_ request: PlaylistBrowseRequest) async throws -> LibraryPage<Playlist> {
+      try await libraryRequest(key: "playlists.\(request.searchTerm)")
+      if scenario == .empty { return LibraryPage(items: [], nextCursor: nil) }
+      let records = (1...(scenario == .twoPage ? 24 : 2)).map {
+        Playlist(id: "fixture-playlist-\($0)", title: $0 == 1 ? "Fixture Mix" : "Fixture Empty", artworkURL: nil)
+      }.filter { request.searchTerm.isEmpty || $0.title.localizedCaseInsensitiveContains(request.searchTerm) }
+      return try libraryPage(records, cursor: request.cursor)
+    }
+
+    func fetchPlaylistSongs(playlistID: String, cursor: String?) async throws -> LibraryPage<PlaylistSong> {
+      if scenario == .pagedPlaylistFailure, cursor != nil {
+        let key = "later-playlist.\(playlistID)"
+        libraryRequests[key, default: 0] += 1
+        if libraryRequests[key] == 1 { throw FixtureError.requestFailed }
+      }
+      try await libraryRequest(key: "playlist.\(playlistID)")
+      if playlistID == "fixture-playlist-2" || scenario == .empty { return LibraryPage(items: [], nextCursor: nil) }
+      let order = Array(
+        repeating: [2, 1, 2, 3], count: (scenario == .twoPage || scenario == .pagedPlaylistFailure) ? 6 : 1
+      ).flatMap { $0 }
+      let records = order.enumerated().map {
+        PlaylistSong(id: "fixture-occurrence-\($0.offset + 1)", track: librarySong(number: $0.element, artistNumber: 1))
+      }
+      return try libraryPage(records, cursor: cursor)
+    }
+
     private func libraryRequest(key: String) async throws {
+      if scenario == .delayedPlaylist && key.hasPrefix("playlist.") { try await Task.sleep(for: .seconds(4)) }
       if scenario == .delayedLibrary { try await Task.sleep(for: .seconds(2)) }
       libraryRequests[key, default: 0] += 1
       if scenario == .failure || (scenario == .failureThenSuccess && libraryRequests[key] == 1) {

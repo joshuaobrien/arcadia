@@ -14,9 +14,9 @@ final class PlayerStore {
   private(set) var currentTime: Double = 0
   private(set) var duration: Double = 0
   private(set) var currentEntryID: UUID?
-  // An explicit selection supersedes pending collection loads even when its
-  // replacement confirmation is cancelled. Queue edits and natural advancement
-  // do not change this intent revision.
+  // An explicit selection or Pause supersedes pending collection loads. A new
+  // selection counts even if its replacement confirmation is cancelled. Queue
+  // edits and natural advancement do not change this intent revision.
   private(set) var playbackChoiceRevision = UUID()
   private(set) var queue: [QueueEntry] = []
   private(set) var state: State = .idle

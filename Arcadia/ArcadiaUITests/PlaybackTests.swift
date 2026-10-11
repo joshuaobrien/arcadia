@@ -57,7 +57,7 @@ final class PlaybackTests: XCTestCase {
     let app = openFixtureAlbum("delayed-playback")
     app.buttons["track.fixture-1-track-1.play"].click()
     XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 5))
-    app.buttons["player.pause"].click() // Cancel autoplay while access is still resolving.
+    app.buttons["player.pause"].click()  // Cancel autoplay while access is still resolving.
     let paused = NSPredicate(format: "value == %@", "Paused")
     expectation(for: paused, evaluatedWith: app.staticTexts["player.state"])
     waitForExpectations(timeout: 5)
@@ -67,8 +67,16 @@ final class PlaybackTests: XCTestCase {
     XCTAssertEqual(app.staticTexts["player.state"].value as? String, "Paused")
     XCTAssertEqual(app.staticTexts["player.elapsed"].value as? String, "0:00")
     app.buttons["track.fixture-1-track-1.play"].click()
-    // The third row requires XCTest to scroll its button fully into the track viewport.
-    app.buttons["track.fixture-1-track-3.play"].click()
+    // Target the public track viewport explicitly; a clipped button can receive
+    // XCTest's click without delivering the user's action to the song row.
+    let third = app.buttons["track.fixture-1-track-3.play"]
+    let tracks = app.descendants(matching: .any)["tracks.loaded"]
+    for _ in 0..<4 {
+      if third.isHittable && tracks.frame.contains(third.frame) { break }
+      tracks.scroll(byDeltaX: 0, deltaY: -200)
+    }
+    XCTAssertTrue(third.isHittable && tracks.frame.contains(third.frame))
+    third.click()
     XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 10))
     let replacementSettled = expectation(description: "Obsolete access cannot replace newer song")
     DispatchQueue.main.asyncAfter(deadline: .now() + 3) { replacementSettled.fulfill() }

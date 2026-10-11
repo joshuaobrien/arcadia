@@ -58,7 +58,9 @@ final class QueueTests: XCTestCase {
     let rows = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "queue.entry."))
     let initialFirstID = rows.firstMatch.identifier
     scroll.scroll(byDeltaX: 0, deltaY: -450)
-    let target = rows.allElementsBoundByIndex.first { $0.isHittable && $0.frame.minY > scroll.frame.minY + 30 && $0.frame.maxY < scroll.frame.maxY - 30 }
+    let target = rows.allElementsBoundByIndex.first {
+      $0.isHittable && $0.frame.minY > scroll.frame.minY + 30 && $0.frame.maxY < scroll.frame.maxY - 30
+    }
     XCTAssertNotNil(target)
     guard let target else { return }
     let identifier = target.identifier
@@ -97,7 +99,9 @@ final class QueueTests: XCTestCase {
     XCTAssertFalse(app.staticTexts["queue.feedback"].exists)
     app.buttons["queue.toggle"].click()
     XCTAssertTrue(app.staticTexts["queue.heading"].waitForExistence(timeout: 5))
-    XCTAssertEqual(app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "queue.entry.")).count, 0)
+    XCTAssertEqual(
+      app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "queue.entry.")).count, 0
+    )
     XCTAssertEqual(app.staticTexts["player.title"].value as? String, "The First Song")
     XCTAssertTrue(app.buttons["player.resume"].exists)
   }
@@ -208,9 +212,13 @@ final class QueueTests: XCTestCase {
   @MainActor
   private func revealThirdTrack(_ app: XCUIApplication) {
     let control = app.buttons["track.fixture-1-track-3.play"]
-    if !control.isHittable { app.typeKey(.escape, modifierFlags: []) }
-    if !control.isHittable { app.buttons["track.fixture-1-track-1.play"].scroll(byDeltaX: 0, deltaY: -180) }
-    XCTAssertTrue(control.isHittable)
+    let albumTracks = app.descendants(matching: .any)["tracks.loaded"]
+    let tracks = albumTracks.exists ? albumTracks : app.scrollViews["songs.scroll"]
+    for _ in 0..<4 {
+      if control.isHittable && tracks.frame.contains(control.frame) { break }
+      tracks.scroll(byDeltaX: 0, deltaY: -200)
+    }
+    XCTAssertTrue(control.isHittable && tracks.frame.contains(control.frame))
   }
 
   @MainActor

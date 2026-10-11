@@ -28,6 +28,10 @@ struct ContentView: View {
 
   var body: some View {
     switch selection {
+    case .search:
+      if isActive { LibrarySearchView(model: libraryModel.search) }
+    case .playlists:
+      PlaylistsView(model: libraryModel.playlists, isActive: isActive)
     case .albums:
       Albums(albumService: albumService, model: albumsModel)
     case .artists:
