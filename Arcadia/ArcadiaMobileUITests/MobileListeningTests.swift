@@ -2,6 +2,7 @@ import XCTest
 
 final class MobileListeningTests: XCTestCase {
   override func setUpWithError() throws { continueAfterFailure = false }
+  @MainActor
   func testLibraryStartsInSongsAndPlayerPresentationPreservesListening() throws {
     let app = XCUIApplication()
     app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
@@ -24,6 +25,11 @@ final class MobileListeningTests: XCTestCase {
     XCTAssertEqual(app.staticTexts["player.title"].firstMatch.label, title)
     XCTAssertTrue(app.buttons["player.resume"].exists)
     XCTAssertTrue(app.staticTexts["songs.count"].exists)
+    capture(app, "Phone Library and compact transport - preserved paused song")
+    app.buttons["player.expand"].tap()
+    capture(app, "Phone expanded player - shared artwork and controls")
+    app.buttons["queue.toggle"].tap()
+    capture(app, "Phone dedicated queue - shared listening session")
   }
 
   @MainActor
@@ -93,6 +99,14 @@ final class MobileListeningTests: XCTestCase {
     app.buttons["queue.toggle"].tap()
     XCTAssertTrue(app.descendants(matching: .any).matching(identifier: current).firstMatch.exists)
     XCTAssertTrue(app.descendants(matching: .any).matching(identifier: manual).firstMatch.exists)
+  }
+
+  @MainActor
+  private func capture(_ app: XCUIApplication, _ name: String) {
+    let attachment = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
+    attachment.name = name
+    attachment.lifetime = .keepAlways
+    add(attachment)
   }
 
 }
