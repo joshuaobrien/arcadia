@@ -52,6 +52,7 @@ final class PlayerStore {
   init(source: any MusicSource) { self.source = source }
 
   func pause() {
+    playbackChoiceRevision = UUID()
     wantsPlayback = false
     player.pause()
     if currentTrack != nil && state != .failed && state != .ended { state = .paused }
