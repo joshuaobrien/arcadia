@@ -94,6 +94,12 @@ final class PlayerStore {
   }
 
   func playNext() {
+    guard canAdvance else { return }
+    playbackChoiceRevision = UUID()
+    advanceToNext()
+  }
+
+  private func advanceToNext() {
     guard let index = currentIndex, queue.indices.contains(index + 1) else { return }
     start(queue[index + 1])
   }
@@ -235,7 +241,7 @@ final class PlayerStore {
   private func finished(_ expected: UUID) {
     guard generation == expected, state != .ended else { return }
     if canAdvance {
-      playNext()
+      advanceToNext()
     } else {
       wantsPlayback = false
       state = .ended
