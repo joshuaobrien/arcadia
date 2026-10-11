@@ -29,6 +29,7 @@ struct CompactPlayerView: View {
       }
       .padding(.horizontal)
       .padding(.vertical, 6)
+      .accessibilityElement(children: .contain)
       .accessibilityIdentifier("player.bar")
     }
   }
@@ -49,6 +50,7 @@ struct ExpandedPlayerView: View {
       Spacer(minLength: 0)
       PlayerBar()
     }
+    .accessibilityElement(children: .contain)
     .accessibilityIdentifier("player.expanded")
   }
 }
