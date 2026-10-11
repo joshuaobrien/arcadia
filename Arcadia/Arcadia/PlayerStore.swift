@@ -14,6 +14,10 @@ final class PlayerStore {
   private(set) var currentTime: Double = 0
   private(set) var duration: Double = 0
   private(set) var currentEntryID: UUID?
+  // An explicit selection supersedes pending collection loads even when its
+  // replacement confirmation is cancelled. Queue edits and natural advancement
+  // do not change this intent revision.
+  private(set) var playbackChoiceRevision = UUID()
   private(set) var queue: [QueueEntry] = []
   private(set) var state: State = .idle
   private(set) var errorText: String?
@@ -73,6 +77,7 @@ final class PlayerStore {
 
   func playQueuedEntry(_ id: UUID) {
     guard let entry = queue.first(where: { $0.id == id }) else { return }
+    playbackChoiceRevision = UUID()
     pendingReplacement = nil
     if currentEntryID == id { resume() } else { start(entry) }
   }
@@ -247,6 +252,7 @@ final class PlayerStore {
 extension PlayerStore {
   func play(_ tracks: [Track]) {
     guard !tracks.isEmpty else { return }
+    playbackChoiceRevision = UUID()
     if upcoming.contains(where: { $0.origin == .manual }) {
       pendingReplacement = tracks
       return
