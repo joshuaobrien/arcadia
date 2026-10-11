@@ -10,25 +10,8 @@ struct PlayerBar: View {
     if let track = playerStore.currentTrack {
       VStack(spacing: DesignTokens.Spacing.s) {
         HStack(spacing: DesignTokens.Spacing.m) {
-          Button {
-            playerStore.togglePlayback()
-          } label: {
-            Image(systemName: playerStore.isPlaybackRequested ? "pause.fill" : "play.fill")
-              .frame(width: 28, height: 28)
-          }
-          .buttonStyle(.borderless)
-          .disabled(playerStore.state == .failed)
-          .accessibilityLabel(playerStore.isPlaybackRequested ? "Pause" : "Resume")
-          .accessibilityIdentifier(playerStore.isPlaybackRequested ? "player.pause" : "player.resume")
-          Button {
-            playerStore.playNext()
-          } label: {
-            Image(systemName: "forward.end.fill")
-          }
-          .buttonStyle(.borderless)
-          .disabled(!playerStore.canAdvance)
-          .accessibilityLabel("Next song")
-          .accessibilityIdentifier("player.next")
+          PlaybackToggleButton()
+          NextSongButton()
           VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
             Text(track.title ?? "Untitled track")
               .font(.headline)
@@ -96,5 +79,38 @@ struct PlayerBar: View {
     guard seconds.isFinite else { return "0:00" }
     let total = max(0, Int(seconds.rounded()))
     return String(format: "%d:%02d", total / 60, total % 60)
+  }
+}
+
+struct PlaybackToggleButton: View {
+  @Environment(PlayerStore.self) private var playerStore
+  var body: some View {
+          Button {
+            playerStore.togglePlayback()
+          } label: {
+            Image(systemName: playerStore.isPlaybackRequested ? "pause.fill" : "play.fill")
+              .frame(width: 28, height: 28)
+          }
+          .buttonStyle(.borderless)
+          .disabled(playerStore.state == .failed)
+          .accessibilityLabel(playerStore.isPlaybackRequested ? "Pause" : "Resume")
+          .accessibilityIdentifier(playerStore.isPlaybackRequested ? "player.pause" : "player.resume")
+
+  }
+}
+
+struct NextSongButton: View {
+  @Environment(PlayerStore.self) private var playerStore
+  var body: some View {
+          Button {
+            playerStore.playNext()
+          } label: {
+            Image(systemName: "forward.end.fill")
+          }
+          .buttonStyle(.borderless)
+          .disabled(!playerStore.canAdvance)
+          .accessibilityLabel("Next song")
+          .accessibilityIdentifier("player.next")
+
   }
 }

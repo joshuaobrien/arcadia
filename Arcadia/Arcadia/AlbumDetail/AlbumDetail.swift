@@ -65,7 +65,7 @@ struct AlbumDetail: View {
         } label: {
           Image(systemName: "ellipsis")
         }
-        .menuStyle(.borderlessButton)
+        .songMenuStyle()
         .frame(width: 28)
         .accessibilityLabel("Album actions")
         .accessibilityIdentifier("album.actions")
