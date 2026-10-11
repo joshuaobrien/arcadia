@@ -1,11 +1,12 @@
-#if os(macOS)
-import AppKit
-private typealias ArtworkImage = NSImage
-#else
-import UIKit
-private typealias ArtworkImage = UIImage
-#endif
 import SwiftUI
+
+#if os(macOS)
+  import AppKit
+  private typealias ArtworkImage = NSImage
+#else
+  import UIKit
+  private typealias ArtworkImage = UIImage
+#endif
 
 struct AlbumArtwork: View {
   let artworkURL: URL?
