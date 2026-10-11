@@ -141,10 +141,7 @@ final class QueueTests: XCTestCase {
     app.launchEnvironment["ARCADIA_FIXTURE_SCENARIO"] = "success"
     app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
     app.launch()
-    app.staticTexts["library.destination.albums"].click()
-    let album = app.buttons["album.fixture-1"]
-    XCTAssertTrue(album.waitForExistence(timeout: 10))
-    album.click()
+    XCTAssertTrue(app.staticTexts["songs.count"].waitForExistence(timeout: 10))
     app.buttons["track.fixture-1-track-1.play"].click()
     XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 10))
     app.buttons["player.pause"].click()
