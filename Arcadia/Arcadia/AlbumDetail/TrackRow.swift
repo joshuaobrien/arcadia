@@ -9,6 +9,7 @@ import SwiftUI
 
 struct TrackRow: View {
   let track: Track
+  var showsTrackNumber = true
   @Environment(PlayerStore.self) private var playerStore
 
   var body: some View {
@@ -24,22 +25,43 @@ struct TrackRow: View {
       .accessibilityLabel("Play \(track.title ?? "Untitled track")")
       .accessibilityIdentifier("track.\(track.id).play")
 
-      Text(track.trackNumber.map(String.init) ?? "-")
-        .frame(width: 28, alignment: .trailing)
-        .foregroundStyle(.secondary)
-        .monospacedDigit()
+      if showsTrackNumber {
+        Text(track.trackNumber.map(String.init) ?? "-")
+          .frame(width: 28, alignment: .trailing)
+          .foregroundStyle(.secondary)
+          .monospacedDigit()
+      } else {
+        AlbumArtwork(artworkURL: track.artworkURL)
+          .frame(width: 44, height: 44)
+          .clipShape(RoundedRectangle(cornerRadius: 6))
+      }
 
       VStack(alignment: .leading, spacing: DesignTokens.Spacing.s) {
         Text(track.title ?? "Untitled track")
           .lineLimit(1)
           .accessibilityIdentifier("track.\(track.id).title")
 
-        if let artists = track.artists {
+        if let references = track.artistReferences, !references.isEmpty {
+          HStack {
+            ForEach(references) { artist in
+              NavigationLink(value: LibraryRoute.artist(artist)) { Text(artist.name).lineLimit(1) }
+                .accessibilityIdentifier("track.\(track.id).artist.\(artist.id)")
+            }
+          }
+          .font(.caption)
+        } else if let artists = track.artists {
           Text(artists.joined(separator: ", "))
             .font(.caption)
             .foregroundStyle(.secondary)
             .lineLimit(1)
         }
+      }
+
+      if !showsTrackNumber, let reference = track.albumReference {
+        NavigationLink(value: LibraryRoute.album(reference.album())) {
+          Text(reference.title).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+        }
+        .accessibilityIdentifier("track.\(track.id).album")
       }
 
       Spacer()

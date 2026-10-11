@@ -4,6 +4,9 @@ import Foundation
 nonisolated protocol MusicSource: AlbumService {
   func artworkData(for url: URL) async throws -> Data
   func playableResource(for track: Track) async throws -> PlayableResource
+  func fetchSongs(_ request: SongBrowseRequest) async throws -> LibraryPage<Track>
+  func fetchArtists(_ request: ArtistBrowseRequest) async throws -> LibraryPage<Artist>
+  func fetchArtistAlbums(artistID: String, cursor: String?) async throws -> FetchAlbumsResponse
 }
 
 struct ConnectedMusicSource {
@@ -24,6 +27,7 @@ enum MusicSourceError: LocalizedError {
   case invalidResponse
   case invalidCursor
   case storageFailed
+  case unsupportedBrowsing
 
   var errorDescription: String? {
     switch self {
@@ -33,6 +37,7 @@ enum MusicSourceError: LocalizedError {
     case .unavailable: "Couldn't reach the music server. Check the address and connection, then try again."
     case .invalidResponse: "The music server returned an unexpected response. Try again."
     case .invalidCursor: "Couldn't load the next page. Reload the library."
+    case .unsupportedBrowsing: "This music source does not support this browsing view."
     case .storageFailed: "Couldn't securely save your connection. Try again."
     }
   }
@@ -41,4 +46,20 @@ enum MusicSourceError: LocalizedError {
 // Resolved access is ephemeral; queues and saved sessions contain song metadata only.
 struct PlayableResource {
   let url: URL
+}
+
+// Transitional Arcadia API sources retain album browsing until they support the
+// richer source contract. Unsupported destinations fail explicitly.
+extension MusicSource {
+  func fetchSongs(_: SongBrowseRequest) async throws -> LibraryPage<Track> {
+    throw MusicSourceError.unsupportedBrowsing
+  }
+
+  func fetchArtists(_: ArtistBrowseRequest) async throws -> LibraryPage<Artist> {
+    throw MusicSourceError.unsupportedBrowsing
+  }
+
+  func fetchArtistAlbums(artistID _: String, cursor _: String?) async throws -> FetchAlbumsResponse {
+    throw MusicSourceError.unsupportedBrowsing
+  }
 }

@@ -10,7 +10,9 @@ final class PlaybackTests: XCTestCase {
     app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
     app.launchEnvironment["ARCADIA_FIXTURE_SCENARIO"] = scenario
     app.launchEnvironment["ARCADIA_RUN_ID"] = ProcessInfo.processInfo.environment["ARCADIA_RUN_ID"] ?? "playback-ui"
+    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
     app.launch()
+    app.staticTexts["Albums"].click()
     XCTAssertTrue(app.buttons["album.fixture-1"].waitForExistence(timeout: 10))
     app.buttons["album.fixture-1"].click()
     XCTAssertTrue(app.buttons["track.fixture-1-track-1.play"].waitForExistence(timeout: 10))
@@ -81,7 +83,9 @@ final class PlaybackTests: XCTestCase {
     app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
     app.launchEnvironment["ARCADIA_FIXTURE_SCENARIO"] = "success"
     app.launchEnvironment["ARCADIA_RUN_ID"] = ProcessInfo.processInfo.environment["ARCADIA_RUN_ID"] ?? "playback-ui"
+    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
     app.launch()
+    app.staticTexts["Albums"].click()
     let album = app.buttons["album.fixture-1"]
     XCTAssertTrue(album.waitForExistence(timeout: 10))
     album.click()
