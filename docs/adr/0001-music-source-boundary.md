@@ -1,0 +1,3 @@
+# Isolate music sources behind an internal interface
+
+The current native app accesses music through the Arcadia backend, but the native listening experience will connect directly to Jellyfin behind an internal music-source interface covering browsing, search, and playable audio. Jellyfin-specific knowledge belongs in its adapter and the few places that configure it; views and playback use source-independent concepts so Arcadia can evolve independently of that provider and support additional sources later. This adds an explicit integration boundary while removing the separate Arcadia backend as a requirement for listening; acquisition and Walkman workflows can use additional services when needed.
