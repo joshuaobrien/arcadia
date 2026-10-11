@@ -1,7 +1,7 @@
 import Foundation
 
 struct QueueEntry: Identifiable {
-  enum Origin { case collection, manual }
+  enum Origin: String, Codable { case collection, manual }
 
   let id: UUID
   let track: Track

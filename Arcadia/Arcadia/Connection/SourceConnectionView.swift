@@ -3,14 +3,14 @@ import SwiftUI
 struct SourceConnectionView: View {
   @State private var model: SourceConnectionModel
 
-  init(connector: any MusicSourceConnector) {
-    _model = State(initialValue: SourceConnectionModel(connector: connector))
+  init(model: SourceConnectionModel) {
+    _model = State(initialValue: model)
   }
 
   var body: some View {
     Group {
       if let source = model.source {
-        AppView(albumService: source)
+        AppView(albumService: source, listeningSession: model.listeningSession)
           .environment(\.musicSource, source)
           .toolbar {
             ToolbarItem {

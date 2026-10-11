@@ -10,15 +10,30 @@ import SwiftUI
 
 @main
 struct ArcadiaApp: App {
+  @State private var connection: SourceConnectionModel?
+  @State private var fixtureSession: ListeningSession?
   private let configuration: Result<AppConfiguration, Error>
 
   init() {
     AVPlayer.isObservationEnabled = true
 
-    configuration = Result {
+    let loaded = Result {
       let value = try AppConfiguration.load()
       AppDiagnostics.configuration(value)
       return value
+    }
+    configuration = loaded
+    if case .success(let value) = loaded {
+      if value.dataMode == .jellyfin {
+        _connection = State(initialValue: SourceConnectionModel(connector: JellyfinConnector()))
+        _fixtureSession = State(initialValue: nil)
+      } else {
+        _connection = State(initialValue: nil)
+        _fixtureSession = State(initialValue: ListeningSession(source: value.albumService()))
+      }
+    } else {
+      _connection = State(initialValue: nil)
+      _fixtureSession = State(initialValue: nil)
     }
   }
 
@@ -27,9 +42,11 @@ struct ArcadiaApp: App {
       switch configuration {
       case .success(let configuration):
         if configuration.dataMode == .jellyfin {
-          SourceConnectionView(connector: JellyfinConnector())
+          if let connection { SourceConnectionView(model: connection) }
         } else {
-          AppView(albumService: configuration.albumService())
+          if let fixtureSession {
+            AppView(albumService: fixtureSession.source, listeningSession: fixtureSession)
+          }
         }
       case .failure(let error):
         ContentUnavailableView(
@@ -39,6 +56,9 @@ struct ArcadiaApp: App {
         )
         .accessibilityIdentifier("configuration.error")
       }
+    }
+    .commands {
+      PlaybackCommands(player: connection?.listeningSession?.player ?? fixtureSession?.player)
     }
   }
 }
