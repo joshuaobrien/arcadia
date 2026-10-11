@@ -88,7 +88,7 @@ python3 -m unittest discover -s scripts/native_loop -p 'test_*.py'
 
 ## Faster iterations and screenshot comparisons
 
-Run one relevant test during edits; run the full suite before opening the PR:
+Run one relevant test during edits; run the default unit and feedback-loop suite before opening the PR:
 
 ```sh
 ./scripts/native-loop --host paseo-host test album-browse --only-testing ArcadiaUITests/FeedbackLoopTests/testEmpty
@@ -110,3 +110,5 @@ This runs the selected test, exports its app-window attachment, and creates `com
 Progress output identifies source transfer, VM startup, dependency resolution/compilation, app compilation, signing, behavioral tests, cache publication, evidence export and cleanup. Build phases emit a heartbeat every 15 seconds. Raw build logs remain in the artifacts; progress messages do not echo request URLs or secrets. Per-command `.phases.json` files record timings. VM startup, build/test execution and export are separate costs.
 
 Fresh task VMs can reuse a dependency seed stored at `~/.cache/arcadia-native-dependencies` on the VM host (`--dependency-cache` overrides it). The versioned key covers the pinned VM image/toolchain, `Package.resolved` and Xcode project settings. Seeds include package checkouts, dependency products/intermediates, module caches, explicit SDK modules, generated module maps and Xcode build metadata; they exclude Arcadia app/test products and intermediates, index/test logs and app runtime state. Stable paths and a stable development bundle identifier inside each isolated guest preserve dependency signatures. Changing a global bundle identifier per task also changes package build settings and can invalidate dependency reuse. Development identity remains distinct from production; task isolation comes from the fresh VM. Each guest restores a private copy, never writes directly to a shared cache, and rebuilds its own development app in isolated storage. Changed cache inputs clear guest DerivedData and select a new key. Publication is atomic and locked; a checksum mismatch falls back to a cold build. `start --no-dependency-cache` disables restoration and publication for that task. Release builds retain their separate configuration and do not seed this Debug cache. The dependency cache does not change the existing CI or Mint cache.
+
+Test, review and oracle operations first run cached lint against the exact source snapshot. The successful lint gate is reused only for the same snapshot, VM image and helper bundle. XCTest evidence records requested and executed identifiers; an exact selected method must pass, and missing or unexpected selections fail the operation. The default test command selects `ArcadiaTests` and `FeedbackLoopTests`; it does not claim coverage of every UI test class. Add relevant classes with repeated `--only-testing` arguments.
