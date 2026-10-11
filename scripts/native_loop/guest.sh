@@ -3,6 +3,8 @@
 set -euo pipefail
 export PATH="/opt/homebrew/bin:$PATH"
 operation="$1"; task="$2"; run_id="$3"; shift 3
+full_diagnostics=0
+if [[ "${1:-}" == full-diagnostics ]]; then full_diagnostics=1; shift; fi
 if [[ "$operation" == test || "$operation" == review || "$operation" == oracle ]]; then
   case "${1:-}" in
     '') ;;
@@ -91,6 +93,13 @@ PYTHON
         codesign --verify --deep --strict "$derived/Build/Products/Debug/Arcadia.app" > "$artifacts/signature.log" 2>&1
         ;;
       test|review|oracle)
+        diagnostics_policy=full
+        if [[ "$full_diagnostics" == 0 && ( "$operation" != test || "${1:-}" == only-testing || "${1:-}" == integration ) ]]; then
+          diagnostics_policy=targeted
+        fi
+        diagnostics_arguments=()
+        while IFS= read -r argument; do diagnostics_arguments+=("$argument"); done < <(/bin/bash "$tools/diagnostics.sh" "$diagnostics_policy")
+        printf '%s\n' "$diagnostics_policy" > "$artifacts/diagnostics-policy.txt"
         test_arguments=(-only-testing:ArcadiaTests -only-testing:ArcadiaUITests/FeedbackLoopTests)
         if [[ "$operation" == review ]]; then
           test_arguments=(-only-testing:ArcadiaUITests/FeedbackLoopTests/testSuccess)
@@ -106,7 +115,7 @@ PYTHON
           cp "$fixture" "$original_fixture"
           sed -i '' 's/"Hyperballad"/"Mutation control"/' "$fixture"
           set +e
-          logged "$artifacts/mutation.log" xcodebuild "${common[@]}" -only-testing:ArcadiaUITests/FeedbackLoopTests/testSuccess -resultBundlePath "$artifacts/mutation.xcresult" test
+          logged "$artifacts/mutation.log" xcodebuild "${common[@]}" ${diagnostics_arguments[@]+"${diagnostics_arguments[@]}"} -only-testing:ArcadiaUITests/FeedbackLoopTests/testSuccess -resultBundlePath "$artifacts/mutation.xcresult" test
           mutation_status=$?
           set -e
           cp "$artifacts/FixtureAlbumClient.original.swift" "$fixture"
@@ -130,7 +139,7 @@ PYTHON
         export TEST_RUNNER_ARCADIA_REVIEW="${ARCADIA_REVIEW:-0}"
         export TEST_RUNNER_ARCADIA_INTEGRATION_URL="${ARCADIA_INTEGRATION_URL:-}"
         set +e
-        logged "$artifacts/test.log" xcodebuild "${common[@]}" "${test_arguments[@]}" -resultBundlePath "$artifacts/tests.xcresult" test
+        logged "$artifacts/test.log" xcodebuild "${common[@]}" ${diagnostics_arguments[@]+"${diagnostics_arguments[@]}"} "${test_arguments[@]}" -resultBundlePath "$artifacts/tests.xcresult" test
         test_status=$?
         set -e
         xcrun xcresulttool get test-results summary --path "$artifacts/tests.xcresult" > "$artifacts/tests-summary.json"
