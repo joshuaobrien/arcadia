@@ -63,7 +63,7 @@ if args.mode == 'real' and (not args.configuration or not args.audio_helper):
 
 # Establish an actual opened native prerequisite before login/browsing.
 control = str(args.control.resolve())
-run('open', str(Path(os.environ['DEVELOPER_DIR']) / 'Applications/DeviceHub.app'))
+run('open', str(Path(os.environ['DEVELOPER_DIR']).parent / 'Applications/DeviceHub.app'))
 time.sleep(1)
 try:
     run(control, 'option', 'down')
