@@ -4,6 +4,30 @@ final class AdaptiveListeningTests: XCTestCase {
   override func setUpWithError() throws { continueAfterFailure = false }
 
   @MainActor
+  func testExpandedDuoShowsQueueAlongsidePlayer() throws {
+    let app = XCUIApplication()
+    app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
+    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
+    app.launch()
+    let play = app.buttons["track.fixture-1-track-1.play"]
+    XCTAssertTrue(play.waitForExistence(timeout: 10))
+    play.tap()
+    XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 10))
+    app.buttons["player.pause"].tap()
+    app.buttons["player.expand"].tap()
+    let expanded = app.otherElements["player.expanded"]
+    XCTAssertTrue(expanded.waitForExistence(timeout: 5))
+    // Run only after the native driver commits an expanded display arrangement.
+    // A compact destination cannot establish this adaptive composition contract.
+    try XCTSkipIf(app.windows.firstMatch.frame.width < 650, "Requires committed expanded Duo display")
+    capture(app, "Expanded Duo baseline - player and queue composition")
+    XCTAssertTrue(app.staticTexts["queue.heading"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.staticTexts["queue.heading"].isHittable)
+    XCTAssertTrue(expanded.buttons["player.resume"].isHittable)
+    XCTAssertTrue(app.windows.firstMatch.frame.contains(app.staticTexts["queue.heading"].frame))
+  }
+
+  @MainActor
   func testRotationKeepsTransportReachableAndListeningSelection() {
     let app = XCUIApplication()
     app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
