@@ -3,8 +3,19 @@ import XCTest
 final class AdaptiveListeningTests: XCTestCase {
   override func setUpWithError() throws { continueAfterFailure = false }
 
+  private func requireNativeController() throws {
+    let marker = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+      .appendingPathComponent("arcadia-duo-native-validation.json")
+    guard FileManager.default.fileExists(atPath: marker.path) else {
+      throw XCTSkip("Requires the explicit native Duo fold/orientation controller")
+    }
+    let configuration = try JSONSerialization.jsonObject(with: Data(contentsOf: marker)) as? [String: String]
+    XCTAssertEqual(configuration?["controller"], "duo-native")
+  }
+
   @MainActor
   func testClosedLandscapeKeepsTransportInsideActualShortWindow() throws {
+    try requireNativeController()
     let app = XCUIApplication()
     app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
     app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
@@ -42,6 +53,7 @@ final class AdaptiveListeningTests: XCTestCase {
 
   @MainActor
   func testNativeFoldsPreserveListeningQueueAndArtistRoute() throws {
+    try requireNativeController()
     let app = XCUIApplication()
     app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
     app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString

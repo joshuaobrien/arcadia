@@ -20,7 +20,10 @@ def main():
     parser.add_argument('--bind', default='127.0.0.1')
     parser.add_argument('--port', type=int, default=18096)
     parser.add_argument('--artist-count', type=int, choices=[1,23], default=1)
+    parser.add_argument('--sustained-seconds', type=int, help='Isolated one-track600Hz fixture for native pose continuity')
     args = parser.parse_args()
+    if args.sustained_seconds is not None and not 240 <= args.sustained_seconds <= 3600:
+        parser.error('sustained-seconds must be240...3600')
     root = Path(args.root).resolve()
     state = root / 'fixture.json'
     if args.operation == 'stop':
@@ -66,20 +69,23 @@ def main():
     request('/Startup/Complete', method='POST')
     auth=request('/Users/AuthenticateByName', {'Username':data['username'],'Pw':password}, 'POST')
     authorization+=', Token="'+auth['AccessToken']+'"'
-    for album in range(1,25):
+    expected_albums = 1 if args.sustained_seconds else 24
+    for album in range(1,expected_albums+1):
         title='Orb Sessions' if album==1 else f'Fixture Album {album:02}'
         artist = 'Arcadia Test Ensemble' if args.artist_count == 1 or album <= 2 else f'Fixture Artist {album-1:02}'
         folder='/music/'+artist+'/'+title
         docker('exec', name, 'mkdir', '-p', folder)
         docker('exec',name,'/usr/lib/jellyfin-ffmpeg/ffmpeg','-hide_banner','-loglevel','error','-y',
                '-f','lavfi','-i','color=c=0x405b72:s=300x300','-frames:v','1',folder+'/cover.jpg')
-        for track in range(1,4) if album==1 else range(1,2):
+        for track in (range(2,3) if args.sustained_seconds else (range(1,4) if album==1 else range(1,2))):
             song=['First Contact','Persistent State','Range Request'][track-1]
             docker('exec',name,'/usr/lib/jellyfin-ffmpeg/ffmpeg','-hide_banner','-loglevel','error','-y',
                    '-f','lavfi','-i',(
-                     'sine=frequency=520:duration=10[a];sine=frequency=600:duration=10[b];'
-                     'sine=frequency=680:duration=10[c];[a][b][c]concat=n=3:v=0:a=1'
-                     if album == 1 and track == 1 else f'sine=frequency={440+track*80}:duration=12'
+                     f'sine=frequency=600:duration={args.sustained_seconds}' if args.sustained_seconds else (
+                       'sine=frequency=520:duration=10[a];sine=frequency=600:duration=10[b];'
+                       'sine=frequency=680:duration=10[c];[a][b][c]concat=n=3:v=0:a=1'
+                       if album == 1 and track == 1 else f'sine=frequency={440+track*80}:duration=12'
+                     )
                    ), '-c:a','libmp3lame',
                    '-metadata','title='+song,'-metadata','artist='+artist,'-metadata','album='+title,
                    '-metadata','album_artist='+artist,'-metadata','track='+str(track),
@@ -92,10 +98,19 @@ def main():
     deadline=time.monotonic()+180
     while True:
         albums=request(f'/Users/{user}/Items?Recursive=true&IncludeItemTypes=MusicAlbum&Limit=30')
-        if albums['TotalRecordCount']==24:break
-        if time.monotonic()>deadline:raise RuntimeError('Fixture library did not contain 24 albums')
+        if albums['TotalRecordCount']==expected_albums:break
+        if time.monotonic()>deadline:raise RuntimeError(f'Fixture library did not contain {expected_albums} albums')
         time.sleep(2)
-    if args.artist_count == 23:
+    if args.sustained_seconds:
+        tracks=request(f'/Users/{user}/Items?Recursive=true&IncludeItemTypes=Audio')['Items']
+        if len(tracks)!=1 or tracks[0]['Name']!='Persistent State':
+            raise RuntimeError('Sustained fixture must contain one controlled track')
+        import hashlib
+        media=root/'music/Arcadia Test Ensemble/Orb Sessions/02.mp3'
+        data.update(secondSongID=tracks[0]['Id'], serverID=info['Id'],
+                    duration_seconds=args.sustained_seconds, expected_hz=600,
+                    media_sha256=hashlib.sha256(media.read_bytes()).hexdigest())
+    elif args.artist_count == 23:
         artists=request(f'/Artists?UserId={user}&Limit=100')
         if artists['TotalRecordCount'] != 23 or len({item['Id'] for item in artists['Items']}) != 23:
             raise RuntimeError('Richer fixture did not contain 23 distinct artists')
@@ -106,10 +121,10 @@ def main():
         data.update({'artistID':artist['Id'],'lastArtistID':last['Id'],'albumID':album['Id'],
                      'firstSongID':next(item['Id'] for item in tracks if item['Name']=='First Contact'),
                      'secondSongID':next(item['Id'] for item in tracks if item['Name']=='Persistent State')})
-    data['version']=info['Version'];data['album_count']=24;data['artist_count']=args.artist_count
+    data['version']=info['Version'];data['album_count']=expected_albums;data['artist_count']=args.artist_count
     state.write_text(json.dumps(data));state.chmod(0o600)
     (root/'evidence.json').write_text(json.dumps({k:v for k,v in data.items() if k!='password'},indent=2))
-    print(json.dumps({'version':info['Version'],'albums':24,'server':base,'image':IMAGE}))
+    print(json.dumps({'version':info['Version'],'albums':expected_albums,'server':base,'image':IMAGE}))
 
 if __name__ == '__main__':
     main()
