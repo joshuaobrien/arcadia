@@ -66,19 +66,7 @@ else {
 print(
   "format rate=\(tapFormat.mSampleRate) channels=\(tapFormat.mChannelsPerFrame) flags=\(tapFormat.mFormatFlags) bytes=\(tapFormat.mBytesPerFrame)"
 )
-var defaultDevice = AudioObjectID(0)
-address.mSelector = kAudioHardwarePropertyDefaultOutputDevice
-size = UInt32(MemoryLayout<AudioObjectID>.size)
-check(
-  AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &defaultDevice),
-  "default output")
-var deviceUID: CFString = "" as CFString
-address.mSelector = kAudioDevicePropertyDeviceUID
-size = UInt32(MemoryLayout<CFString>.size)
-check(AudioObjectGetPropertyData(defaultDevice, &address, 0, nil, &size, &deviceUID), "device UID")
 let configuration: [String: Any] = [
-  kAudioAggregateDeviceMainSubDeviceKey: deviceUID,
-  kAudioAggregateDeviceSubDeviceListKey: [[kAudioSubDeviceUIDKey: deviceUID]],
   kAudioAggregateDeviceNameKey: "Arcadia pilot capture",
   kAudioAggregateDeviceUIDKey: UUID().uuidString,
   kAudioAggregateDeviceIsPrivateKey: true,
@@ -89,6 +77,26 @@ let configuration: [String: Any] = [
 ]
 var device = AudioObjectID(0)
 check(AudioHardwareCreateAggregateDevice(configuration as CFDictionary, &device), "create aggregate")
+var streamAddress = AudioObjectPropertyAddress(
+  mSelector: kAudioDevicePropertyStreamConfiguration, mScope: kAudioObjectPropertyScopeInput,
+  mElement: kAudioObjectPropertyElementMain)
+var streamSize: UInt32 = 0
+check(AudioObjectGetPropertyDataSize(device, &streamAddress, 0, nil, &streamSize), "aggregate input layout size")
+let streamMemory = UnsafeMutableRawPointer.allocate(byteCount: Int(streamSize), alignment: MemoryLayout<AudioBufferList>.alignment)
+defer { streamMemory.deallocate() }
+check(AudioObjectGetPropertyData(device, &streamAddress, 0, nil, &streamSize, streamMemory), "aggregate input layout")
+let inputLayout = UnsafeMutableAudioBufferListPointer(streamMemory.assumingMemoryBound(to: AudioBufferList.self)).map { $0.mNumberChannels }
+print("aggregate input layout=\(inputLayout)")
+try JSONSerialization.data(withJSONObject: ["inputBufferChannels": inputLayout, "tapChannels": tapFormat.mChannelsPerFrame]).write(to: URL(fileURLWithPath: out + "/capture-format.json"))
+if CommandLine.arguments.contains("--layout-only") {
+  check(AudioHardwareDestroyAggregateDevice(device), "destroy diagnostic aggregate")
+  check(AudioHardwareDestroyProcessTap(tap), "destroy diagnostic tap")
+  exit(0)
+}
+guard inputLayout == [tapFormat.mChannelsPerFrame] else {
+  print("Capture requires exactly one stereo tap buffer; unrelated device input must be excluded")
+  exit(2)
+}
 var io: AudioDeviceIOProcID?
 let lock = NSLock()
 var seconds: [Int: (Double, Int, Float)] = [:]
