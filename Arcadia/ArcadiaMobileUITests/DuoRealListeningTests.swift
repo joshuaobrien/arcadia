@@ -5,6 +5,83 @@ final class DuoRealListeningTests: XCTestCase {
   override func setUpWithError() throws { continueAfterFailure = false }
 
   @MainActor
+  func testStationaryDuplicateAdvancementRendersRealSourceOutput() throws {
+    let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    let configuration = try JSONDecoder().decode(
+      Configuration.self, from: Data(contentsOf: documents.appendingPathComponent("arcadia-jellyfin-fixture.json")))
+    let directory = documents.appendingPathComponent("duo-stationary-59")
+    if FileManager.default.fileExists(atPath: directory.path) { try FileManager.default.removeItem(at: directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { UIPasteboard.general.string = nil }
+    let app = XCUIApplication()
+    app.launchEnvironment["ARCADIA_DATA_MODE"] = "jellyfin"
+    app.launchEnvironment["ARCADIA_SESSION_NAMESPACE"] = UUID().uuidString
+    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
+    app.launch()
+    try connect(configuration, app: app)
+    let play = app.buttons["track.\(configuration.secondSongID).play"]
+    let actions = app.buttons["track.\(configuration.secondSongID).actions"]
+    let songs = app.scrollViews["songs.scroll"]
+    for _ in 0..<12 {
+      if play.exists && play.isHittable && songs.frame.contains(play.frame) { break }
+      songs.swipeUp()
+    }
+    play.tap()
+    XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 15))
+    try Data().write(to: directory.appendingPathComponent("target-request"))
+    XCTAssertTrue(waitForFile(directory.appendingPathComponent("capture-ready"), timeout: 30))
+    app.buttons["player.pause"].tap()
+    actions.tap()
+    app.buttons["Add to Queue"].tap()
+    app.buttons["player.expand"].tap()
+    app.sliders["player.seek"].adjust(toNormalizedSliderPosition: 0)
+    app.buttons["queue.toggle"].tap()
+    let queue = app.scrollViews.matching(identifier: "queue.scroll").allElementsBoundByIndex.filter(\.isHittable)
+    XCTAssertEqual(queue.count, 1)
+    guard let visible = queue.first else { return }
+    let current = visible.staticTexts.matching(NSPredicate(format: "identifier BEGINSWITH %@", "queue.current."))
+    let upcoming = visible.otherElements.matching(NSPredicate(format: "identifier BEGINSWITH %@", "queue.entry."))
+    XCTAssertEqual(current.count, 1)
+    XCTAssertEqual(upcoming.count, 1)
+    let first = current.element.identifier
+    let second = upcoming.element.identifier.replacingOccurrences(of: "queue.entry.", with: "queue.current.")
+    nativeBack(app)
+    app.buttons["player.resume"].tap()
+    XCTAssertTrue(waitForPlaying(app))
+    let before = Date().timeIntervalSince1970
+    Thread.sleep(forTimeInterval: 3)
+    let beforeEnd = Date().timeIntervalSince1970
+    app.buttons["queue.toggle"].tap()
+    XCTAssertEqual(
+      XCTWaiter.wait(
+        for: [
+          XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.staticTexts[first])
+        ],
+        timeout: 20), .completed)
+    XCTAssertTrue(app.staticTexts[second].waitForExistence(timeout: 5))
+    nativeBack(app)
+    XCTAssertTrue(waitForPlaying(app))
+    let after = Date().timeIntervalSince1970
+    Thread.sleep(forTimeInterval: 3)
+    let phases: [[String: Any]] = [
+      ["name": "before-natural", "start": before, "end": beforeEnd],
+      ["name": "after-natural", "start": after, "end": Date().timeIntervalSince1970],
+    ]
+    try JSONSerialization.data(withJSONObject: phases).write(to: directory.appendingPathComponent("phases.json"))
+    app.buttons["player.pause"].tap()
+    try Data().write(to: directory.appendingPathComponent("done"))
+    app.buttons["player.dismiss"].tap()
+    app.buttons["source.disconnect"].tap()
+  }
+
+  @MainActor
+  private func nativeBack(_ app: XCUIApplication) {
+    let back = app.buttons.matching(identifier: "BackButton").allElementsBoundByIndex.filter(\.isHittable)
+    XCTAssertEqual(back.count, 1)
+    back.first?.tap()
+  }
+
+  @MainActor
   func testRealOutputContinuesDuringNativeFoldsAndDuplicateAdvancement() throws {
     let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
     let configuration = try JSONDecoder().decode(
