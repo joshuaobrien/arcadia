@@ -4,6 +4,43 @@ final class AdaptiveListeningTests: XCTestCase {
   override func setUpWithError() throws { continueAfterFailure = false }
 
   @MainActor
+  func testClosedLandscapeKeepsTransportInsideActualShortWindow() throws {
+    let app = XCUIApplication()
+    app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
+    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
+    app.launch()
+    XCTAssertTrue(app.buttons["track.fixture-1-track-1.play"].waitForExistence(timeout: 10))
+    app.buttons["track.fixture-1-track-1.play"].tap()
+    XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 10))
+    app.buttons["player.pause"].tap()
+    app.buttons["player.expand"].tap()
+    let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+      .appendingPathComponent("duo-short-59")
+    if FileManager.default.fileExists(atPath: directory.path) { try FileManager.default.removeItem(at: directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    try Data().write(to: directory.appendingPathComponent("request"))
+    let committed = XCTNSPredicateExpectation(
+      predicate: NSPredicate { _, _ in
+        FileManager.default.fileExists(atPath: directory.appendingPathComponent("complete").path)
+      },
+      object: nil)
+    XCTAssertEqual(XCTWaiter.wait(for: [committed], timeout: 60), .completed)
+    let expanded = app.otherElements["player.expanded"]
+    let window = app.windows.firstMatch.frame
+    let resume = expanded.buttons["player.resume"]
+    let seek = expanded.sliders["player.seek"]
+    capture(app, "Actual closed Duo landscape - short-height transport and seek")
+    let bounds = XCTAttachment(string: "window=\(window); resume=\(resume.frame); seek=\(seek.frame)")
+    bounds.name = "Actual short-height public control bounds"
+    bounds.lifetime = .keepAlways
+    add(bounds)
+    XCTAssertLessThan(window.height, 500, "Native closed landscape must actually produce a short window")
+    XCTAssertGreaterThan(window.width, window.height)
+    XCTAssertTrue(resume.isHittable && seek.isHittable)
+    XCTAssertTrue(window.contains(resume.frame) && window.contains(seek.frame))
+  }
+
+  @MainActor
   func testNativeFoldsPreserveListeningQueueAndArtistRoute() throws {
     let app = XCUIApplication()
     app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
@@ -47,6 +84,15 @@ final class AdaptiveListeningTests: XCTestCase {
       XCTAssertTrue(expanded.buttons["player.resume"].isHittable)
       XCTAssertEqual(expanded.staticTexts["player.title"].label, title)
       XCTAssertEqual(expanded.staticTexts["player.elapsed"].label, elapsed)
+      let bounds = XCTAttachment(
+        string:
+          "window=\(app.windows.firstMatch.frame); transport=\(expanded.buttons["player.resume"].frame); seek=\(expanded.sliders["player.seek"].frame)"
+      )
+      bounds.name = "Committed native \(phase) - actual public control bounds"
+      bounds.lifetime = .keepAlways
+      add(bounds)
+      XCTAssertTrue(app.windows.firstMatch.frame.contains(expanded.buttons["player.resume"].frame))
+      XCTAssertTrue(app.windows.firstMatch.frame.contains(expanded.sliders["player.seek"].frame))
       capture(app, "Committed native Duo \(phase) - retained paused song and controls")
       XCTAssertEqual(inspectQueue(app), originalQueue)
     }
