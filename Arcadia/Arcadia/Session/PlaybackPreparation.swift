@@ -2,6 +2,16 @@ import AVFoundation
 
 @MainActor
 final class PlaybackPreparation {
+  static func play(_ player: AVPlayer, activateAudio: @MainActor () throws -> Void) -> Bool {
+    do {
+      try activateAudio()
+      player.play()
+      return true
+    } catch {
+      return false
+    }
+  }
+
   static func resource(
     for track: Track, source: any MusicSource, onResult: @escaping @MainActor (PlayableResource?) -> Void
   ) -> Task<Void, Never> {

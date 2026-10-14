@@ -32,6 +32,7 @@ final class PlayerStore {
   private var currentIndex: Int? { queue.firstIndex { $0.id == currentEntryID } }
 
   @ObservationIgnored private let source: any MusicSource
+  @ObservationIgnored private let activateAudio: @MainActor () throws -> Void
   @ObservationIgnored private let player = AVPlayer()
   @ObservationIgnored private var generation = UUID()
   @ObservationIgnored private var wantsPlayback = false
@@ -42,7 +43,10 @@ final class PlayerStore {
   @ObservationIgnored private let interruption = PlaybackInterruption()
   @ObservationIgnored private let feedback = QueueFeedbackState()
 
-  init(source: any MusicSource) { self.source = source }
+  init(source: any MusicSource, activateAudio: @escaping @MainActor () throws -> Void = {}) {
+    self.source = source
+    self.activateAudio = activateAudio
+  }
 
   func pause() {
     playbackChoiceRevision = UUID()
@@ -69,7 +73,7 @@ final class PlayerStore {
       state = .loading
       return
     }
-    player.play()
+    startTransport()
     updateTransport(generation)
   }
 
@@ -131,7 +135,7 @@ final class PlayerStore {
         guard let self, finished, self.generation == expected else { return }
         let actual = self.player.currentTime().seconds
         if actual.isFinite { self.currentTime = actual }
-        if self.wantsPlayback { self.player.play() }
+        if self.wantsPlayback { self.startTransport() }
         self.updateTransport(expected)
       }
     }
@@ -150,6 +154,10 @@ final class PlayerStore {
     state = .loading
     errorText = nil
     resolve(entry)
+  }
+
+  private func startTransport() {
+    if !PlaybackPreparation.play(player, activateAudio: activateAudio) { fail(generation) }
   }
 
   private func resolve(_ entry: QueueEntry) {
@@ -175,7 +183,7 @@ final class PlayerStore {
         self.fail(expected)
       }
     }
-    if wantsPlayback && restoration.position == nil { player.play() }
+    if wantsPlayback && restoration.position == nil { startTransport() }
   }
 
   private func observe(_ item: AVPlayerItem, generation expected: UUID) {
@@ -357,7 +365,7 @@ extension PlayerStore {
       guard let self, self.generation == expected else { return }
       self.restoration.cancel()
       self.currentTime = position
-      if self.wantsPlayback { self.player.play() }
+      if self.wantsPlayback { self.startTransport() }
       self.updateTransport(expected)
     }
   }
@@ -372,9 +380,7 @@ extension PlayerStore {
     wantsPlayback = false
     if currentEntryID != nil { state = .paused }
   }
-}
 
-extension PlayerStore {
   func beginAudioInterruption() -> UUID {
     let token = interruption.begin(
       entry: currentEntryID, generation: generation, choice: playbackChoiceRevision, requested: wantsPlayback)

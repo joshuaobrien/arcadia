@@ -27,4 +27,27 @@ final class PlaybackInterruptionTests: XCTestCase {
     XCTAssertEqual(player.queue.map(\.id), ids)
     player.stop()
   }
+
+  @MainActor
+  func testAudioActivationFailureKeepsTheChosenQueueAndShowsSafePlaybackFailure() async throws {
+    let source = FixtureAlbumClient(scenario: .success)
+    let tracks = try await source.fetchAlbum(FetchAlbumRequest(albumId: "fixture-1")).items
+    let player = PlayerStore(
+      source: source,
+      activateAudio: {
+        throw NSError(domain: "private-audio-route-detail", code: 1)
+      })
+    player.play(tracks)
+    for _ in 0..<100 {
+      if player.state == .failed { break }
+      try await Task.sleep(for: .milliseconds(30))
+    }
+    XCTAssertEqual(player.state, .failed)
+    XCTAssertFalse(player.isPlaybackRequested)
+    XCTAssertEqual(player.queue.map { $0.track.id }, tracks.map(\.id))
+    XCTAssertNotNil(player.errorText)
+    XCTAssertFalse(player.errorText?.contains("private-audio-route-detail") ?? true)
+    player.stop()
+  }
+
 }
