@@ -20,6 +20,7 @@ enum AppSection: String, CaseIterable, Identifiable {
 struct AppView: View {
   let albumService: any MusicSource
   let listeningSession: ListeningSession?
+  private let disconnect: (() -> Void)?
 
   @State private var albumsModel: AlbumsModel
   @State private var playerStore: PlayerStore
@@ -33,9 +34,13 @@ struct AppView: View {
   @AppStorage private var destination: String
   @AppStorage private var lastLibraryDestination: String
 
-  init(albumService: any MusicSource, listeningSession: ListeningSession? = nil) {
+  init(
+    albumService: any MusicSource, listeningSession: ListeningSession? = nil,
+    disconnect: (() -> Void)? = nil
+  ) {
     self.albumService = albumService
     self.listeningSession = listeningSession
+    self.disconnect = disconnect
     _playerStore = State(initialValue: listeningSession?.player ?? PlayerStore(source: albumService))
     _albumsModel = State(initialValue: AlbumsModel(albumService: albumService))
     _libraryModel = State(initialValue: LibraryModel(source: albumService))
@@ -123,6 +128,16 @@ struct AppView: View {
           #if os(iOS)
             .accessibilityHidden(selection != section)
           #endif
+          #if os(iOS)
+            .toolbar {
+              if selection == section, let disconnect {
+                ToolbarItem(placement: .topBarTrailing) {
+                  Button("Disconnect", systemImage: "rectangle.portrait.and.arrow.right", action: disconnect)
+                  .accessibilityIdentifier("source.disconnect")
+                }
+              }
+            }
+          #endif
           .navigationDestination(for: LibraryRoute.self) { route in
             Group {
               switch route {
@@ -182,10 +197,10 @@ struct AppView: View {
     @ViewBuilder
     private var phoneTabsWithTransport: some View {
       if #available(iOS 26.1, *) {
-        phoneTabs.tabViewBottomAccessory(isEnabled: playerStore.currentTrack != nil) {
+        phoneTabs.tabViewBottomAccessory(isEnabled: playerStore.currentTrack != nil && !isPlayerPresented) {
           CompactPlayerView { isPlayerPresented = true }
         }
-      } else if playerStore.currentTrack != nil {
+      } else if playerStore.currentTrack != nil && !isPlayerPresented {
         // Routes, selection, scroll anchors and listening state belong to AppView/model.
         // The iOS 26.0 accessory API has no enabled argument.
         phoneTabs.tabViewBottomAccessory {
