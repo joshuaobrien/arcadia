@@ -75,6 +75,51 @@ final class DuoRealListeningTests: XCTestCase {
   }
 
   @MainActor
+  func testFirstClosedFoldRendersRealSourceBeforeNaturalBoundary() throws {
+    let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    let configuration = try JSONDecoder().decode(
+      Configuration.self, from: Data(contentsOf: documents.appendingPathComponent("arcadia-jellyfin-fixture.json")))
+    let directory = documents.appendingPathComponent("duo-first-fold-59")
+    if FileManager.default.fileExists(atPath: directory.path) { try FileManager.default.removeItem(at: directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { UIPasteboard.general.string = nil }
+    let app = XCUIApplication()
+    app.launchEnvironment["ARCADIA_DATA_MODE"] = "jellyfin"
+    app.launchEnvironment["ARCADIA_SESSION_NAMESPACE"] = UUID().uuidString
+    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
+    app.launch()
+    try connect(configuration, app: app)
+    let play = app.buttons["track.\(configuration.secondSongID).play"]
+    let actions = app.buttons["track.\(configuration.secondSongID).actions"]
+    let songs = app.scrollViews["songs.scroll"]
+    for _ in 0..<12 {
+      if play.exists && play.isHittable && songs.frame.contains(play.frame) { break }
+      songs.swipeUp()
+    }
+    play.tap()
+    XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 15))
+    try Data().write(to: directory.appendingPathComponent("target-request"))
+    XCTAssertTrue(waitForFile(directory.appendingPathComponent("capture-ready"), timeout: 30))
+    app.buttons["player.pause"].tap()
+    actions.tap()
+    app.buttons["Add to Queue"].tap()
+    app.buttons["player.expand"].tap()
+    app.sliders["player.seek"].adjust(toNormalizedSliderPosition: 0)
+    app.buttons["player.resume"].tap()
+    XCTAssertTrue(waitForPlaying(app))
+    try Data("closed".utf8).write(to: directory.appendingPathComponent("request"), options: .atomic)
+    XCTAssertTrue(waitForFile(directory.appendingPathComponent("closed.complete"), timeout: 30))
+    try Data("open".utf8).write(to: directory.appendingPathComponent("request"), options: .atomic)
+    XCTAssertTrue(waitForFile(directory.appendingPathComponent("open.complete"), timeout: 30))
+    XCTAssertEqual(app.state, .runningForeground)
+    XCTAssertTrue(waitForPlaying(app))
+    app.buttons["player.pause"].tap()
+    try Data().write(to: directory.appendingPathComponent("done"))
+    app.buttons["player.dismiss"].tap()
+    app.terminate()
+  }
+
+  @MainActor
   private func nativeBack(_ app: XCUIApplication) {
     let back = app.buttons.matching(identifier: "BackButton").allElementsBoundByIndex.filter(\.isHittable)
     XCTAssertEqual(back.count, 1)
