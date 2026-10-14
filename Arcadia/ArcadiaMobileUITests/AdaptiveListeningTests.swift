@@ -1,0 +1,73 @@
+import XCTest
+
+final class AdaptiveListeningTests: XCTestCase {
+  override func setUpWithError() throws { continueAfterFailure = false }
+
+  @MainActor
+  func testExpandedDuoShowsQueueAlongsidePlayer() throws {
+    let app = XCUIApplication()
+    app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
+    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
+    app.launch()
+    let play = app.buttons["track.fixture-1-track-1.play"]
+    XCTAssertTrue(play.waitForExistence(timeout: 10))
+    play.tap()
+    XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 10))
+    app.buttons["player.pause"].tap()
+    app.buttons["player.expand"].tap()
+    let expanded = app.otherElements["player.expanded"]
+    XCTAssertTrue(expanded.waitForExistence(timeout: 5))
+    // Run only after the native driver commits an expanded display arrangement.
+    // A compact destination cannot establish this adaptive composition contract.
+    try XCTSkipIf(app.windows.firstMatch.frame.width < 650, "Requires committed expanded Duo display")
+    capture(app, "Expanded Duo baseline - player and queue composition")
+    XCTAssertTrue(app.staticTexts["queue.heading"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.staticTexts["queue.heading"].isHittable)
+    XCTAssertTrue(expanded.buttons["player.resume"].isHittable)
+    XCTAssertTrue(app.windows.firstMatch.frame.contains(app.staticTexts["queue.heading"].frame))
+  }
+
+  @MainActor
+  func testRotationKeepsTransportReachableAndListeningSelection() {
+    let app = XCUIApplication()
+    app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
+    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
+    XCUIDevice.shared.orientation = .portrait
+    defer { XCUIDevice.shared.orientation = .portrait }
+    app.launch()
+    let play = app.buttons["track.fixture-1-track-1.play"]
+    XCTAssertTrue(play.waitForExistence(timeout: 10))
+    play.tap()
+    XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 10))
+    app.buttons["player.pause"].tap()
+    app.buttons["player.expand"].tap()
+    XCTAssertTrue(app.buttons["player.dismiss"].waitForExistence(timeout: 5))
+    let expanded = app.otherElements["player.expanded"]
+    XCTAssertTrue(expanded.waitForExistence(timeout: 5))
+    let title = expanded.staticTexts["player.title"].label
+    XCUIDevice.shared.orientation = .landscapeRight
+    let resume = expanded.buttons["player.resume"]
+    let seek = expanded.sliders["player.seek"]
+    XCTAssertTrue(resume.waitForExistence(timeout: 5))
+    XCTAssertTrue(resume.isHittable)
+    XCTAssertTrue(seek.isHittable)
+    XCTAssertTrue(app.windows.firstMatch.frame.contains(resume.frame))
+    XCTAssertTrue(app.windows.firstMatch.frame.contains(seek.frame))
+    XCTAssertEqual(expanded.staticTexts["player.title"].label, title)
+    capture(app, "Short height player - transport and seek visible without scrolling")
+    XCUIDevice.shared.orientation = .portrait
+    XCTAssertTrue(expanded.buttons["player.resume"].isHittable)
+    XCTAssertEqual(expanded.staticTexts["player.title"].label, title)
+    app.buttons["player.dismiss"].tap()
+    XCTAssertTrue(app.staticTexts["songs.count"].exists)
+    XCTAssertEqual(app.staticTexts["player.title"].firstMatch.label, title)
+  }
+
+  @MainActor
+  private func capture(_ app: XCUIApplication, _ name: String) {
+    let attachment = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
+    attachment.name = name
+    attachment.lifetime = .keepAlways
+    add(attachment)
+  }
+}
