@@ -43,20 +43,49 @@ struct CompactPlayerView: View {
 
 struct ExpandedPlayerView: View {
   @Environment(PlayerStore.self) private var playerStore
+  @Binding var queueScrollPosition: ScrollPosition
+  @Binding var queueScrollOffset: CGFloat
 
   var body: some View {
-    VStack(spacing: 24) {
-      if let track = playerStore.currentTrack {
-        AlbumArtwork(artworkURL: track.artworkURL)
-          .aspectRatio(1, contentMode: .fit)
-          .clipShape(RoundedRectangle(cornerRadius: 16))
-          .padding(.horizontal, 24)
-          .padding(.top, 24)
-      }
-      Spacer(minLength: 0)
-      PlayerBar()
-    }
+    presentation
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("player.expanded")
+  }
+
+  @ViewBuilder
+  private var presentation: some View {
+    #if os(iOS)
+      if #available(iOS 27.1, *) {
+        ArrangementView {
+          playerContent
+            .splitArrangementLayoutSize(minWidth: 300, minHeight: 180)
+        } secondary: {
+          QueueView(scrollPosition: $queueScrollPosition, scrollOffset: $queueScrollOffset)
+            .splitArrangementLayoutSize(minWidth: 280, minHeight: 180)
+        }
+        .arrangementViewStyle(.split)
+      } else {
+        playerContent
+      }
+    #else
+      playerContent
+    #endif
+  }
+
+  private var playerContent: some View {
+    GeometryReader { geometry in
+      VStack(spacing: 16) {
+        if let track = playerStore.currentTrack {
+          AlbumArtwork(artworkURL: track.artworkURL)
+            .aspectRatio(1, contentMode: .fit)
+            .frame(maxHeight: max(0, min(320, geometry.size.height - 180)))
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .padding(.horizontal, 24)
+        }
+        Spacer(minLength: 0)
+        PlayerBar()
+      }
+      .padding(.top, 16)
+    }
   }
 }

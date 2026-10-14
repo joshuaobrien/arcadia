@@ -215,7 +215,9 @@ struct AppView: View {
       phoneTabsWithTransport
         .fullScreenCover(isPresented: $isPlayerPresented) {
           NavigationStack {
-            ExpandedPlayerView()
+            ExpandedPlayerView(
+              queueScrollPosition: $queueScrollPosition, queueScrollOffset: $queueScrollOffset
+            )
               .navigationTitle("Now Playing")
               .navigationBarTitleDisplayMode(.inline)
               .toolbar {
