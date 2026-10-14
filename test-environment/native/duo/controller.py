@@ -21,6 +21,7 @@ STARTED = time.time()
 phases = []
 print(str(OUT), flush=True)
 video = None
+desktop = None
 
 
 def command(*args):
@@ -109,6 +110,16 @@ try:
     if MODE == "real":
         (directory / "poses.finished").write_text("All four actual native poses committed")
 finally:
+    if desktop is not None:
+        try:
+            desktop.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            desktop.terminate()
+            try:
+                desktop.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                desktop.kill()
+                desktop.wait()
     if video is not None and video.poll() is None:
         video.send_signal(signal.SIGINT)
         try: video.wait(timeout=10)

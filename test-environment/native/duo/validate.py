@@ -103,6 +103,8 @@ if args.orientation:
     environment['ARCADIA_DUO_ORIENTATION'] = str(args.orientation.resolve())
 if args.audio_helper:
     environment['ARCADIA_AUDIO_CAPTURE_HELPER'] = str(args.audio_helper.resolve())
+result = root/'results.xcresult'
+test_failure = None
 try:
     if args.mode == 'real':
         data = json.loads(args.configuration.read_text())
@@ -115,9 +117,10 @@ try:
     controller = 'short-controller.py' if args.mode == 'short' else 'controller.py'
     log = (root/'controller.log').open('w')
     children.append((subprocess.Popen(['python3',str(Path(__file__).with_name(controller))], env=environment, stdout=log, stderr=subprocess.STDOUT),log))
-    result = root/'results.xcresult'
     with (root/'test.log').open('w') as log:
         run(*common, '-resultBundlePath', result, 'test-without-building', stdout=log, stderr=subprocess.STDOUT, timeout=360)
+except Exception as error:
+    test_failure = error
 finally:
     (root/'audio/rendered-output').mkdir(parents=True,exist_ok=True)
     (root/'audio/rendered-output/driver.finished').touch()
@@ -137,12 +140,24 @@ finally:
         configuration.unlink(missing_ok=True)
     guard_source('source-after.json')
 
-for operation, filename in [('summary','summary.json'),('tests','tests.json')]:
-    with (root/filename).open('w') as log:
-        run('xcrun','xcresulttool','get','test-results',operation,'--path',result,'--format','json',stdout=log)
-run('xcrun','xcresulttool','export','attachments','--path',result,'--output-path',root/'attachments')
-run('python3',repository/'scripts/native_loop/verification.py',root/'tests.json',root/'verification.json',selection,
-    env=dict(os.environ,ARCADIA_SOURCE_SHA256=source_sha))
+if result.exists():
+    for operation, filename in [('summary','summary.json'),('tests','tests.json')]:
+        with (root/filename).open('w') as log:
+            run('xcrun','xcresulttool','get','test-results',operation,'--path',result,'--format','json',stdout=log)
+    run('xcrun','xcresulttool','export','attachments','--path',result,'--output-path',root/'attachments')
+    verification = subprocess.run(['python3',str(repository/'scripts/native_loop/verification.py'),str(root/'tests.json'),
+                                   str(root/'verification.json'),selection],
+                                  env=dict(os.environ,ARCADIA_SOURCE_SHA256=source_sha))
+else:
+    verification = None
+    (root/'verification.json').write_text(json.dumps({'verified':False,'source_sha256':source_sha,
+                                                    'requested_tests':[selection],'error':'No XCTest result bundle'}))
+if test_failure is not None:
+    raise test_failure
+if verification is None or verification.returncode:
+    raise RuntimeError('Exact selected XCTest method did not pass')
+if any(child.returncode for child,_ in children):
+    raise RuntimeError('An owned native controller or capture child failed')
 summary = json.loads((root/'summary.json').read_text())
 if summary.get('skippedTests',0) or summary.get('failedTests',0) or summary.get('passedTests') != 1:
     raise RuntimeError('Canonical exact method must pass once with zero skips')
