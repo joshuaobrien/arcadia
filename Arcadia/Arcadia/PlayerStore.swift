@@ -5,11 +5,6 @@ import Observation
 @Observable
 final class PlayerStore {
   enum State: String { case idle, loading, playing, paused, failed, ended }
-  struct QueueFeedback: Identifiable {
-    let id = UUID()
-    let message: String
-    fileprivate let entryIDs: Set<UUID>
-  }
 
   private(set) var currentTime: Double = 0
   private(set) var duration: Double = 0
@@ -22,7 +17,7 @@ final class PlayerStore {
   private(set) var state: State = .idle
   private(set) var errorText: String?
   private(set) var pendingReplacement: [Track]?
-  private(set) var queueFeedback: QueueFeedback?
+  var queueFeedback: QueueFeedbackState.Feedback? { feedback.current }
   var needsReplacementConfirmation: Bool { pendingReplacement != nil }
 
   var currentTrack: Track? { currentEntry?.track }
@@ -44,7 +39,8 @@ final class PlayerStore {
   @ObservationIgnored private var durationTask: Task<Void, Never>?
   @ObservationIgnored private var transportObservation: PlaybackObservation?
   @ObservationIgnored private let restoration = PausedRestoration()
-  @ObservationIgnored private var feedbackTask: Task<Void, Never>?
+  @ObservationIgnored private let interruption = PlaybackInterruption()
+  @ObservationIgnored private let feedback = QueueFeedbackState()
 
   init(source: any MusicSource) { self.source = source }
 
@@ -112,7 +108,7 @@ final class PlayerStore {
     restoration.cancel()
     queue = []
     pendingReplacement = nil
-    clearQueueFeedback()
+    feedback.clear()
     currentEntryID = nil
     currentTime = 0
     duration = 0
@@ -267,7 +263,7 @@ extension PlayerStore {
 
   private func replaceAndPlay(_ tracks: [Track]) {
     pendingReplacement = nil
-    clearQueueFeedback()
+    feedback.clear()
     queue = tracks.map { QueueEntry(track: $0) }
     if let first = queue.first { start(first) }
   }
@@ -276,7 +272,7 @@ extension PlayerStore {
     guard !tracks.isEmpty else { return }
     let entries = tracks.map { QueueEntry(track: $0, origin: .manual) }
     queue.insert(contentsOf: entries, at: currentIndex.map { $0 + 1 } ?? 0)
-    showQueueFeedback(
+    feedback.show(
       entries,
       message: tracks.count == 1 ? "Playing next: \(tracks[0].title ?? "Song")" : "\(tracks.count) songs will play next"
     )
@@ -286,7 +282,7 @@ extension PlayerStore {
     guard !tracks.isEmpty else { return }
     let entries = tracks.map { QueueEntry(track: $0, origin: .manual) }
     queue.append(contentsOf: entries)
-    showQueueFeedback(
+    feedback.show(
       entries,
       message: tracks.count == 1
         ? "Added to queue: \(tracks[0].title ?? "Song")" : "Added \(tracks.count) songs to queue")
@@ -296,24 +292,7 @@ extension PlayerStore {
     guard let feedback = queueFeedback, feedback.id == feedbackID else { return }
     let removable = Set(upcoming.map(\.id)).intersection(feedback.entryIDs)
     queue.removeAll { removable.contains($0.id) }
-    clearQueueFeedback()
-  }
-
-  private func showQueueFeedback(_ entries: [QueueEntry], message: String) {
-    feedbackTask?.cancel()
-    let feedback = QueueFeedback(message: message, entryIDs: Set(entries.map(\.id)))
-    queueFeedback = feedback
-    feedbackTask = Task { [weak self] in
-      try? await Task.sleep(for: .seconds(8))
-      guard !Task.isCancelled, let self, self.queueFeedback?.id == feedback.id else { return }
-      self.queueFeedback = nil
-    }
-  }
-
-  private func clearQueueFeedback() {
-    feedbackTask?.cancel()
-    feedbackTask = nil
-    queueFeedback = nil
+    self.feedback.clear()
   }
 
   func removeUpcoming(_ id: UUID) {
@@ -348,7 +327,7 @@ extension PlayerStore {
     player.pause()
     player.replaceCurrentItem(with: nil)
     pendingReplacement = nil
-    clearQueueFeedback()
+    feedback.clear()
     queue = snapshot.entries.map(\.queueEntry)
     currentEntryID = snapshot.currentEntryID
     currentTime = snapshot.position
@@ -392,5 +371,22 @@ extension PlayerStore {
     player.replaceCurrentItem(with: nil)
     wantsPlayback = false
     if currentEntryID != nil { state = .paused }
+  }
+}
+
+extension PlayerStore {
+  func beginAudioInterruption() -> UUID {
+    let token = interruption.begin(
+      entry: currentEntryID, generation: generation, choice: playbackChoiceRevision, requested: wantsPlayback)
+    wantsPlayback = false
+    player.pause()
+    if currentTrack != nil && state != .failed && state != .ended { state = .paused }
+    return token
+  }
+
+  func endAudioInterruption(_ token: UUID, shouldResume: Bool) {
+    let mayResume = interruption.finish(
+      token, entry: currentEntryID, generation: generation, choice: playbackChoiceRevision)
+    if shouldResume && mayResume { resume() }
   }
 }
