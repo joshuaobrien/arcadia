@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import tarfile
 import time
+import uuid
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('mode', choices=['fixture', 'short', 'real'])
@@ -95,7 +96,9 @@ marker = documents/'arcadia-duo-native-validation.json'
 configuration = documents/'arcadia-jellyfin-duo-long-fixture.json'
 if marker.exists() or (args.mode == 'real' and configuration.exists()):
     raise RuntimeError('Refusing to replace pre-existing native acceptance staging')
-marker.write_text(json.dumps({'controller':'duo-native'}))
+stage_owner = {'controller':'duo-native','token':str(uuid.uuid4()),'source_sha256':source_sha,'output':str(root)}
+marker.write_text(json.dumps(stage_owner))
+(root/'staging.json').write_text(json.dumps({'initial_documents':str(documents),'owner':stage_owner},indent=2))
 children = []
 environment = dict(os.environ, ARCADIA_DUO_ROOT=str(root), DUO_DEVICE_ID=args.device,
                    ARCADIA_DUO_MODE=args.mode, ARCADIA_DUO_CONTROL=control)
@@ -135,9 +138,21 @@ finally:
                 child.kill()
                 child.wait()
         log.close()
-    marker.unlink(missing_ok=True)
-    if args.mode == 'real':
-        configuration.unlink(missing_ok=True)
+    cleanup_documents = {documents}
+    try:
+        current = Path(output('xcrun','simctl','get_app_container',args.device,'tokyo.drift.ArcadiaMobileUITests.xctrunner','data'))
+        cleanup_documents.add(current/'Documents')
+    except subprocess.CalledProcessError:
+        pass
+    cleaned = []
+    for directory in cleanup_documents:
+        current_marker = directory/marker.name
+        if current_marker.exists() and json.loads(current_marker.read_text()) == stage_owner:
+            if args.mode == 'real':
+                (directory/configuration.name).unlink(missing_ok=True)
+            current_marker.unlink()
+            cleaned.append(str(directory))
+    (root/'staging-cleanup.json').write_text(json.dumps({'owned_documents_cleaned':cleaned,'owner':stage_owner},indent=2))
     guard_source('source-after.json')
 
 if result.exists():
