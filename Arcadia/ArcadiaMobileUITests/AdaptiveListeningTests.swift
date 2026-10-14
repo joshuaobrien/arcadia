@@ -65,7 +65,9 @@ final class AdaptiveListeningTests: XCTestCase {
       .allElementsBoundByIndex.map(\.identifier)
     let upcoming = queue.otherElements.matching(NSPredicate(format: "identifier BEGINSWITH %@", "queue.entry."))
       .allElementsBoundByIndex.map(\.identifier)
-    app.navigationBars.buttons["Now Playing"].tap()
+    let back = app.buttons.matching(identifier: "BackButton").allElementsBoundByIndex.filter(\.isHittable)
+    XCTAssertEqual(back.count, 1, "Use the observed native Duo Back control")
+    back.first?.tap()
     return current + upcoming
   }
 
