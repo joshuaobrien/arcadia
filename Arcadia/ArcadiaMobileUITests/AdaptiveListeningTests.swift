@@ -18,20 +18,22 @@ final class AdaptiveListeningTests: XCTestCase {
     app.buttons["player.pause"].tap()
     app.buttons["player.expand"].tap()
     XCTAssertTrue(app.buttons["player.dismiss"].waitForExistence(timeout: 5))
-    let title = app.staticTexts["player.title"].firstMatch.label
+    let expanded = app.otherElements["player.expanded"]
+    XCTAssertTrue(expanded.waitForExistence(timeout: 5))
+    let title = expanded.staticTexts["player.title"].label
     XCUIDevice.shared.orientation = .landscapeRight
-    let resume = app.buttons["player.resume"]
-    let seek = app.sliders["player.seek"]
+    let resume = expanded.buttons["player.resume"]
+    let seek = expanded.sliders["player.seek"]
     XCTAssertTrue(resume.waitForExistence(timeout: 5))
     XCTAssertTrue(resume.isHittable)
     XCTAssertTrue(seek.isHittable)
     XCTAssertTrue(app.windows.firstMatch.frame.contains(resume.frame))
     XCTAssertTrue(app.windows.firstMatch.frame.contains(seek.frame))
-    XCTAssertEqual(app.staticTexts["player.title"].firstMatch.label, title)
+    XCTAssertEqual(expanded.staticTexts["player.title"].label, title)
     capture(app, "Short height player - transport and seek visible without scrolling")
     XCUIDevice.shared.orientation = .portrait
-    XCTAssertTrue(app.buttons["player.resume"].isHittable)
-    XCTAssertEqual(app.staticTexts["player.title"].firstMatch.label, title)
+    XCTAssertTrue(expanded.buttons["player.resume"].isHittable)
+    XCTAssertEqual(expanded.staticTexts["player.title"].label, title)
     app.buttons["player.dismiss"].tap()
     XCTAssertTrue(app.staticTexts["songs.count"].exists)
     XCTAssertEqual(app.staticTexts["player.title"].firstMatch.label, title)
