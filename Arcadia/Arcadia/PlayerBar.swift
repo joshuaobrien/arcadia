@@ -89,7 +89,8 @@ struct PlaybackToggleButton: View {
       playerStore.togglePlayback()
     } label: {
       Image(systemName: playerStore.isPlaybackRequested ? "pause.fill" : "play.fill")
-        .frame(width: 28, height: 28)
+        .font(.system(size: 20))
+        .frame(minWidth: 44, minHeight: 44)
     }
     .buttonStyle(.borderless)
     .disabled(playerStore.state == .failed)
@@ -105,6 +106,8 @@ struct NextSongButton: View {
       playerStore.playNext()
     } label: {
       Image(systemName: "forward.end.fill")
+        .font(.system(size: 20))
+        .frame(minWidth: 44, minHeight: 44)
     }
     .buttonStyle(.borderless)
     .disabled(!playerStore.canAdvance)
