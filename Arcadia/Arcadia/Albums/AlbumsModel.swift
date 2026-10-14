@@ -81,7 +81,8 @@ final class AlbumsModel {
         )
       )
 
-      albums.append(contentsOf: response.albums)
+      var identities = Set(albums.map(\.id))
+      albums.append(contentsOf: response.albums.filter { identities.insert($0.id).inserted })
       nextCursor = response.nextCursor
       AppDiagnostics.event("albums.loaded")
     } catch {
