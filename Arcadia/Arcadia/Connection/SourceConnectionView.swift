@@ -10,16 +10,21 @@ struct SourceConnectionView: View {
   var body: some View {
     Group {
       if let source = model.source {
-        AppView(albumService: source, listeningSession: model.listeningSession)
-          .environment(\.musicSource, source)
-          .toolbar {
-            ToolbarItem {
-              Button("Disconnect", systemImage: "rectangle.portrait.and.arrow.right") {
-                model.disconnect()
+        #if os(iOS)
+          AppView(albumService: source, listeningSession: model.listeningSession, disconnect: model.disconnect)
+            .environment(\.musicSource, source)
+        #else
+          AppView(albumService: source, listeningSession: model.listeningSession)
+            .environment(\.musicSource, source)
+            .toolbar {
+              ToolbarItem {
+                Button("Disconnect", systemImage: "rectangle.portrait.and.arrow.right") {
+                  model.disconnect()
+                }
+                .accessibilityIdentifier("source.disconnect")
               }
-              .accessibilityIdentifier("source.disconnect")
             }
-          }
+        #endif
       } else {
         connectionForm
       }
