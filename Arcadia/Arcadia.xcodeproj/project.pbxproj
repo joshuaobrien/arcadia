@@ -48,6 +48,7 @@
 			membershipExceptions = (
 				Albums/Tests/AlbumsModelTests.swift,
 				Info.plist,
+				Info-iOS.plist,
 			);
 			target = 0309A2003030872F0066F5FE /* Arcadia */;
 		};
@@ -523,6 +524,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Arcadia/Info.plist;
+				"INFOPLIST_FILE[sdk=iphone*]" = Arcadia/Info-iOS.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -570,6 +572,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Arcadia/Info.plist;
+				"INFOPLIST_FILE[sdk=iphone*]" = Arcadia/Info-iOS.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

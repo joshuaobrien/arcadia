@@ -13,6 +13,9 @@ final class ListeningSession {
   let source: any MusicSource
   private(set) var recoveryMessage: String?
   @ObservationIgnored private var mediaBridge: MediaPlaybackBridge?
+  #if os(iOS)
+    @ObservationIgnored private var audioSession: MobileAudioSession?
+  #endif
   @ObservationIgnored private let binding: UUID?
   @ObservationIgnored private let file: PlaybackSessionFile?
   @ObservationIgnored private var saveTask: Task<Void, Never>?
@@ -21,10 +24,19 @@ final class ListeningSession {
 
   init(source: any MusicSource, sourceBinding: UUID? = nil) {
     self.source = source
-    player = PlayerStore(source: source)
+    #if os(iOS)
+      let audio = MobileAudioSession()
+      audioSession = audio
+      player = PlayerStore(source: source, activateAudio: { try audio.activate() })
+    #else
+      player = PlayerStore(source: source)
+    #endif
     binding = sourceBinding
     file = sourceBinding == nil ? nil : PlaybackSessionFile()
     mediaBridge = MediaPlaybackBridge(player: player, source: source)
+    #if os(iOS)
+      audioSession?.observe(player: player) { [weak self] in self?.flush() }
+    #endif
     if let binding, let file {
       do {
         if let data = try file.read() { try player.restoreSession(data, sourceBinding: binding) }
@@ -58,16 +70,16 @@ final class ListeningSession {
 
   func discard() {
     isClosed = true
-    closeObservers()
     player.stop()
+    closeObservers()
     do { try file?.clear() } catch { AppDiagnostics.event("session.discard.failed") }
   }
 
   func shutdown() {
     flush()
     isClosed = true
-    closeObservers()
     player.releaseTransport()
+    closeObservers()
   }
 
   private func closeObservers() {
@@ -75,6 +87,10 @@ final class ListeningSession {
     saveTask = nil
     mediaBridge?.close()
     mediaBridge = nil
+    #if os(iOS)
+      audioSession?.close()
+      audioSession = nil
+    #endif
     if let terminationObserver { NotificationCenter.default.removeObserver(terminationObserver) }
     terminationObserver = nil
   }
