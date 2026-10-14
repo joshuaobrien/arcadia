@@ -165,6 +165,7 @@ final class DuoRealListeningTests: XCTestCase {
     let expanded = app.otherElements["player.expanded"]
     XCTAssertTrue(expanded.waitForExistence(timeout: 5))
     XCTAssertEqual(expanded.staticTexts["player.title"].label, "Persistent State")
+    app.sliders["player.seek"].adjust(toNormalizedSliderPosition: 0)
     app.buttons["player.resume"].tap()
     XCTAssertTrue(waitForPlaying(app))
     for phase in ["closed", "partial", "rotated", "open"] {
