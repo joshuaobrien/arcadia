@@ -530,6 +530,8 @@ class Task:
                     arguments = ['live-review', *arguments]
                 if getattr(self.args, 'only_testing', None):
                     arguments = ['only-testing', *self.args.only_testing]
+                if operation in {'test', 'review', 'oracle'} and getattr(self.args, 'full_diagnostics', False):
+                    arguments = ['full-diagnostics', *arguments]
                 self.guest(operation, *arguments)
                 verification = self.manifest['runs'][-1]
                 self.manifest['last_verification'] = {'run_id': verification['id'], 'operation': operation, 'tests': verification.get('tests', operation)}
@@ -596,6 +598,8 @@ def remote(args):
     if getattr(args, 'only_testing', None):
         for identifier in args.only_testing:
             arguments += ['--only-testing', identifier]
+    if getattr(args, 'full_diagnostics', False):
+        arguments += ['--full-diagnostics']
     if getattr(args, 'label', None):
         arguments += ['--label', args.label]
     if getattr(args, 'screenshot_name', None):
@@ -729,6 +733,7 @@ def main():
     parser.add_argument('--image', default=os.environ.get('TART_IMAGE', IMAGE))
     parser.add_argument('--integration', action='store_true')
     parser.add_argument('--live-review', action='store_true', help='Opt-in bounded interactive guest session; review is background by default')
+    parser.add_argument('--full-diagnostics', action='store_true', help='Keep Xcode system diagnostics for targeted failures (may take several minutes)')
     parser.add_argument('--only-testing', action='append', help='Repeatable XCTest identifier; omit for unit tests plus FeedbackLoopTests')
     parser.add_argument('--label', choices=['before', 'after'], help='Screenshot comparison label')
     parser.add_argument('--screenshot-name', help='Exact attachment display name when a test exports multiple screenshots')
