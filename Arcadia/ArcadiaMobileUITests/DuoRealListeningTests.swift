@@ -30,10 +30,12 @@ final class DuoRealListeningTests: XCTestCase {
     XCTAssertTrue(actions.isHittable)
     app.buttons["track.\(configuration.secondSongID).play"].tap()
     XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 15))
+    try Data().write(to: protocolDirectory.appendingPathComponent("target-request"))
+    XCTAssertTrue(waitForFile(protocolDirectory.appendingPathComponent("capture-ready"), timeout: 30))
     app.buttons["player.pause"].tap()
-    // Twenty-one occurrences of the controlled 12-second, 600Hz source sustain the
+    // Thirteen occurrences of the controlled 12-second, 600Hz source sustain the
     // native fold journey. Natural advancement is expected, not a session reset.
-    for _ in 0..<20 {
+    for _ in 0..<12 {
       actions.tap()
       app.buttons["Add to Queue"].tap()
     }
@@ -41,8 +43,6 @@ final class DuoRealListeningTests: XCTestCase {
     let expanded = app.otherElements["player.expanded"]
     XCTAssertTrue(expanded.waitForExistence(timeout: 5))
     XCTAssertEqual(expanded.staticTexts["player.title"].label, "Persistent State")
-    try Data().write(to: protocolDirectory.appendingPathComponent("target-request"))
-    XCTAssertTrue(waitForFile(protocolDirectory.appendingPathComponent("capture-ready"), timeout: 30))
     app.buttons["player.resume"].tap()
     XCTAssertTrue(waitForPlaying(app))
     for phase in ["closed", "partial", "rotated", "open"] {
