@@ -11,16 +11,40 @@ struct TrackRow: View {
   let track: Track
   var showsTrackNumber = true
   @Environment(PlayerStore.self) private var playerStore
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
   var body: some View {
-    ViewThatFits(in: .horizontal) {
-      fullRow
-      compactRow
+    Group {
+      if dynamicTypeSize.isAccessibilitySize {
+        accessibleRow
+      } else {
+        ViewThatFits(in: .horizontal) {
+          fullRow
+          compactRow
+        }
+      }
     }
     .contextMenu { SongActions(track: track) }
     .padding(.vertical, 4)
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("track.\(track.id)")
+  }
+
+  private var accessibleRow: some View {
+    VStack(alignment: .leading, spacing: DesignTokens.Spacing.m) {
+      metadata(isCompact: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+      HStack(spacing: DesignTokens.Spacing.m) {
+        playButton
+        leadingContent
+        Spacer()
+        Text(formattedDuration)
+          .font(.caption.monospacedDigit())
+          .foregroundStyle(.secondary)
+          .fixedSize()
+        SongActionsMenu(track: track)
+      }
+    }
   }
 
   private var fullRow: some View {
@@ -53,7 +77,7 @@ struct TrackRow: View {
     Button {
       playerStore.play([track])
     } label: {
-      Image(systemName: "play.fill").frame(width: 24, height: 44)
+      Image(systemName: "play.fill").frame(minWidth: 44, minHeight: 44)
     }
     .buttonStyle(.borderless)
     .accessibilityLabel("Play \(track.title ?? "Untitled track")")
@@ -77,19 +101,25 @@ struct TrackRow: View {
   private func metadata(isCompact: Bool) -> some View {
     VStack(alignment: .leading, spacing: DesignTokens.Spacing.s) {
       Text(track.title ?? "Untitled track")
-        .lineLimit(isCompact ? 2 : 1)
+        .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : (isCompact ? 2 : 1))
         .accessibilityIdentifier("track.\(track.id).title")
       if let references = track.artistReferences, !references.isEmpty {
-        HStack {
+        let artistLayout =
+          dynamicTypeSize.isAccessibilitySize
+          ? AnyLayout(VStackLayout(alignment: .leading)) : AnyLayout(HStackLayout())
+        artistLayout {
           ForEach(references) { artist in
-            NavigationLink(value: LibraryRoute.artist(artist)) { Text(artist.name).lineLimit(1) }
-              .accessibilityIdentifier("track.\(track.id).artist.\(artist.id)")
+            NavigationLink(value: LibraryRoute.artist(artist)) {
+              Text(artist.name).lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+            }
+            .accessibilityIdentifier("track.\(track.id).artist.\(artist.id)")
           }
         }
         .font(.caption)
       } else if let artists = track.artists {
         Text(artists.joined(separator: ", "))
-          .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+          .font(.caption).foregroundStyle(.secondary)
+          .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
       }
       if isCompact && !showsTrackNumber { albumLink }
     }
@@ -99,7 +129,8 @@ struct TrackRow: View {
   private var albumLink: some View {
     if let reference = track.albumReference {
       NavigationLink(value: LibraryRoute.album(reference.album())) {
-        Text(reference.title).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+        Text(reference.title).font(.caption).foregroundStyle(.secondary)
+          .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
       }
       .accessibilityIdentifier("track.\(track.id).album")
     }

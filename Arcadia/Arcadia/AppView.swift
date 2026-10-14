@@ -179,7 +179,24 @@ struct AppView: View {
         })
     }
 
-    private var phoneShell: some View {
+    @ViewBuilder
+    private var phoneTabsWithTransport: some View {
+      if #available(iOS 26.1, *) {
+        phoneTabs.tabViewBottomAccessory(isEnabled: playerStore.currentTrack != nil) {
+          CompactPlayerView { isPlayerPresented = true }
+        }
+      } else if playerStore.currentTrack != nil {
+        // Routes, selection, scroll anchors and listening state belong to AppView/model.
+        // The iOS 26.0 accessory API has no enabled argument.
+        phoneTabs.tabViewBottomAccessory {
+          CompactPlayerView { isPlayerPresented = true }
+        }
+      } else {
+        phoneTabs
+      }
+    }
+
+    private var phoneTabs: some View {
       TabView(selection: phoneTabBinding) {
         Tab("Library", systemImage: "music.note", value: PhoneTab.library) {
           retainedSections([.songs, .artists, .albums], showsCategories: true)
@@ -191,33 +208,33 @@ struct AppView: View {
           retainedSections([.search])
         }
       }
-      .tabViewBottomAccessory {
-        if playerStore.currentTrack != nil && !isPlayerPresented {
-          CompactPlayerView { isPlayerPresented = true }
-        }
-      }
-      .fullScreenCover(isPresented: $isPlayerPresented) {
-        NavigationStack {
-          ExpandedPlayerView()
-            .navigationTitle("Now Playing")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-              ToolbarItem(placement: .topBarLeading) {
-                NavigationLink {
-                  QueueView(scrollPosition: $queueScrollPosition, scrollOffset: $queueScrollOffset)
-                    .navigationTitle("Queue")
-                } label: {
-                  Label("Queue", systemImage: "list.bullet")
+    }
+
+    @ViewBuilder
+    private var phoneShell: some View {
+      phoneTabsWithTransport
+        .fullScreenCover(isPresented: $isPlayerPresented) {
+          NavigationStack {
+            ExpandedPlayerView()
+              .navigationTitle("Now Playing")
+              .navigationBarTitleDisplayMode(.inline)
+              .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                  NavigationLink {
+                    QueueView(scrollPosition: $queueScrollPosition, scrollOffset: $queueScrollOffset)
+                      .navigationTitle("Queue")
+                  } label: {
+                    Label("Queue", systemImage: "list.bullet")
+                  }
+                  .accessibilityIdentifier("queue.toggle")
                 }
-                .accessibilityIdentifier("queue.toggle")
+                ToolbarItem(placement: .topBarTrailing) {
+                  Button("Done", systemImage: "chevron.down") { isPlayerPresented = false }
+                    .accessibilityIdentifier("player.dismiss")
+                }
               }
-              ToolbarItem(placement: .topBarTrailing) {
-                Button("Done", systemImage: "chevron.down") { isPlayerPresented = false }
-                  .accessibilityIdentifier("player.dismiss")
-              }
-            }
+          }
         }
-      }
     }
   #endif
 

@@ -102,6 +102,80 @@ final class MobileListeningTests: XCTestCase {
   }
 
   @MainActor
+  func testEmptyLibraryHasAccessibleRecoveryMessage() {
+    let app = XCUIApplication()
+    app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
+    app.launchEnvironment["ARCADIA_FIXTURE_SCENARIO"] = "empty"
+    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
+    app.launch()
+    XCTAssertTrue(app.staticTexts["songs.empty.title"].waitForExistence(timeout: 10))
+    XCTAssertEqual(app.staticTexts["songs.empty.title"].label, "No songs yet")
+    XCTAssertFalse(app.buttons["track.fixture-1-track-1.play"].exists)
+    capture(app, "Phone empty library - accessible explanation")
+  }
+
+  @MainActor
+  func testFailedSongsRequestRecoversThroughPublicRetry() {
+    let app = XCUIApplication()
+    app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
+    app.launchEnvironment["ARCADIA_FIXTURE_SCENARIO"] = "failure-then-success"
+    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
+    app.launch()
+    XCTAssertTrue(app.staticTexts["songs.error"].waitForExistence(timeout: 10))
+    let retry = app.buttons["songs.retry"]
+    XCTAssertTrue(retry.exists && retry.isHittable)
+    capture(app, "Phone songs request failure - public Retry")
+    retry.tap()
+    XCTAssertTrue(app.buttons["track.fixture-1-track-1.play"].waitForExistence(timeout: 10))
+    XCTAssertFalse(app.staticTexts["songs.error"].exists)
+    capture(app, "Phone recovered Songs library")
+  }
+
+  @MainActor
+  func testLargeTextKeepsSongActionsAndTransportReachable() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+    app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
+    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
+    app.launch()
+    let play = app.buttons["track.fixture-1-track-1.play"]
+    XCTAssertTrue(play.waitForExistence(timeout: 10))
+    XCTAssertTrue(play.isHittable)
+    XCTAssertGreaterThanOrEqual(play.frame.width, 44)
+    XCTAssertGreaterThanOrEqual(play.frame.height, 44)
+    let title = app.staticTexts["track.fixture-1-track-1.title"]
+    XCTAssertEqual(title.label, "The First Song")
+    XCTAssertGreaterThanOrEqual(title.frame.height, 40)
+    XCTAssertGreaterThanOrEqual(title.frame.width, app.windows.firstMatch.frame.width * 0.75)
+    let duration = app.staticTexts["1:03"].firstMatch
+    XCTAssertGreaterThan(duration.frame.width, duration.frame.height)
+    capture(app, "Phone accessibility text size - readable shared song metadata")
+    play.tap()
+    XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.buttons["player.pause"].isHittable)
+    XCTAssertTrue(app.windows.firstMatch.frame.contains(app.buttons["player.pause"].frame))
+    XCTAssertTrue(app.tabBars.buttons["Search"].isHittable)
+    capture(app, "Phone accessibility text size - transport remains reachable")
+  }
+
+  @MainActor
+  func testPhoneSearchAcceptsTypedQueryAndShowsMatchingSong() {
+    let app = XCUIApplication()
+    app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
+    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
+    app.launch()
+    XCTAssertTrue(app.tabBars.buttons["Search"].waitForExistence(timeout: 10))
+    app.tabBars.buttons["Search"].tap()
+    let query = app.textFields["search.query"]
+    XCTAssertTrue(query.waitForExistence(timeout: 5))
+    query.tap()
+    query.typeText("Second\n")
+    XCTAssertTrue(app.buttons["track.fixture-1-track-2.play"].waitForExistence(timeout: 10))
+    XCTAssertFalse(app.buttons["track.fixture-1-track-1.play"].exists)
+    capture(app, "Phone Search - typed query produces matching shared song")
+  }
+
+  @MainActor
   private func capture(_ app: XCUIApplication, _ name: String) {
     let attachment = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
     attachment.name = name

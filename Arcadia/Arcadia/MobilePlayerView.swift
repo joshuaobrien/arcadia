@@ -2,6 +2,7 @@ import SwiftUI
 
 struct CompactPlayerView: View {
   @Environment(PlayerStore.self) private var playerStore
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   let expand: () -> Void
 
   var body: some View {
@@ -14,15 +15,20 @@ struct CompactPlayerView: View {
           VStack(alignment: .leading, spacing: 2) {
             Text(track.title ?? "Untitled track")
               .font(.subheadline.weight(.semibold))
+              // The native bottom accessory has a compact height. Full-sized metadata
+              // remains available in Now Playing and the shared library rows.
+              .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
               .accessibilityIdentifier("player.title")
-            Text(track.artists?.joined(separator: ", ") ?? "Unknown Artist")
-              .font(.caption).foregroundStyle(.secondary)
+            if !dynamicTypeSize.isAccessibilitySize {
+              Text(track.artists?.joined(separator: ", ") ?? "Unknown Artist")
+                .font(.caption).foregroundStyle(.secondary)
+            }
           }
           .lineLimit(1)
           .frame(maxWidth: .infinity, alignment: .leading)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Open Now Playing")
+        .accessibilityLabel("Open Now Playing: \(track.title ?? "Untitled track")")
         .accessibilityIdentifier("player.expand")
         PlaybackToggleButton()
         NextSongButton()
