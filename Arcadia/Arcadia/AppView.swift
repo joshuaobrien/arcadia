@@ -233,23 +233,23 @@ struct AppView: View {
             ExpandedPlayerView(
               queueScrollPosition: $queueScrollPosition, queueScrollOffset: $queueScrollOffset
             )
-              .navigationTitle("Now Playing")
-              .navigationBarTitleDisplayMode(.inline)
-              .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                  NavigationLink {
-                    QueueView(scrollPosition: $queueScrollPosition, scrollOffset: $queueScrollOffset)
-                      .navigationTitle("Queue")
-                  } label: {
-                    Label("Queue", systemImage: "list.bullet")
-                  }
-                  .accessibilityIdentifier("queue.toggle")
+            .navigationTitle("Now Playing")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+              ToolbarItem(placement: .topBarLeading) {
+                NavigationLink {
+                  QueueView(scrollPosition: $queueScrollPosition, scrollOffset: $queueScrollOffset)
+                    .navigationTitle("Queue")
+                } label: {
+                  Label("Queue", systemImage: "list.bullet")
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                  Button("Done", systemImage: "chevron.down") { isPlayerPresented = false }
-                    .accessibilityIdentifier("player.dismiss")
-                }
+                .accessibilityIdentifier("queue.toggle")
               }
+              ToolbarItem(placement: .topBarTrailing) {
+                Button("Done", systemImage: "chevron.down") { isPlayerPresented = false }
+                  .accessibilityIdentifier("player.dismiss")
+              }
+            }
           }
         }
     }
