@@ -65,7 +65,9 @@
 
     func close() {
       closed = true
-      observers.forEach { NotificationCenter.default.removeObserver($0) }
+      for observer in observers {
+        NotificationCenter.default.removeObserver(observer)
+      }
       observers = []
       interruption = nil
       player = nil
