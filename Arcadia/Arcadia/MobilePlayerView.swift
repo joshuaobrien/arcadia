@@ -48,8 +48,8 @@ struct ExpandedPlayerView: View {
 
   var body: some View {
     presentation
-    .accessibilityElement(children: .contain)
-    .accessibilityIdentifier("player.expanded")
+      .accessibilityElement(children: .contain)
+      .accessibilityIdentifier("player.expanded")
   }
 
   @ViewBuilder
