@@ -108,6 +108,7 @@ if args.audio_helper:
     environment['ARCADIA_AUDIO_CAPTURE_HELPER'] = str(args.audio_helper.resolve())
 result = root/'results.xcresult'
 test_failure = None
+staged_configuration_sha = None
 try:
     if args.mode == 'real':
         data = json.loads(args.configuration.read_text())
@@ -115,6 +116,7 @@ try:
             raise RuntimeError('Real fold proof requires a separately owned300s600Hz source')
         shutil.copyfile(args.configuration, configuration)
         configuration.chmod(0o600)
+        staged_configuration_sha = hashlib.sha256(configuration.read_bytes()).hexdigest()
         log = (root/'capture.log').open('w')
         children.append((subprocess.Popen(['python3',str(Path(__file__).with_name('capture.py'))], env=environment, stdout=log, stderr=subprocess.STDOUT),log))
     controller = 'short-controller.py' if args.mode == 'short' else 'controller.py'
@@ -145,15 +147,24 @@ finally:
     except subprocess.CalledProcessError:
         pass
     cleaned = []
+    cleanup_errors = []
     for directory in cleanup_documents:
         current_marker = directory/marker.name
         if current_marker.exists() and json.loads(current_marker.read_text()) == stage_owner:
             if args.mode == 'real':
-                (directory/configuration.name).unlink(missing_ok=True)
+                copied_configuration = directory/configuration.name
+                if copied_configuration.exists():
+                    current_sha = hashlib.sha256(copied_configuration.read_bytes()).hexdigest()
+                    if current_sha != staged_configuration_sha:
+                        cleanup_errors.append(str(copied_configuration))
+                        continue
+                    copied_configuration.unlink()
             current_marker.unlink()
             cleaned.append(str(directory))
-    (root/'staging-cleanup.json').write_text(json.dumps({'owned_documents_cleaned':cleaned,'owner':stage_owner},indent=2))
+    (root/'staging-cleanup.json').write_text(json.dumps({'owned_documents_cleaned':cleaned,'owner':stage_owner,'private_configuration_sha256':staged_configuration_sha,'refused_changed_configuration':cleanup_errors},indent=2))
     guard_source('source-after.json')
+    if cleanup_errors:
+        raise RuntimeError('Refusing to remove changed private configuration; inspect staging-cleanup.json')
 
 if result.exists():
     for operation, filename in [('summary','summary.json'),('tests','tests.json')]:
