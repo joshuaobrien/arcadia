@@ -28,7 +28,7 @@ struct Albums: View {
           .accessibilityIdentifier("albums.retry")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle("Albums")
+        .libraryNavigationTitle("Albums")
       } else if model.albums.isEmpty {
         ContentUnavailableView {
           Label("No albums yet", systemImage: "music.note.list")
@@ -38,7 +38,7 @@ struct Albums: View {
             .accessibilityIdentifier("albums.empty.description")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle("Albums")
+        .libraryNavigationTitle("Albums")
       } else {
         AlbumGridView(
           albumService: albumService,

@@ -92,7 +92,7 @@ struct AlbumDetail: View {
       }
     }
     .padding()
-    .navigationTitle(album.title)
+    .libraryNavigationTitle(album.title)
     .navigationBarBackButtonHidden(true)
     .toolbar {
       ToolbarItem(placement: .navigation) { AlbumBackButton() }

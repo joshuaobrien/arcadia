@@ -16,10 +16,10 @@ final class SharedCompositionTests: XCTestCase {
     screenshot.name = "Active Search window title"
     screenshot.lifetime = .keepAlways
     add(screenshot)
-    XCTAssertTrue(app.windows.matching(NSPredicate(format: "label CONTAINS %@", "Search")).firstMatch.exists)
+    XCTAssertEqual(app.windows.firstMatch.title, "Search")
     app.staticTexts["library.destination.songs"].click()
     XCTAssertTrue(app.staticTexts["songs.count"].waitForExistence(timeout: 5))
-    XCTAssertTrue(app.windows.matching(NSPredicate(format: "label CONTAINS %@", "Songs")).firstMatch.exists)
+    XCTAssertEqual(app.windows.firstMatch.title, "Songs")
   }
 
   @MainActor

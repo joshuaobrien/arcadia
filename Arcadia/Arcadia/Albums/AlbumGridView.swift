@@ -53,7 +53,7 @@ struct AlbumGridView: View {
           }
         }
       }
-      .navigationTitle("Albums")
+      .libraryNavigationTitle("Albums")
     }
     .accessibilityIdentifier("albums.scroll")
   }

@@ -28,6 +28,7 @@ struct AppView: View {
   @State private var queueScrollPosition = ScrollPosition()
   @State private var queueScrollOffset: CGFloat = 0
   @State private var libraryModel: LibraryModel
+  @State private var activeLibraryTitle: String?
   @State private var paths: [AppSection: NavigationPath] = [:]
   @AppStorage private var destination: String
   @AppStorage private var lastLibraryDestination: String
@@ -85,6 +86,8 @@ struct AppView: View {
         }
         PlayerBar()
       }
+      .navigationTitle(activeLibraryTitle ?? selection.rawValue.capitalized)
+      .onPreferenceChange(ActiveLibraryTitle.self) { activeLibraryTitle = $0 }
       .inspector(isPresented: $isQueuePresented) {
         QueueView(scrollPosition: $queueScrollPosition, scrollOffset: $queueScrollOffset)
       }
@@ -116,7 +119,10 @@ struct AppView: View {
               libraryModel: libraryModel, isActive: selection == section
             )
           }
-          .accessibilityHidden(selection != section)
+          .accessibilityElement(children: .contain)
+          #if os(iOS)
+            .accessibilityHidden(selection != section)
+          #endif
           .navigationDestination(for: LibraryRoute.self) { route in
             Group {
               switch route {
@@ -128,7 +134,10 @@ struct AppView: View {
                 AlbumDetail(albumService: albumService, album: album)
               }
             }
-            .accessibilityHidden(selection != section)
+            .accessibilityElement(children: .contain)
+            #if os(iOS)
+              .accessibilityHidden(selection != section)
+            #endif
           }
         }
         .environment(\.libraryPresentationIsActive, selection == section)

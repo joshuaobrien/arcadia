@@ -17,8 +17,12 @@ private struct LibraryNavigationTitle: ViewModifier {
   @Environment(\.libraryPresentationIsActive) private var isActive
 
   func body(content: Content) -> some View {
-    content.navigationTitle(title)
-      .preference(key: ActiveLibraryTitle.self, value: isActive ? title : nil)
+    #if os(macOS)
+      content.preference(key: ActiveLibraryTitle.self, value: isActive ? title : nil)
+    #else
+      content.navigationTitle(title)
+        .preference(key: ActiveLibraryTitle.self, value: isActive ? title : nil)
+    #endif
   }
 }
 
