@@ -10,6 +10,9 @@ final class MobileRealListeningTests: XCTestCase {
     let configuration = try JSONDecoder().decode(
       Configuration.self, from: Data(contentsOf: documents.appendingPathComponent("arcadia-jellyfin-fixture.json")))
     let audio = documents.appendingPathComponent("mobile-audio-57")
+    if FileManager.default.fileExists(atPath: audio.path) {
+      try FileManager.default.removeItem(at: audio)
+    }
     try FileManager.default.createDirectory(at: audio, withIntermediateDirectories: true)
     defer { UIPasteboard.general.string = nil }
     addUIInterruptionMonitor(withDescription: "Native Passwords save prompt") { prompt in
@@ -88,23 +91,26 @@ final class MobileRealListeningTests: XCTestCase {
     XCTAssertTrue(waitForState("Playing", app: app))
     try Data().write(to: audio.appendingPathComponent("target-request"))
     XCTAssertTrue(waitForFile(audio.appendingPathComponent("capture-ready"), timeout: 30))
+    app.buttons["player.pause"].tap()
+    XCTAssertTrue(waitForState("Paused", app: app))
     app.sliders["player.seek"].adjust(toNormalizedSliderPosition: 0)
     XCTAssertTrue(waitForElapsed(seconds: 0...2, app: app))
+    app.buttons["player.resume"].tap()
     XCTAssertTrue(waitForState("Playing", app: app))
     var phases: [[String: Any]] = []
     phase("playing", phases: &phases)
     app.buttons["player.pause"].tap()
     XCTAssertTrue(app.buttons["player.resume"].waitForExistence(timeout: 5))
     XCTAssertTrue(waitForState("Paused", app: app))
-    app.sliders["player.seek"].adjust(toNormalizedSliderPosition: 0.4)
-    XCTAssertTrue(waitForElapsed(seconds: 11...13, app: app))
+    app.sliders["player.seek"].adjust(toNormalizedSliderPosition: 0)
+    XCTAssertTrue(waitForElapsed(seconds: 0...2, app: app))
     XCTAssertTrue(waitForState("Paused", app: app))
     phase("paused", phases: &phases)
     app.buttons["player.resume"].tap()
     XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 5))
     XCTAssertTrue(waitForState("Playing", app: app))
     phase("resumed", phases: &phases)
-    app.sliders["player.seek"].adjust(toNormalizedSliderPosition: 0.7)
+    app.sliders["player.seek"].adjust(toNormalizedSliderPosition: 0.6)
     XCTAssertTrue(waitForState("Playing", app: app))
     phase("seeked", phases: &phases)
     app.buttons["player.pause"].tap()

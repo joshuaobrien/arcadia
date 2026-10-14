@@ -176,6 +176,48 @@ final class MobileListeningTests: XCTestCase {
   }
 
   @MainActor
+  func testAccessibleSeekingChangesActualPositionWithoutResumingPausedSong() {
+    let app = XCUIApplication()
+    app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
+    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
+    app.launch()
+    XCTAssertTrue(app.buttons["track.fixture-1-track-1.play"].waitForExistence(timeout: 10))
+    app.buttons["track.fixture-1-track-1.play"].tap()
+    XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 10))
+    app.buttons["player.pause"].tap()
+    app.buttons["player.expand"].tap()
+    XCTAssertTrue(app.sliders["player.seek"].waitForExistence(timeout: 5))
+    XCTAssertEqual(app.buttons.matching(identifier: "player.resume").count, 1)
+    let snapshot = XCTAttachment(string: app.debugDescription)
+    snapshot.name = "Paused player public accessibility before seek"
+    snapshot.lifetime = .keepAlways
+    add(snapshot)
+    app.sliders["player.seek"].adjust(toNormalizedSliderPosition: 0.5)
+    let after = XCTAttachment(string: app.debugDescription)
+    after.name = "Paused player public accessibility after seek"
+    after.lifetime = .keepAlways
+    add(after)
+    XCTAssertTrue(waitForElapsed(seconds: 5...7, app: app))
+    XCTAssertTrue(app.buttons["player.resume"].exists)
+    app.sliders["player.seek"].adjust(toNormalizedSliderPosition: 0)
+    XCTAssertTrue(waitForElapsed(seconds: 0...1, app: app))
+    XCTAssertTrue(app.buttons["player.resume"].exists)
+    capture(app, "Phone accessible seeking - rewind preserves paused state")
+  }
+
+  @MainActor
+  private func waitForElapsed(seconds: ClosedRange<Int>, app: XCUIApplication) -> Bool {
+    let elapsed = app.descendants(matching: .any).matching(identifier: "player.elapsed").firstMatch
+    let predicate = NSPredicate { _, _ in
+      guard elapsed.exists else { return false }
+      let parts = (elapsed.label.isEmpty ? (elapsed.value as? String ?? "") : elapsed.label).split(separator: ":")
+      guard parts.count == 2, let minutes = Int(parts[0]), let remainder = Int(parts[1]) else { return false }
+      return seconds.contains(minutes * 60 + remainder)
+    }
+    return XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: elapsed)], timeout: 5) == .completed
+  }
+
+  @MainActor
   private func capture(_ app: XCUIApplication, _ name: String) {
     let attachment = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
     attachment.name = name

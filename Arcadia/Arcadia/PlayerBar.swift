@@ -52,13 +52,14 @@ struct PlayerBar: View {
         .accessibilityIdentifier("player.elapsed")
       Slider(
         value: Binding(
-          get: { displayed },
-          set: { value in
+          get: { displayed / max(playerStore.duration, 1) },
+          set: { fraction in
+            let value = fraction * max(playerStore.duration, 1)
             scrubPosition = value
             if !isScrubbing {
               playerStore.seek(to: value, resumeAfterSeeking: playerStore.isPlaybackRequested)
             }
-          }), in: 0...max(playerStore.duration, 1),
+          }), in: 0...1,
         onEditingChanged: { isEditing in
           if isEditing {
             scrubPosition = playerStore.currentTime
