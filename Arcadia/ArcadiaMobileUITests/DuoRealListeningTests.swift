@@ -165,34 +165,128 @@ final class DuoRealListeningTests: XCTestCase {
     let expanded = app.otherElements["player.expanded"]
     XCTAssertTrue(expanded.waitForExistence(timeout: 5))
     XCTAssertEqual(expanded.staticTexts["player.title"].label, "Persistent State")
+    app.buttons["queue.toggle"].tap()
+    let prepared = app.scrollViews.matching(identifier: "queue.scroll").allElementsBoundByIndex.filter(\.isHittable)
+    XCTAssertEqual(prepared.count, 1)
+    if let queue = prepared.first {
+      let entries = queue.otherElements.matching(NSPredicate(format: "identifier BEGINSWITH %@", "queue.entry."))
+      XCTAssertEqual(entries.count, 12, "Twelve upcoming real-source occurrences must be prepared before timed poses")
+      let snapshot = XCTAttachment(string: queue.debugDescription)
+      snapshot.name = "Real native journey - prepared occurrence order before seek reset"
+      snapshot.lifetime = .keepAlways
+      add(snapshot)
+    }
+    nativeBack(app)
     app.sliders["player.seek"].adjust(toNormalizedSliderPosition: 0)
     app.buttons["player.resume"].tap()
     XCTAssertTrue(waitForPlaying(app))
-    for phase in ["closed", "partial", "rotated", "open"] {
-      try Data(phase.utf8).write(to: protocolDirectory.appendingPathComponent("request"), options: .atomic)
-      XCTAssertTrue(waitForFile(protocolDirectory.appendingPathComponent("\(phase).complete"), timeout: 90))
-      XCTAssertEqual(app.state, .runningForeground)
-      XCTAssertEqual(expanded.staticTexts["player.title"].label, "Persistent State")
-      XCTAssertTrue(waitForPlaying(app))
-      let screenshot = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
-      screenshot.name = "Real Jellyfin 600Hz - committed native \(phase)"
-      screenshot.lifetime = .keepAlways
-      add(screenshot)
-      app.buttons["queue.toggle"].tap()
-      let visible = app.scrollViews.matching(identifier: "queue.scroll").allElementsBoundByIndex.filter(\.isHittable)
-      XCTAssertEqual(visible.count, 1)
-      if let queue = visible.first {
-        let snapshot = XCTAttachment(string: queue.debugDescription)
-        snapshot.name = "Real native \(phase) - current and upcoming occurrence ordering"
-        snapshot.lifetime = .keepAlways
-        add(snapshot)
-      }
-      let back = app.buttons.matching(identifier: "BackButton").allElementsBoundByIndex.filter(\.isHittable)
-      XCTAssertEqual(back.count, 1)
-      back.first?.tap()
-    }
+    try Data("journey".utf8).write(to: protocolDirectory.appendingPathComponent("request"), options: .atomic)
+    XCTAssertTrue(waitForFile(protocolDirectory.appendingPathComponent("poses.finished"), timeout: 110))
+    XCTAssertEqual(app.state, .runningForeground)
+    XCTAssertEqual(expanded.staticTexts["player.title"].label, "Persistent State")
+    XCTAssertTrue(waitForPlaying(app))
+    let screenshot = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
+    screenshot.name = "Real Jellyfin 600Hz - all four native poses committed"
+    screenshot.lifetime = .keepAlways
+    add(screenshot)
     app.buttons["player.pause"].tap()
     XCTAssertTrue(app.buttons["player.resume"].waitForExistence(timeout: 5))
+    app.buttons["queue.toggle"].tap()
+    let queues = app.scrollViews.matching(identifier: "queue.scroll").allElementsBoundByIndex.filter(\.isHittable)
+    XCTAssertEqual(queues.count, 1)
+    if let queue = queues.first {
+      let snapshot = XCTAttachment(string: queue.debugDescription)
+      snapshot.name = "Real native four-pose journey - final occurrence ordering"
+      snapshot.lifetime = .keepAlways
+      add(snapshot)
+      XCTAssertGreaterThan(
+        queue.otherElements.matching(NSPredicate(format: "identifier BEGINSWITH %@", "queue.entry.")).count, 0,
+        "Native poses must complete before queue exhaustion")
+    }
+    nativeBack(app)
+    try Data().write(to: protocolDirectory.appendingPathComponent("done"))
+    app.buttons["player.dismiss"].tap()
+    app.buttons["source.disconnect"].tap()
+    XCTAssertTrue(app.textFields["source.server"].waitForExistence(timeout: 10))
+  }
+
+  @MainActor
+  func testSingleRealSourceContinuesDuringNativeFolds() throws {
+    let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    let configuration = try JSONDecoder().decode(
+      Configuration.self, from: Data(contentsOf: documents.appendingPathComponent("arcadia-jellyfin-fixture.json")))
+    let protocolDirectory = documents.appendingPathComponent("duo-real-59")
+    if FileManager.default.fileExists(atPath: protocolDirectory.path) {
+      try FileManager.default.removeItem(at: protocolDirectory)
+    }
+    try FileManager.default.createDirectory(at: protocolDirectory, withIntermediateDirectories: true)
+    defer { UIPasteboard.general.string = nil }
+    let app = XCUIApplication()
+    app.launchEnvironment["ARCADIA_DATA_MODE"] = "jellyfin"
+    app.launchEnvironment["ARCADIA_SESSION_NAMESPACE"] = UUID().uuidString
+    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
+    app.launch()
+    try connect(configuration, app: app)
+    let actions = app.buttons["track.\(configuration.secondSongID).actions"]
+    let songs = app.scrollViews["songs.scroll"]
+    for _ in 0..<12 {
+      if actions.exists && actions.isHittable && songs.frame.contains(actions.frame) { break }
+      songs.swipeUp()
+    }
+    XCTAssertTrue(actions.isHittable)
+    app.buttons["track.\(configuration.secondSongID).play"].tap()
+    XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 15))
+    try Data().write(to: protocolDirectory.appendingPathComponent("target-request"))
+    XCTAssertTrue(waitForFile(protocolDirectory.appendingPathComponent("capture-ready"), timeout: 30))
+    app.buttons["player.pause"].tap()
+    app.buttons["player.expand"].tap()
+    let expanded = app.otherElements["player.expanded"]
+    XCTAssertTrue(expanded.waitForExistence(timeout: 5))
+    XCTAssertEqual(expanded.staticTexts["player.title"].label, "Persistent State")
+    app.buttons["queue.toggle"].tap()
+    let prepared = app.scrollViews.matching(identifier: "queue.scroll").allElementsBoundByIndex.filter(\.isHittable)
+    XCTAssertEqual(prepared.count, 1)
+    var originalOccurrence = ""
+    if let queue = prepared.first {
+      originalOccurrence =
+        queue.staticTexts.matching(NSPredicate(format: "identifier BEGINSWITH %@", "queue.current.")).element.identifier
+      let entries = queue.otherElements.matching(NSPredicate(format: "identifier BEGINSWITH %@", "queue.entry."))
+      XCTAssertEqual(entries.count, 0, "The single long source must not introduce natural handoffs")
+      let snapshot = XCTAttachment(string: queue.debugDescription)
+      snapshot.name = "Real native journey - prepared occurrence order before seek reset"
+      snapshot.lifetime = .keepAlways
+      add(snapshot)
+    }
+    nativeBack(app)
+    XCTAssertEqual(expanded.staticTexts["player.duration"].label, "5:00")
+    app.sliders["player.seek"].adjust(toNormalizedSliderPosition: 0)
+    app.buttons["player.resume"].tap()
+    XCTAssertTrue(waitForPlaying(app))
+    try Data("journey".utf8).write(to: protocolDirectory.appendingPathComponent("request"), options: .atomic)
+    XCTAssertTrue(waitForFile(protocolDirectory.appendingPathComponent("poses.finished"), timeout: 110))
+    XCTAssertEqual(app.state, .runningForeground)
+    XCTAssertEqual(expanded.staticTexts["player.title"].label, "Persistent State")
+    XCTAssertTrue(waitForPlaying(app))
+    let screenshot = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
+    screenshot.name = "Real Jellyfin 600Hz - all four native poses committed"
+    screenshot.lifetime = .keepAlways
+    add(screenshot)
+    app.buttons["player.pause"].tap()
+    XCTAssertTrue(app.buttons["player.resume"].waitForExistence(timeout: 5))
+    app.buttons["queue.toggle"].tap()
+    let queues = app.scrollViews.matching(identifier: "queue.scroll").allElementsBoundByIndex.filter(\.isHittable)
+    XCTAssertEqual(queues.count, 1)
+    if let queue = queues.first {
+      let snapshot = XCTAttachment(string: queue.debugDescription)
+      snapshot.name = "Real native four-pose journey - final occurrence ordering"
+      snapshot.lifetime = .keepAlways
+      add(snapshot)
+      XCTAssertEqual(
+        queue.otherElements.matching(NSPredicate(format: "identifier BEGINSWITH %@", "queue.entry.")).count, 0)
+      XCTAssertTrue(
+        queue.staticTexts[originalOccurrence].exists, "Folding must retain the same real listening occurrence")
+    }
+    nativeBack(app)
     try Data().write(to: protocolDirectory.appendingPathComponent("done"))
     app.buttons["player.dismiss"].tap()
     app.buttons["source.disconnect"].tap()
