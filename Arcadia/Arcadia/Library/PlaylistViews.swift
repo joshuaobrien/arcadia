@@ -26,7 +26,7 @@ struct PlaylistsView: View {
       .padding()
     }
     .accessibilityIdentifier("playlists.scroll")
-    .navigationTitle("Playlists")
+    .libraryNavigationTitle("Playlists")
     .task(id: isActive) { if isActive { await model.open() } }
   }
 }
@@ -54,7 +54,8 @@ struct PlaylistDetail: View {
           Text(error).accessibilityIdentifier("playlist.play.error")
           Button("Retry Play") { model.play(using: playerStore) }.accessibilityIdentifier("playlist.play.retry")
         }
-        Text("\(model.songs.items.count) songs").accessibilityIdentifier("playlist.count")
+        Text("\(model.songs.items.count) songs\(model.songs.nextCursor == nil ? "" : " loaded")")
+          .accessibilityIdentifier("playlist.count")
         ForEach(model.songs.items) { entry in
           TrackRow(track: entry.track, showsTrackNumber: false)
             .accessibilityIdentifier("playlist.entry.\(entry.id)")
@@ -64,7 +65,7 @@ struct PlaylistDetail: View {
       .padding()
     }
     .accessibilityIdentifier("playlist.scroll")
-    .navigationTitle(playlist.title)
+    .libraryNavigationTitle(playlist.title)
     .task { await model.songs.open() }
     .onDisappear { model.cancelPreparation() }
     .onChange(of: isActive) { _, active in if !active { model.cancelPreparation() } }

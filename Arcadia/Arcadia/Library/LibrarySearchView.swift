@@ -31,7 +31,7 @@ struct LibrarySearchView: View {
     }
     .padding()
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    .navigationTitle("Search")
+    .libraryNavigationTitle("Search")
     .onChange(of: model.query) { _, _ in model.search() }
   }
 }

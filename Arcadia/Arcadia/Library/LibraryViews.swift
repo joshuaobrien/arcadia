@@ -36,7 +36,7 @@ struct SongsView: View {
         set: { if let anchor = $0 { model.scrollAnchor = anchor } }
       ), anchor: .bottom
     )
-    .navigationTitle("Songs")
+    .libraryNavigationTitle("Songs")
     .task(id: isActive) { if isActive { await model.open() } }
   }
 }
@@ -84,7 +84,7 @@ struct ArtistsView: View {
         set: { if let anchor = $0 { model.scrollAnchor = anchor } }
       ), anchor: .bottom
     )
-    .navigationTitle("Artists")
+    .libraryNavigationTitle("Artists")
     .task(id: isActive) { if isActive { await model.open() } }
   }
 }
@@ -116,7 +116,7 @@ struct ArtistDetail: View {
       .padding()
     }
     .accessibilityIdentifier("artist.detail.scroll")
-    .navigationTitle(artist.name)
+    .libraryNavigationTitle(artist.name)
     .task { await model.songs.open() }
     .task { await model.releases.open() }
   }
