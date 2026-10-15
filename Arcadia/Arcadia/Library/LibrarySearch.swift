@@ -42,6 +42,25 @@ final class LibrarySearchModel {
 
   init(source: any MusicSource) { self.source = source }
 
+  var matchingCategories: [SearchCategory] {
+    SearchCategory.allCases.filter { !(sections[$0]?.items.isEmpty ?? true) }
+  }
+
+  var pendingCategories: [SearchCategory] {
+    SearchCategory.allCases.filter {
+      guard let page = sections[$0] else { return true }
+      return !page.hasOpened || page.isLoading
+    }
+  }
+
+  var failedCategories: [SearchCategory] {
+    SearchCategory.allCases.filter { sections[$0]?.errorText != nil }
+  }
+
+  var hasNoMatches: Bool {
+    pendingCategories.isEmpty && failedCategories.isEmpty && matchingCategories.isEmpty
+  }
+
   func search(immediately: Bool = false) {
     let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
     if normalized == activeQuery, !sections.isEmpty { return }

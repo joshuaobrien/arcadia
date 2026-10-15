@@ -24,7 +24,7 @@ struct LibrarySearchView: View {
         )
         .accessibilityIdentifier("search.initial")
       } else if let page = model.sections[model.category] {
-        SearchResultsView(page: page, category: model.category)
+        SearchResultsView(page: page, model: model)
       } else {
         ProgressView("Searching").accessibilityIdentifier("search.loading")
       }
@@ -38,7 +38,7 @@ struct LibrarySearchView: View {
 
 private struct SearchResultsView: View {
   let page: PagedLibrary<LibrarySearchResult>
-  let category: SearchCategory
+  @Bindable var model: LibrarySearchModel
 
   var body: some View {
     ScrollView {
@@ -70,18 +70,54 @@ private struct SearchResultsView: View {
           }
         }
         if page.hasOpened && page.items.isEmpty && !page.isLoading && page.errorText == nil {
-          ContentUnavailableView {
-            Label("No matches", systemImage: "magnifyingglass")
-              .accessibilityIdentifier("search.\(category.rawValue).empty")
-          } description: {
-            Text("Try a different search.")
-          }
+          SearchEmptyCategoryView(model: model)
         } else {
-          LibraryPageStatus(model: page, noun: "search-\(category.rawValue)")
+          LibraryPageStatus(model: page, noun: "search-\(model.category.rawValue)")
         }
       }
       .padding(.vertical)
     }
     .accessibilityIdentifier("search.results.scroll")
+  }
+}
+
+private struct SearchEmptyCategoryView: View {
+  @Bindable var model: LibrarySearchModel
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: DesignTokens.Spacing.m) {
+      ContentUnavailableView {
+        Label("No \(model.category.rawValue) found", systemImage: "magnifyingglass")
+          .accessibilityIdentifier("search.\(model.category.rawValue).empty")
+      } description: {
+        if model.hasNoMatches {
+          Text("No matches in your library. Try a different search.")
+            .accessibilityIdentifier("search.all.empty")
+        } else {
+          Text("Search other categories for this query.")
+        }
+      }
+      ForEach(model.matchingCategories.filter { $0 != model.category }) { category in
+        Button("Show \(category.title) (\(model.sections[category]?.items.count ?? 0))") {
+          model.category = category
+        }
+        .accessibilityIdentifier("search.show.\(category.rawValue)")
+      }
+      if !model.pendingCategories.isEmpty {
+        ProgressView("Searching other categories")
+          .accessibilityIdentifier("search.other.loading")
+      }
+      ForEach(model.failedCategories.filter { $0 != model.category }) { category in
+        VStack(alignment: .leading) {
+          Text("\(category.title) search unavailable")
+            .accessibilityIdentifier("search.\(category.rawValue).unavailable")
+          Button("Retry \(category.title)") {
+            Task { await model.sections[category]?.retry() }
+          }
+          .accessibilityIdentifier("search.retry.\(category.rawValue)")
+        }
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
   }
 }
