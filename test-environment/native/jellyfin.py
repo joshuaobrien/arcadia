@@ -13,6 +13,15 @@ IMAGE = 'jellyfin/jellyfin@sha256:c2544f368e2e6c317832caebe96c375f5161b8ab73e2a0
 def docker(*args):
     return subprocess.check_output(['docker', *args], text=True).strip()
 
+def audio_input(album, track, sustained_seconds=None):
+    if sustained_seconds:
+        return f'sine=frequency=600:duration={sustained_seconds}'
+    if album == 1 and track == 1:
+        return ('sine=frequency=520:duration=15[a];sine=frequency=680:duration=15[b];'
+                '[a][b]concat=n=2:v=0:a=1')
+    return f'sine=frequency={440+track*80}:duration=12'
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('operation', choices=['start', 'stop'])
@@ -80,13 +89,7 @@ def main():
         for track in (range(2,3) if args.sustained_seconds else (range(1,4) if album==1 else range(1,2))):
             song=['First Contact','Persistent State','Range Request'][track-1]
             docker('exec',name,'/usr/lib/jellyfin-ffmpeg/ffmpeg','-hide_banner','-loglevel','error','-y',
-                   '-f','lavfi','-i',(
-                     f'sine=frequency=600:duration={args.sustained_seconds}' if args.sustained_seconds else (
-                       'sine=frequency=520:duration=10[a];sine=frequency=600:duration=10[b];'
-                       'sine=frequency=680:duration=10[c];[a][b][c]concat=n=3:v=0:a=1'
-                       if album == 1 and track == 1 else f'sine=frequency={440+track*80}:duration=12'
-                     )
-                   ), '-c:a','libmp3lame',
+                   '-f','lavfi','-i',audio_input(album,track,args.sustained_seconds), '-c:a','libmp3lame',
                    '-metadata','title='+song,'-metadata','artist='+artist,'-metadata','album='+title,
                    '-metadata','album_artist='+artist,'-metadata','track='+str(track),
                    '-metadata','date=2026',folder+f'/{track:02}.mp3')
