@@ -85,8 +85,8 @@ extension JellyfinBrowseTests {
     capture(app, "Jellyfin - recoverable sign-in failure")
     paste(configuration.password, into: app.secureTextFields["source.password"])
     app.buttons["source.connect"].click()
-    XCTAssertTrue(app.staticTexts["Songs"].waitForExistence(timeout: 20))
-    app.staticTexts["Albums"].click()
+    XCTAssertTrue(app.staticTexts["library.destination.songs"].waitForExistence(timeout: 20))
+    app.staticTexts["library.destination.albums"].click()
     let count = app.staticTexts["albums.count"]
     XCTAssertTrue(count.waitForExistence(timeout: 20))
     let album = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Orb Sessions'")).firstMatch
