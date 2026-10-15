@@ -17,3 +17,16 @@ struct PlaybackCommands: Commands {
     }
   }
 }
+
+// Shared transport access used by native controls and commands.
+extension PlayerStore {
+  enum State: String { case idle, loading, playing, paused, failed, ended }
+
+  var currentEntry: QueueEntry? { queue.first { $0.id == currentEntryID } }
+  var currentTrack: Track? { currentEntry?.track }
+  var isPlaying: Bool { state == .playing }
+
+  func togglePlayback() {
+    if isPlaying || isPlaybackRequested { pause() } else { resume() }
+  }
+}

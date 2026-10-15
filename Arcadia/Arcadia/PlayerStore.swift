@@ -4,8 +4,6 @@ import Observation
 @MainActor
 @Observable
 final class PlayerStore {
-  enum State: String { case idle, loading, playing, paused, failed, ended }
-
   private(set) var currentTime: Double = 0
   private(set) var duration: Double = 0
   private(set) var currentEntryID: UUID?
@@ -23,11 +21,8 @@ final class PlayerStore {
   var queueFeedback: QueueFeedbackState.Feedback? { feedback.current }
   var needsReplacementConfirmation: Bool { pendingReplacement != nil }
 
-  var currentTrack: Track? { currentEntry?.track }
-  var isPlaying: Bool { state == .playing }
   var isPlaybackRequested: Bool { wantsPlayback }
   var canAdvance: Bool { currentIndex.map { queue.indices.contains($0 + 1) } ?? false }
-  var currentEntry: QueueEntry? { queue.first { $0.id == currentEntryID } }
   var upcoming: [QueueEntry] {
     guard let currentIndex else { return queue }
     return Array(queue.dropFirst(currentIndex + 1))
@@ -85,9 +80,6 @@ final class PlayerStore {
     playbackChoiceRevision = UUID()
     pendingReplacement = nil
     if currentEntryID == id { resume() } else { start(entry) }
-  }
-  func togglePlayback() {
-    if isPlaying || wantsPlayback { pause() } else { resume() }
   }
   func playNext() {
     guard canAdvance else { return }
