@@ -75,7 +75,8 @@ struct ExpandedPlayerView: View {
 
   private var playerContent: some View {
     GeometryReader { geometry in
-      let usableWidth = max(0, geometry.size.width - geometry.safeAreaInsets.leading - geometry.safeAreaInsets.trailing)
+      // ArrangementView already proposes a pane that excludes its native rail.
+      let usableWidth = max(0, geometry.size.width)
       let contentWidth = max(0, usableWidth - 48)
       // Two 44pt skip targets, the padded 60pt play target, and two 32pt gaps.
       let minimumTransportWidth: CGFloat = 44 * 2 + 60 + 32 * 2
@@ -104,7 +105,6 @@ struct ExpandedPlayerView: View {
         .padding(.vertical, 24)
       }
       .frame(width: usableWidth, alignment: .leading)
-      .padding(.leading, geometry.safeAreaInsets.leading)
     }
   }
 
