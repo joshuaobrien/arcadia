@@ -184,7 +184,8 @@
     private func albums(_ numbers: ClosedRange<Int>) -> [Album] {
       numbers.map { number in
         Album(
-          id: "fixture-\(number)", title: scenario == .longAlbumMetadata && number == 1
+          id: "fixture-\(number)",
+          title: scenario == .longAlbumMetadata && number == 1
             ? "The Extraordinary Adventures of a Very Long Album Title"
             : (number == 1 ? "Hyperballad" : "Fixture Album \(number)"),
           albumArtist: scenario == .longAlbumMetadata

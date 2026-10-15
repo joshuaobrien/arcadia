@@ -71,7 +71,9 @@ final class AlbumLayoutTests: XCTestCase {
     let first = app.buttons["album.fixture-1"]
     XCTAssertTrue(first.waitForExistence(timeout: 10))
     first.tap()
-    XCTAssertTrue(app.staticTexts["The Extraordinary Adventures of a Very Long Album Title"].firstMatch.waitForExistence(timeout: 10))
+    XCTAssertTrue(
+      app.staticTexts["The Extraordinary Adventures of a Very Long Album Title"].firstMatch.waitForExistence(
+        timeout: 10))
     capture(app, "Long album metadata - accessibility text size")
     let play = app.buttons["album.play"]
     for _ in 0..<12 {
