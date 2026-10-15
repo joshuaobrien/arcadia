@@ -26,12 +26,20 @@
 			remoteGlobalIDString = 0309A2003030872F0066F5FE;
 			remoteInfo = Arcadia;
 		};
+		5709A219303087300066F5FE /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 0309A1F93030872F0066F5FE /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 0309A2003030872F0066F5FE;
+			remoteInfo = Arcadia;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		0309A2013030872F0066F5FE /* Arcadia.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Arcadia.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0309A20E303087300066F5FE /* ArcadiaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ArcadiaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		0309A218303087300066F5FE /* ArcadiaUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ArcadiaUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		5709A218303087300066F5FE /* ArcadiaMobileUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ArcadiaMobileUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -40,6 +48,7 @@
 			membershipExceptions = (
 				Albums/Tests/AlbumsModelTests.swift,
 				Info.plist,
+				Info-iOS.plist,
 			);
 			target = 0309A2003030872F0066F5FE /* Arcadia */;
 		};
@@ -72,6 +81,11 @@
 			path = ArcadiaUITests;
 			sourceTree = "<group>";
 		};
+		5709A21B303087300066F5FE /* ArcadiaMobileUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = ArcadiaMobileUITests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -98,6 +112,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		5709A215303087300066F5FE /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -108,6 +129,7 @@
 				034AFB833039817400572D41 /* New Group */,
 				0309A211303087300066F5FE /* ArcadiaTests */,
 				0309A21B303087300066F5FE /* ArcadiaUITests */,
+				5709A21B303087300066F5FE /* ArcadiaMobileUITests */,
 				0309A2023030872F0066F5FE /* Products */,
 			);
 			sourceTree = "<group>";
@@ -118,6 +140,7 @@
 				0309A2013030872F0066F5FE /* Arcadia.app */,
 				0309A20E303087300066F5FE /* ArcadiaTests.xctest */,
 				0309A218303087300066F5FE /* ArcadiaUITests.xctest */,
+				5709A218303087300066F5FE /* ArcadiaMobileUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -202,6 +225,29 @@
 			productReference = 0309A218303087300066F5FE /* ArcadiaUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		5709A217303087300066F5FE /* ArcadiaMobileUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5709A228303087300066F5FE /* Build configuration list for PBXNativeTarget "ArcadiaMobileUITests" */;
+			buildPhases = (
+				5709A214303087300066F5FE /* Sources */,
+				5709A215303087300066F5FE /* Frameworks */,
+				5709A216303087300066F5FE /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				5709A21A303087300066F5FE /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				5709A21B303087300066F5FE /* ArcadiaMobileUITests */,
+			);
+			name = ArcadiaMobileUITests;
+			packageProductDependencies = (
+			);
+			productName = ArcadiaMobileUITests;
+			productReference = 5709A218303087300066F5FE /* ArcadiaMobileUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -245,6 +291,7 @@
 				0309A2003030872F0066F5FE /* Arcadia */,
 				0309A20D303087300066F5FE /* ArcadiaTests */,
 				0309A217303087300066F5FE /* ArcadiaUITests */,
+				5709A217303087300066F5FE /* ArcadiaMobileUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -265,6 +312,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		0309A216303087300066F5FE /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5709A216303087300066F5FE /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -295,6 +349,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		5709A214303087300066F5FE /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -307,6 +368,11 @@
 			isa = PBXTargetDependency;
 			target = 0309A2003030872F0066F5FE /* Arcadia */;
 			targetProxy = 0309A219303087300066F5FE /* PBXContainerItemProxy */;
+		};
+		5709A21A303087300066F5FE /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 0309A2003030872F0066F5FE /* Arcadia */;
+			targetProxy = 5709A219303087300066F5FE /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -432,6 +498,12 @@
 		0309A223303087300066F5FE /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				SUPPORTED_PLATFORMS = "macosx iphoneos iphonesimulator";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				SDKROOT = auto;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				"LD_RUNPATH_SEARCH_PATHS[sdk=iphone*]" = "$(inherited) @executable_path/Frameworks";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
@@ -452,6 +524,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Arcadia/Info.plist;
+				"INFOPLIST_FILE[sdk=iphone*]" = Arcadia/Info-iOS.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -473,6 +546,12 @@
 		0309A224303087300066F5FE /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				SUPPORTED_PLATFORMS = "macosx iphoneos iphonesimulator";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				SDKROOT = auto;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				"LD_RUNPATH_SEARCH_PATHS[sdk=iphone*]" = "$(inherited) @executable_path/Frameworks";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
@@ -493,6 +572,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Arcadia/Info.plist;
+				"INFOPLIST_FILE[sdk=iphone*]" = Arcadia/Info-iOS.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -569,6 +649,28 @@
 			};
 			name = Debug;
 		};
+		5709A229303087300066F5FE /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				SDKROOT = iphoneos;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				TARGETED_DEVICE_FAMILY = "1,2";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = tokyo.drift.ArcadiaMobileUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = Arcadia;
+			};
+			name = Debug;
+		};
 		0309A22A303087300066F5FE /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -577,6 +679,28 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = tokyo.drift.ArcadiaUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = Arcadia;
+			};
+			name = Release;
+		};
+		5709A22A303087300066F5FE /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				SDKROOT = iphoneos;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				TARGETED_DEVICE_FAMILY = "1,2";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = tokyo.drift.ArcadiaMobileUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -622,6 +746,15 @@
 			buildConfigurations = (
 				0309A229303087300066F5FE /* Debug */,
 				0309A22A303087300066F5FE /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		5709A228303087300066F5FE /* Build configuration list for PBXNativeTarget "ArcadiaMobileUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5709A229303087300066F5FE /* Debug */,
+				5709A22A303087300066F5FE /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

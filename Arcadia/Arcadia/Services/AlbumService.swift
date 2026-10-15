@@ -1,3 +1,4 @@
+import Foundation
 import Mockable
 
 final class FakeAlbumClient: AlbumService {
@@ -59,11 +60,21 @@ final class FakeAlbumClient: AlbumService {
   }
 }
 
-final class AlbumClient: AlbumService {
+final class AlbumClient: MusicSource {
   private let api: ArcadiaAPI
 
   init(api: ArcadiaAPI) {
     self.api = api
+  }
+
+  func playableResource(for track: Track) async throws -> PlayableResource {
+    PlayableResource(url: api.streamURL(for: track))
+  }
+
+  func artworkData(for url: URL) async throws -> Data {
+    if url.isFileURL { return try Data(contentsOf: url) }
+    let (data, _) = try await URLSession.shared.data(from: url)
+    return data
   }
 
   func fetchAlbum(

@@ -12,7 +12,9 @@ final class FeedbackLoopTests: XCTestCase {
     app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
     app.launchEnvironment["ARCADIA_FIXTURE_SCENARIO"] = scenario
     app.launchEnvironment["ARCADIA_RUN_ID"] = ProcessInfo.processInfo.environment["ARCADIA_RUN_ID"] ?? "ui-tests"
+    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
     app.launch()
+    app.staticTexts["Albums"].click()
     return app
   }
 
@@ -137,7 +139,9 @@ final class FeedbackLoopTests: XCTestCase {
     app.launchEnvironment["ARCADIA_DATA_MODE"] = "integration"
     app.launchEnvironment["ARCADIA_BASE_URL"] = baseURL
     app.launchEnvironment["ARCADIA_RUN_ID"] = ProcessInfo.processInfo.environment["ARCADIA_RUN_ID"] ?? "integration"
+    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
     app.launch()
+    app.staticTexts["Albums"].click()
     let album = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Orb Sessions'")).firstMatch
     XCTAssertTrue(album.waitForExistence(timeout: 30))
     album.click()

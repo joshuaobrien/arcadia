@@ -1,16 +1,20 @@
-//
-//  PlaybackItem.swift
-//  Arcadia
-//
-//  Created by Joshua O'Brien on 17/8/2026.
-//
 import Foundation
 
-struct PlaybackItem: Identifiable {
-  let track: Track
-  let streamURL: URL
+struct QueueEntry: Identifiable {
+  enum Origin: String, Codable { case collection, manual }
 
-  var id: String {
-    track.id
+  let id: UUID
+  let track: Track
+  let origin: Origin
+
+  init(track: Track, origin: Origin = .collection, id: UUID = UUID()) {
+    self.id = id
+    self.track = track
+    self.origin = origin
+  }
+
+  func withResolvedMetadata(_ metadata: Track?) -> Self {
+    guard let metadata, metadata.stableID == track.stableID else { return self }
+    return Self(track: metadata, origin: origin, id: id)
   }
 }

@@ -13,6 +13,7 @@ struct AppConfiguration {
 
   enum DataMode: String {
     case fixtures
+    case jellyfin
     case integration
     case liveReadOnly = "live-readonly"
   }
@@ -23,6 +24,13 @@ struct AppConfiguration {
     case failure
     case failureThenSuccess = "failure-then-success"
     case twoPage = "two-page"
+    case playbackFailure = "playback-failure"
+    case delayedPlayback = "delayed-playback"
+    case delayedLibrary = "delayed-library"
+    case delayedPlaylist = "delayed-playlist"
+    case delayedSearch = "delayed-search"
+    case pagedSearchFailure = "paged-search-failure"
+    case pagedPlaylistFailure = "paged-playlist-failure"
   }
 
   static func load(
@@ -33,7 +41,7 @@ struct AppConfiguration {
     #if DEBUG
       let defaultMode = DataMode.fixtures
     #else
-      let defaultMode = DataMode.integration
+      let defaultMode = DataMode.jellyfin
     #endif
     let modeValue = environment["ARCADIA_DATA_MODE"] ?? defaultMode.rawValue
     guard let mode = DataMode(rawValue: modeValue) else {
@@ -42,6 +50,9 @@ struct AppConfiguration {
     let scenarioValue = environment["ARCADIA_FIXTURE_SCENARIO"] ?? "success"
     guard let scenario = FixtureScenario(rawValue: scenarioValue) else {
       throw ConfigurationError.invalidFixtureScenario
+    }
+    if mode == .jellyfin {
+      return AppConfiguration(arcadiaBaseURL: URL(fileURLWithPath: "/"), dataMode: mode, fixtureScenario: scenario)
     }
     if mode == .fixtures {
       #if DEBUG
@@ -77,7 +88,7 @@ struct AppConfiguration {
     return AppConfiguration(arcadiaBaseURL: url, dataMode: mode, fixtureScenario: scenario)
   }
 
-  func albumService() -> AlbumService {
+  func albumService() -> any MusicSource {
     #if DEBUG
       if dataMode == .fixtures { return FixtureAlbumClient(scenario: fixtureScenario) }
     #endif
@@ -100,9 +111,9 @@ enum ConfigurationError: LocalizedError {
     case .invalidArcadiaBaseURL:
       "ARCADIA_BASE_URL must be an HTTP(S) URL without credentials, query, or fragment."
     case .invalidDataMode:
-      "ARCADIA_DATA_MODE must be fixtures, integration, or live-readonly."
+      "ARCADIA_DATA_MODE must be fixtures, jellyfin, integration, or live-readonly."
     case .invalidFixtureScenario:
-      "ARCADIA_FIXTURE_SCENARIO must be success, empty, failure, failure-then-success, or two-page."
+      "ARCADIA_FIXTURE_SCENARIO must be success, empty, failure, failure-then-success, two-page, playback-failure, or delayed-playback."
     case .fixturesRequireDebug:
       "Fixtures are available only in development builds."
     }

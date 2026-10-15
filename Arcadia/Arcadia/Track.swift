@@ -15,6 +15,9 @@ struct Track: Decodable, Identifiable {
   let discNumber: Int?
   let durationSeconds: Double?
   let format: String?
+  var albumReference: AlbumReference?
+  var artistReferences: [Artist]?
+  var artworkURL: URL?
 
   var stableID: String {
     id

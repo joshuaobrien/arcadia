@@ -24,11 +24,13 @@ Use a new lowercase task name each time. `NATIVE_LOOP_HOST` can replace `--host`
 
 Mint tools persist on the VM host at `~/.cache/arcadia-ci-mint`, preserving the old Gitea CI default. `MINT_CACHE` / `--mint-seed` overrides that host path. A fresh VM receives a private copy; after successful lint, the runner atomically publishes the compiled tools under a key derived from the pinned image and Mintfile. Subsequent tasks reuse that seed without rebuilding SwiftLint. Existing legacy `packages`/`bin` caches are imported automatically. Guests never mutate the persistent seed, and app builds/state remain task-local. Never point the Mint cache at DerivedData; compiled package dependencies use a separate sanitized seed described below. Startup uses a bounded guest-agent readiness deadline; a failed startup stops/deletes its clone and retains diagnostics.
 
+Targeted `test --only-testing …`, explicit integration tests, `review` and `oracle` suppress Xcode's expensive post-failure system diagnostics when the installed Xcode advertises `-collect-test-diagnostics`. XCTest result bundles, screenshots, test logs and assertion/accessibility evidence remain enabled. Unsupported Xcode versions retain their normal diagnostics behavior; the runner checks capability rather than assuming a version. Unfiltered test runs retain the normal Xcode policy. Add `--full-diagnostics` to a targeted run when investigating simulator or runner failures; collection can take several minutes. Each run saves `diagnostics-policy.txt` alongside its evidence. This policy does not change Gitea CI.
+
 ## Data modes
 
 Debug defaults to `ARCADIA_DATA_MODE=fixtures`, without needing a backend URL. `ARCADIA_FIXTURE_SCENARIO` selects `success`, `empty`, `failure`, `failure-then-success` or `two-page`. Fixtures have stable IDs and bundled artwork; they do not contact a server. Unknown mode/scenario values produce a configuration error.
 
-`integration` and `live-readonly` require an explicit `ARCADIA_BASE_URL` in development; they never fall back to the production URL embedded in a build. The native client uses GET requests. Live browse is an optional read-only smoke check, not the reproducible acceptance oracle. Release retains its configured backend URL and cannot enable development fixtures.
+`integration` and `live-readonly` require an explicit `ARCADIA_BASE_URL` in development; they never fall back to the production URL embedded in a build. The native client uses GET requests. Live browse is an optional read-only smoke check, not the reproducible acceptance oracle. These are legacy Arcadia API modes. Release now defaults to `jellyfin`: `ArcadiaApp` opens the direct Jellyfin connection flow, rather than using an Arcadia backend URL. Debug can select the same flow with `ARCADIA_DATA_MODE=jellyfin`; Release cannot enable development fixtures. Explicit legacy API modes retain their configured URL behavior.
 
 The behavioral suite checks:
 
@@ -39,6 +41,16 @@ The behavioral suite checks:
 - Two pages: scrolling loads the second page; expected IDs/count match and duplicate links are rejected.
 
 `oracle` changes the title only in the guest copy, verifies the success assertion fails, restores the file, and verifies the test passes. It rejects a build failure or a mutation that incorrectly passes. This is an assertion sensitivity check, not an audio playback test; track playback remains the existing stub.
+
+## Shared native player: Mac, iPhone and Duo
+
+Use the explicit [iPhone validation entrypoint](../test-environment/native/phone/README.md) and [Duo validation entrypoint](../test-environment/native/duo/README.md) for mobile player work. These run inside an owned, logged-in task guest with Xcode27.1 and the matching27.1 simulator runtime; Duo additionally requires the genuine Duo runtime and owned device. Record the actual template/image provenance, Xcode/runtime versions, device UDID and tool hashes. Follow each entrypoint's native permission/preflight requirements before capture. The `scripts/native-loop` commands above describe the Mac loop; the existing26.5 Mac CI image and workflow remain unchanged.
+
+The phone's eight `MobileListeningTests` are deterministic fixture UI checks, separate from real Jellyfin playback, playing-restart restoration and background/native-control validation. Select those additional modes explicitly using the phone instructions as they become available; a fixture pass does not establish real audio or background behavior. The checked-in `restore` mode requires real playback before restart, meaningful silent output while restored paused, and known-tone output after deliberate Resume. Follow the phone README's stated verification limits and accepted assumptions for native iOS controls. Duo similarly distinguishes `fixture`, `short` and `real` modes.
+
+For every acceptance run, retain the immutable source archive and its SHA, verify archived files before and after execution, and record requested and executed XCTest identifiers. Every exact selected method must pass once with zero failures or skips. Export full result bundles, logs, native screenshots/recordings and applicable raw PCM/assertions, helper provenance and cleanup reports, including failure evidence, before releasing the owned guest. Missing output callbacks do not establish silence.
+
+Keep each run's disposable fixture configuration and media frozen through capture and verification; do not reseed a backend used by another run. Use the [direct Jellyfin fixture setup](../test-environment/native/README.md), [known-tone/output contract](../test-environment/native/audio-verification.md) and [restored-session verification](../test-environment/native/session-verification.md). Keep credentials private and publish only reviewed, credential-free evidence.
 
 ## Disposable real API integration
 
@@ -88,7 +100,7 @@ python3 -m unittest discover -s scripts/native_loop -p 'test_*.py'
 
 ## Faster iterations and screenshot comparisons
 
-Run one relevant test during edits; run the full suite before opening the PR:
+Run one relevant test during edits; run the default unit and feedback-loop suite before opening the PR:
 
 ```sh
 ./scripts/native-loop --host paseo-host test album-browse --only-testing ArcadiaUITests/FeedbackLoopTests/testEmpty
@@ -110,3 +122,5 @@ This runs the selected test, exports its app-window attachment, and creates `com
 Progress output identifies source transfer, VM startup, dependency resolution/compilation, app compilation, signing, behavioral tests, cache publication, evidence export and cleanup. Build phases emit a heartbeat every 15 seconds. Raw build logs remain in the artifacts; progress messages do not echo request URLs or secrets. Per-command `.phases.json` files record timings. VM startup, build/test execution and export are separate costs.
 
 Fresh task VMs can reuse a dependency seed stored at `~/.cache/arcadia-native-dependencies` on the VM host (`--dependency-cache` overrides it). The versioned key covers the pinned VM image/toolchain, `Package.resolved` and Xcode project settings. Seeds include package checkouts, dependency products/intermediates, module caches, explicit SDK modules, generated module maps and Xcode build metadata; they exclude Arcadia app/test products and intermediates, index/test logs and app runtime state. Stable paths and a stable development bundle identifier inside each isolated guest preserve dependency signatures. Changing a global bundle identifier per task also changes package build settings and can invalidate dependency reuse. Development identity remains distinct from production; task isolation comes from the fresh VM. Each guest restores a private copy, never writes directly to a shared cache, and rebuilds its own development app in isolated storage. Changed cache inputs clear guest DerivedData and select a new key. Publication is atomic and locked; a checksum mismatch falls back to a cold build. `start --no-dependency-cache` disables restoration and publication for that task. Release builds retain their separate configuration and do not seed this Debug cache. The dependency cache does not change the existing CI or Mint cache.
+
+Test, review and oracle operations first run cached lint against the exact source snapshot. The successful lint gate is reused only for the same snapshot, VM image and helper bundle. XCTest evidence records requested and executed identifiers; an exact selected method must pass, and missing or unexpected selections fail the operation. The default test command selects `ArcadiaTests` and `FeedbackLoopTests`; it does not claim coverage of every UI test class. Add relevant classes with repeated `--only-testing` arguments.

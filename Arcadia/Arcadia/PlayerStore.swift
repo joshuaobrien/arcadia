@@ -1,188 +1,400 @@
-//
-//  PlayerStore.swift
-//  Arcadia
-//
-//  Created by Joshua O'Brien on 16/8/2026.
-//
-
 import AVFoundation
 import Observation
 
 @MainActor
 @Observable
 final class PlayerStore {
+  enum State: String { case idle, loading, playing, paused, failed, ended }
+
   private(set) var currentTime: Double = 0
   private(set) var duration: Double = 0
-  private(set) var currentTrack: Track?
-  private(set) var player: AVPlayer?
+  private(set) var currentEntryID: UUID?
+  // An explicit selection or Pause supersedes pending collection loads. A new
+  // selection counts even if its replacement confirmation is cancelled. Queue
+  // edits and natural advancement do not change this intent revision.
+  private(set) var playbackChoiceRevision = UUID()
+  // System lifecycle pauses invalidate older collection preparation without
+  // pretending the listener made a new explicit playback choice.
+  private(set) var audioLifecycleRevision = UUID()
+  private(set) var queue: [QueueEntry] = []
+  private(set) var state: State = .idle
+  private(set) var errorText: String?
+  private(set) var pendingReplacement: [Track]?
+  var queueFeedback: QueueFeedbackState.Feedback? { feedback.current }
+  var needsReplacementConfirmation: Bool { pendingReplacement != nil }
 
-  private var timeObserver: Any?
-  private var endObserver: NSObjectProtocol?
-  private var queue: [PlaybackItem] = []
+  var currentTrack: Track? { currentEntry?.track }
+  var isPlaying: Bool { state == .playing }
+  var isPlaybackRequested: Bool { wantsPlayback }
+  var canAdvance: Bool { currentIndex.map { queue.indices.contains($0 + 1) } ?? false }
+  var currentEntry: QueueEntry? { queue.first { $0.id == currentEntryID } }
+  var upcoming: [QueueEntry] {
+    guard let currentIndex else { return queue }
+    return Array(queue.dropFirst(currentIndex + 1))
+  }
+  private var currentIndex: Int? { queue.firstIndex { $0.id == currentEntryID } }
 
-  var isPlaying: Bool {
-    player?.timeControlStatus == .playing
+  @ObservationIgnored private let source: any MusicSource
+  @ObservationIgnored private let activateAudio: @MainActor () throws -> Void
+  @ObservationIgnored private var player = AVPlayer()
+  @ObservationIgnored private var generation = UUID()
+  @ObservationIgnored private var wantsPlayback = false
+  @ObservationIgnored private var resolveTask: Task<Void, Never>?
+  @ObservationIgnored private var durationTask: Task<Void, Never>?
+  @ObservationIgnored private var transportObservation: PlaybackObservation?
+  @ObservationIgnored private let restoration = PausedRestoration()
+  @ObservationIgnored private let interruption = PlaybackInterruption()
+  @ObservationIgnored private let feedback = QueueFeedbackState()
+
+  init(source: any MusicSource, activateAudio: @escaping @MainActor () throws -> Void = {}) {
+    self.source = source
+    self.activateAudio = activateAudio
   }
 
   func pause() {
-    player?.pause()
+    playbackChoiceRevision = UUID()
+    wantsPlayback = false
+    player.pause()
+    if currentTrack != nil && state != .failed && state != .ended { state = .paused }
   }
 
   func resume() {
-    player?.play()
+    guard let entry = currentEntry else {
+      if let first = queue.first { playQueuedEntry(first.id) }
+      return
+    }
+    wantsPlayback = true
+    if restoration.position != nil, state == .failed || player.currentItem == nil {
+      resolveRestoredEntry(entry)
+      return
+    }
+    if state == .ended || state == .failed {
+      start(entry)
+      return
+    }
+    if player.currentItem == nil {
+      state = .loading
+      return
+    }
+    startTransport()
+    updateTransport(generation)
   }
 
-  func play(_ track: Track, from url: URL, in queue: [PlaybackItem]) {
-    self.queue = queue
-    start(track, from: url)
+  func playQueuedEntry(_ id: UUID) {
+    guard let entry = queue.first(where: { $0.id == id }) else { return }
+    playbackChoiceRevision = UUID()
+    pendingReplacement = nil
+    if currentEntryID == id { resume() } else { start(entry) }
   }
-
+  func togglePlayback() {
+    if isPlaying || wantsPlayback { pause() } else { resume() }
+  }
   func playNext() {
-    guard let currentTrack,
-      let currentIndex = queue.firstIndex(
-        where: { $0.track.id == currentTrack.id }
-      )
-    else {
-      return
-    }
-
-    let nextIndex = currentIndex + 1
-
-    guard queue.indices.contains(nextIndex) else {
-      return
-    }
-
-    let nextItem = queue[nextIndex]
-
-    start(nextItem.track, from: nextItem.streamURL)
+    guard canAdvance else { return }
+    playbackChoiceRevision = UUID()
+    advanceToNext()
   }
-
-  private func start(
-    _ track: Track,
-    from url: URL
-  ) {
-    removeTimeObserver()
-    removeEndObserver()
-
-    currentTrack = track
+  private func advanceToNext() {
+    guard let index = currentIndex, queue.indices.contains(index + 1) else { return }
+    start(queue[index + 1])
+  }
+  func retry() {
+    if let entry = currentEntry {
+      if restoration.position != nil { resolveRestoredEntry(entry) } else { start(entry) }
+    }
+  }
+  func stop() {
+    audioLifecycleRevision = UUID()
+    clearTransport()
+    restoration.cancel()
+    queue = []
+    pendingReplacement = nil
+    feedback.clear()
+    currentEntryID = nil
     currentTime = 0
-    duration = track.durationSeconds ?? 0
-
-    // Without precise timing, seeking a streamed FLAC desyncs AVPlayer's
-    // clock from the audio, so it overruns or truncates the end of the
-    // track and AVPlayerItemDidPlayToEndTime may never fire. Costs a
-    // slower initial load.
-    // https://developer.apple.com/forums/thread/665417
-    let asset = AVURLAsset(
-      url: url,
-      options: [AVURLAssetPreferPreciseDurationAndTimingKey: true]
-    )
-
-    let newPlayer = AVPlayer(playerItem: AVPlayerItem(asset: asset))
-    player = newPlayer
-
-    // Jellyfin's metadata duration can disagree with the decoded asset.
-    Task { [weak self] in
-      guard let loaded = try? await asset.load(.duration) else {
-        return
-      }
-
-      await MainActor.run {
-        guard let self,
-          self.currentTrack?.id == track.id,
-          loaded.seconds.isFinite,
-          loaded.seconds > 0
-        else {
-          return
-        }
-
-        self.duration = loaded.seconds
-      }
-    }
-
-    if let currentItem = newPlayer.currentItem {
-      endObserver = NotificationCenter.default.addObserver(
-        forName: .AVPlayerItemDidPlayToEndTime,
-        object: currentItem,
-        queue: .main
-      ) { [weak self] _ in
-        MainActor.assumeIsolated {
-          self?.playNext()
-        }
-      }
-    }
-
-    let interval = CMTime(
-      seconds: 0.5,
-      preferredTimescale: 600
-    )
-
-    timeObserver = newPlayer.addPeriodicTimeObserver(
-      forInterval: interval,
-      queue: .main
-    ) { [weak self] time in
-      guard time.seconds.isFinite else {
-        return
-      }
-
-      MainActor.assumeIsolated {
-        self?.currentTime = time.seconds
-      }
-    }
-
-    newPlayer.play()
-
+    duration = 0
+    errorText = nil
+    wantsPlayback = false
+    state = .idle
   }
 
   func seek(to seconds: Double, resumeAfterSeeking: Bool) {
-    currentTime = seconds
-
-    let time = CMTime(
-      seconds: seconds,
-      preferredTimescale: 600
-    )
-
-    player?.seek(to: time) { [weak self] finished in
-      guard finished, resumeAfterSeeking else {
-        return
-      }
-
+    guard seconds.isFinite, duration > 0, player.currentItem?.status == .readyToPlay else { return }
+    let target = min(max(seconds, 0), duration)
+    let expected = generation
+    wantsPlayback = resumeAfterSeeking
+    state = resumeAfterSeeking ? .loading : .paused
+    player.pause()
+    player.seek(
+      to: CMTime(seconds: target, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero
+    ) { [weak self] finished in
       Task { @MainActor [weak self] in
-        self?.resume()
+        guard let self, finished, self.generation == expected else { return }
+        let actual = self.player.currentTime().seconds
+        if actual.isFinite { self.currentTime = actual }
+        if self.wantsPlayback { self.startTransport() }
+        self.updateTransport(expected)
       }
     }
   }
 
-  private func removeTimeObserver() {
-    guard let timeObserver,
-      let
-        player
-    else {
-      return
-    }
-
-    player.removeTimeObserver(timeObserver)
-    self.timeObserver = nil
+  private func start(_ entry: QueueEntry) {
+    restoration.cancel()
+    clearTransport()
+    currentEntryID = entry.id
+    currentTime = 0
+    let metadataDuration = entry.track.durationSeconds ?? 0
+    duration = metadataDuration.isFinite && metadataDuration > 0 ? metadataDuration : 0
+    wantsPlayback = true
+    state = .loading
+    errorText = nil
+    resolve(entry)
+  }
+  private func startTransport() {
+    if !PlaybackPreparation.play(player, activateAudio: activateAudio) { fail(generation) }
   }
 
-  private func removeEndObserver() {
-    guard let endObserver else {
-      return
+  private func resolve(_ entry: QueueEntry) {
+    let expected = generation
+    resolveTask = PlaybackPreparation.resource(for: entry.track, source: source) { [weak self] resource in
+      guard let self, self.generation == expected else { return }
+      if let resource { self.load(resource, generation: expected) } else { self.fail(expected) }
     }
-
-    NotificationCenter.default.removeObserver(endObserver)
-    self.endObserver = nil
   }
 
-  func togglePlayback() {
-    guard let player else {
+  private func load(_ resource: PlayableResource, generation expected: UUID) {
+    if let index = currentIndex { queue[index] = queue[index].withResolvedMetadata(resource.resolvedTrack) }
+    let asset = AVURLAsset(url: resource.url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
+    let item = AVPlayerItem(asset: asset)
+    player.replaceCurrentItem(with: item)
+    observe(item, generation: expected)
+    durationTask = PlaybackPreparation.duration(asset) { [weak self] seconds in
+      guard let self, self.generation == expected else { return }
+      if let seconds {
+        self.duration = seconds
+        self.restoration.markDurationResolved()
+        self.updateTransport(expected)
+      } else if self.restoration.position != nil {
+        self.fail(expected)
+      }
+    }
+    if wantsPlayback && restoration.position == nil { startTransport() }
+  }
+
+  private func observe(_ item: AVPlayerItem, generation expected: UUID) {
+    transportObservation = PlaybackObservation(player: player, item: item) { [weak self] event in
+      guard let self, self.generation == expected else { return }
+      switch event {
+      case .transport: self.updateTransport(expected)
+      case .position(let position):
+        if self.restoration.position == nil { self.currentTime = max(0, position) }
+      case .finished: self.finished(expected)
+      case .failed: self.fail(expected)
+      }
+    }
+  }
+
+  private func updateTransport(_ expected: UUID) {
+    guard generation == expected, state != .failed, state != .ended else { return }
+    if player.currentItem?.status == .failed {
+      fail(expected)
       return
     }
+    if restoration.position != nil {
+      completeRestorationIfReady(expected)
+      return
+    }
+    switch player.timeControlStatus {
+    case .playing: state = .playing
+    case .waitingToPlayAtSpecifiedRate: state = wantsPlayback ? .loading : .paused
+    case .paused: state = wantsPlayback ? .loading : .paused
+    @unknown default: state = .loading
+    }
+  }
 
-    if isPlaying {
-      player.pause()
+  private func finished(_ expected: UUID) {
+    guard generation == expected, state != .ended else { return }
+    if canAdvance {
+      advanceToNext()
     } else {
-      player.play()
+      wantsPlayback = false
+      state = .ended
+      currentTime = duration
     }
+  }
+
+  private func fail(_ expected: UUID) {
+    guard generation == expected else { return }
+    player.pause()
+    wantsPlayback = false
+    state = .failed
+    // Never surface AVFoundation errors: they can contain authenticated media URLs.
+    errorText = "Couldn't play this song. Check your connection and try again."
+    AppDiagnostics.event("player.failed")
+  }
+
+  private func clearTransport() {
+    generation = UUID()
+    resolveTask?.cancel()
+    durationTask?.cancel()
+    resolveTask = nil
+    durationTask = nil
+    transportObservation?.cancel()
+    transportObservation = nil
+    player.pause()
+    player.replaceCurrentItem(with: nil)
+  }
+}
+
+// Queue commands preserve the active occurrence and its transport state.
+extension PlayerStore {
+  func play(_ tracks: [Track]) {
+    guard !tracks.isEmpty else { return }
+    playbackChoiceRevision = UUID()
+    if upcoming.contains(where: { $0.origin == .manual }) {
+      pendingReplacement = tracks
+      return
+    }
+    replaceAndPlay(tracks)
+  }
+  func cancelReplacement() { pendingReplacement = nil }
+  func confirmReplacement() {
+    guard let tracks = pendingReplacement else { return }
+    pendingReplacement = nil
+    replaceAndPlay(tracks)
+  }
+
+  private func replaceAndPlay(_ tracks: [Track]) {
+    pendingReplacement = nil
+    feedback.clear()
+    queue = tracks.map { QueueEntry(track: $0) }
+    if let first = queue.first { start(first) }
+  }
+
+  func insertNext(_ tracks: [Track]) {
+    guard !tracks.isEmpty else { return }
+    let entries = tracks.map { QueueEntry(track: $0, origin: .manual) }
+    queue.insert(contentsOf: entries, at: currentIndex.map { $0 + 1 } ?? 0)
+    feedback.show(
+      entries,
+      message: tracks.count == 1 ? "Playing next: \(tracks[0].title ?? "Song")" : "\(tracks.count) songs will play next"
+    )
+  }
+
+  func append(_ tracks: [Track]) {
+    guard !tracks.isEmpty else { return }
+    let entries = tracks.map { QueueEntry(track: $0, origin: .manual) }
+    queue.append(contentsOf: entries)
+    feedback.show(
+      entries,
+      message: tracks.count == 1
+        ? "Added to queue: \(tracks[0].title ?? "Song")" : "Added \(tracks.count) songs to queue")
+  }
+  func undoAddition(_ feedbackID: UUID) {
+    guard let feedback = queueFeedback, feedback.id == feedbackID else { return }
+    let removable = Set(upcoming.map(\.id)).intersection(feedback.entryIDs)
+    queue.removeAll { removable.contains($0.id) }
+    self.feedback.clear()
+  }
+  func removeUpcoming(_ id: UUID) {
+    guard upcoming.contains(where: { $0.id == id }) else { return }
+    queue.removeAll { $0.id == id }
+  }
+  func moveUpcoming(_ id: UUID, by distance: Int) {
+    guard let index = queue.firstIndex(where: { $0.id == id }),
+      upcoming.contains(where: { $0.id == id })
+    else { return }
+    let destination = index + distance
+    let firstUpcoming = currentIndex.map { $0 + 1 } ?? 0
+    guard destination >= firstUpcoming, queue.indices.contains(destination) else { return }
+    let entry = queue.remove(at: index)
+    queue.insert(entry, at: destination)
+  }
+}
+
+extension PlayerStore {
+  func exportSession(sourceBinding: UUID) throws -> Data? {
+    try PlaybackSnapshot.encode(
+      sourceBinding: sourceBinding, entries: queue,
+      currentEntryID: currentEntryID, position: restoration.position ?? currentTime)
+  }
+
+  func restoreSession(_ data: Data, sourceBinding: UUID) throws {
+    let snapshot = try JSONDecoder().decode(PlaybackSnapshot.self, from: data)
+    try snapshot.validate(binding: sourceBinding)
+    clearTransport()
+    pendingReplacement = nil
+    feedback.clear()
+    queue = snapshot.entries.map(\.queueEntry)
+    currentEntryID = snapshot.currentEntryID
+    currentTime = snapshot.position
+    wantsPlayback = false
+    errorText = nil
+    if let entry = currentEntry {
+      restoration.install(position: snapshot.position)
+      resolveRestoredEntry(entry)
+    } else {
+      restoration.cancel()
+      state = .idle
+    }
+  }
+
+  private func resolveRestoredEntry(_ entry: QueueEntry) {
+    clearTransport()
+    restoration.prepareAgain()
+    state = .loading
+    errorText = nil
+    resolve(entry)
+  }
+
+  private func completeRestorationIfReady(_ expected: UUID) {
+    restoration.seekIfReady(player: player, duration: duration) { [weak self] position in
+      guard let self, self.generation == expected else { return }
+      self.restoration.cancel()
+      self.currentTime = position
+      if self.wantsPlayback { self.startTransport() }
+      self.updateTransport(expected)
+    }
+  }
+}
+
+extension PlayerStore {
+  // Teardown releases AVFoundation resources without replacing the durable listening state with an empty queue.
+  func releaseTransport() {
+    audioLifecycleRevision = UUID()
+    clearTransport()
+    wantsPlayback = false
+    if currentEntryID != nil { state = .paused }
+  }
+
+  // Media-service resets orphan AVFoundation objects. Rebuild transport paused;
+  // source access, seeking and audio activation wait for deliberate Resume.
+  func resetAudioServices() {
+    audioLifecycleRevision = UUID()
+    let position = restoration.position ?? currentTime
+    clearTransport()
+    player = AVPlayer()
+    wantsPlayback = false
+    errorText = nil
+    restoration.cancel()
+    if currentEntry != nil { restoration.install(position: position) }
+    currentTime = position
+    state = currentEntry == nil ? .idle : .paused
+  }
+
+  func beginAudioInterruption() -> UUID {
+    audioLifecycleRevision = UUID()
+    let token = interruption.begin(
+      entry: currentEntryID, generation: generation, choice: playbackChoiceRevision, requested: wantsPlayback)
+    wantsPlayback = false
+    player.pause()
+    if currentTrack != nil && state != .failed && state != .ended { state = .paused }
+    return token
+  }
+
+  func endAudioInterruption(_ token: UUID, shouldResume: Bool) {
+    let mayResume = interruption.finish(
+      token, entry: currentEntryID, generation: generation, choice: playbackChoiceRevision)
+    if shouldResume && mayResume { resume() }
   }
 }

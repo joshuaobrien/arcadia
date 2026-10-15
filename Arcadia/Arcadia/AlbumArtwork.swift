@@ -1,15 +1,23 @@
-import AppKit
 import SwiftUI
+
+#if os(macOS)
+  import AppKit
+  private typealias ArtworkImage = NSImage
+#else
+  import UIKit
+  private typealias ArtworkImage = UIImage
+#endif
 
 struct AlbumArtwork: View {
   let artworkURL: URL?
-  @State private var image: NSImage?
+  @Environment(\.musicSource) private var musicSource
+  @State private var image: ArtworkImage?
   @State private var isLoading = false
 
   var body: some View {
     Group {
       if let image {
-        Image(nsImage: image)
+        decodedImage(image)
           .resizable()
           .scaledToFill()
           .accessibilityLabel("Album artwork")
@@ -29,6 +37,14 @@ struct AlbumArtwork: View {
     .task(id: artworkURL) { await load() }
   }
 
+  private func decodedImage(_ image: ArtworkImage) -> Image {
+    #if os(macOS)
+      Image(nsImage: image)
+    #else
+      Image(uiImage: image)
+    #endif
+  }
+
   private func load() async {
     image = nil
     guard let artworkURL else {
@@ -38,9 +54,11 @@ struct AlbumArtwork: View {
     isLoading = true
     AppDiagnostics.event("artwork.loading")
     do {
-      let loaded: NSImage?
+      let loaded: ArtworkImage?
       if artworkURL.isFileURL {
-        loaded = NSImage(contentsOf: artworkURL)
+        loaded = ArtworkImage(data: try Data(contentsOf: artworkURL))
+      } else if let musicSource {
+        loaded = ArtworkImage(data: try await musicSource.artworkData(for: artworkURL))
       } else {
         let (data, response) = try await URLSession.shared.data(
           for: URLRequest(url: artworkURL, timeoutInterval: 15)
@@ -48,7 +66,7 @@ struct AlbumArtwork: View {
         guard (response as? HTTPURLResponse)?.statusCode == 200 else {
           throw ArcadiaAPIError.invalidResponse
         }
-        loaded = NSImage(data: data)
+        loaded = ArtworkImage(data: data)
       }
       try Task.checkCancellation()
       image = loaded

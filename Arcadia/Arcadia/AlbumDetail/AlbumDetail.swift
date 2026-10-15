@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct AlbumDetail: View {
+  @Environment(PlayerStore.self) private var playerStore
   @State private var model: AlbumDetailModel
   private var album: Album
 
@@ -55,6 +56,22 @@ struct AlbumDetail: View {
         }
       }
 
+      HStack {
+        Button("Play album", systemImage: "play.fill") { playerStore.play(model.tracks) }
+          .accessibilityIdentifier("album.play")
+        Menu {
+          Button("Play Album Next") { playerStore.insertNext(model.tracks) }
+          Button("Add Album to Queue") { playerStore.append(model.tracks) }
+        } label: {
+          Image(systemName: "ellipsis")
+        }
+        .songMenuStyle()
+        .frame(width: 28)
+        .accessibilityLabel("Album actions")
+        .accessibilityIdentifier("album.actions")
+      }
+      .disabled(model.isLoading || model.tracks.isEmpty)
+
       Divider()
 
       if model.isLoading {
@@ -69,15 +86,13 @@ struct AlbumDetail: View {
         .accessibilityIdentifier("tracks.error")
       } else {
         List(model.tracks) { track in
-          TrackRow(
-            track: track,
-          )
+          TrackRow(track: track)
         }
         .accessibilityIdentifier("tracks.loaded")
       }
     }
     .padding()
-    .navigationTitle(album.title)
+    .libraryNavigationTitle(album.title)
     .navigationBarBackButtonHidden(true)
     .toolbar {
       ToolbarItem(placement: .navigation) { AlbumBackButton() }

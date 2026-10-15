@@ -1,15 +1,7 @@
-//
-//  PlayerBar.swift
-//  Arcadia
-//
-//  Created by Joshua O'Brien on 16/8/2026.
-//
-
 import SwiftUI
 
 struct PlayerBar: View {
   @Environment(PlayerStore.self) private var playerStore
-
   @State private var isScrubbing = false
   @State private var scrubPosition = 0.0
   @State private var resumedAfterScrubbing = false
@@ -17,104 +9,117 @@ struct PlayerBar: View {
   var body: some View {
     if let track = playerStore.currentTrack {
       VStack(spacing: DesignTokens.Spacing.s) {
-        controls(for: track)
-        progress
-      }
-      .padding(.horizontal, 16)
-      .padding(.vertical, 10)
-      .background(.regularMaterial)
-      .overlay(alignment: .top) {
-        Divider()
-      }
-    }
-  }
-
-  private func controls(for track: Track) -> some View {
-    HStack(spacing: DesignTokens.Spacing.m) {
-      Button {
-        playerStore.togglePlayback()
-      } label: {
-        Image(
-          systemName: playerStore.isPlaying
-            ? "pause.fill"
-            : "play.fill"
-        )
-        .frame(width: 28, height: 28)
-      }
-      .buttonStyle(.borderless)
-
-      VStack(alignment: .leading, spacing: DesignTokens.Spacing.s) {
-        Text(track.title ?? "Untitled track")
-          .font(.headline)
-          .lineLimit(1)
-
-        if let artists = track.artists {
-          Text(artists.joined(separator: ", "))
+        HStack(spacing: DesignTokens.Spacing.m) {
+          PlaybackToggleButton()
+          NextSongButton()
+          VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
+            Text(track.title ?? "Untitled track")
+              .font(.headline)
+              .lineLimit(1)
+              .accessibilityIdentifier("player.title")
+            Text(track.artists?.joined(separator: ", ") ?? "Unknown Artist")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+          Spacer()
+          if playerStore.state == .loading { ProgressView().controlSize(.small) }
+          Text(playerStore.state.rawValue.capitalized)
             .font(.caption)
             .foregroundStyle(.secondary)
-            .lineLimit(1)
+            .accessibilityIdentifier("player.state")
         }
+        if let error = playerStore.errorText {
+          HStack {
+            Text(error).accessibilityIdentifier("player.error")
+            Button("Retry") { playerStore.retry() }.accessibilityIdentifier("player.retry")
+          }
+          .font(.caption)
+        }
+        progress
       }
-
-      Spacer()
+      .padding()
+      .background(.bar)
+      .accessibilityElement(children: .contain)
+      .accessibilityIdentifier("player.bar")
     }
   }
 
   private var progress: some View {
-    let maximum = max(playerStore.duration, 1)
-
-    let displayedTime =
-      isScrubbing
-      ? scrubPosition
-      : playerStore.currentTime
-
+    let displayed = isScrubbing ? scrubPosition : playerStore.currentTime
     return HStack(spacing: DesignTokens.Spacing.m) {
-      Text(formatTime(displayedTime))
+      Text(formatTime(displayed))
         .frame(width: 42, alignment: .trailing)
-
+        .accessibilityIdentifier("player.elapsed")
       Slider(
         value: Binding(
-          get: {
-            displayedTime
-          },
-          set: { newValue in
-            scrubPosition = newValue
-          }
-        ),
-        in: 0...maximum,
+          get: { displayed / max(playerStore.duration, 1) },
+          set: { fraction in
+            let value = fraction * max(playerStore.duration, 1)
+            scrubPosition = value
+            if !isScrubbing {
+              playerStore.seek(to: value, resumeAfterSeeking: playerStore.isPlaybackRequested)
+            }
+          }), in: 0...1,
         onEditingChanged: { isEditing in
           if isEditing {
             scrubPosition = playerStore.currentTime
-            resumedAfterScrubbing = playerStore.isPlaying
+            resumedAfterScrubbing = playerStore.isPlaybackRequested
             isScrubbing = true
             playerStore.pause()
-          } else {
-            playerStore.seek(
-              to: scrubPosition,
-              resumeAfterSeeking: resumedAfterScrubbing
-            )
+          } else if isScrubbing {
+            playerStore.seek(to: scrubPosition, resumeAfterSeeking: resumedAfterScrubbing)
             isScrubbing = false
           }
         }
       )
-      .disabled(playerStore.duration <= 0)
-
+      .disabled(playerStore.duration <= 0 || playerStore.state == .failed)
+      .accessibilityLabel("Playback position")
+      .accessibilityIdentifier("player.seek")
       Text(formatTime(playerStore.duration))
         .frame(width: 42, alignment: .leading)
+        .accessibilityIdentifier("player.duration")
     }
     .font(.caption.monospacedDigit())
     .foregroundStyle(.secondary)
   }
 
-  private func formatTime(_ duration: Double) -> String {
-    let totalSeconds = Int(duration.rounded())
-    let minutes = totalSeconds / 60
-    let seconds = totalSeconds % 60
+  private func formatTime(_ seconds: Double) -> String {
+    guard seconds.isFinite else { return "0:00" }
+    let total = max(0, Int(seconds.rounded()))
+    return String(format: "%d:%02d", total / 60, total % 60)
+  }
+}
 
-    return String(
-      format: "%d:%02d",
-      minutes,
-      seconds
-    )
+struct PlaybackToggleButton: View {
+  @Environment(PlayerStore.self) private var playerStore
+  var body: some View {
+    Button {
+      playerStore.togglePlayback()
+    } label: {
+      Image(systemName: playerStore.isPlaybackRequested ? "pause.fill" : "play.fill")
+        .font(.system(size: 20))
+        .frame(minWidth: 44, minHeight: 44)
+    }
+    .buttonStyle(.borderless)
+    .disabled(playerStore.state == .failed)
+    .accessibilityLabel(playerStore.isPlaybackRequested ? "Pause" : "Resume")
+    .accessibilityIdentifier(playerStore.isPlaybackRequested ? "player.pause" : "player.resume")
+  }
+}
+
+struct NextSongButton: View {
+  @Environment(PlayerStore.self) private var playerStore
+  var body: some View {
+    Button {
+      playerStore.playNext()
+    } label: {
+      Image(systemName: "forward.end.fill")
+        .font(.system(size: 20))
+        .frame(minWidth: 44, minHeight: 44)
+    }
+    .buttonStyle(.borderless)
+    .disabled(!playerStore.canAdvance)
+    .accessibilityLabel("Next song")
+    .accessibilityIdentifier("player.next")
   }
 }

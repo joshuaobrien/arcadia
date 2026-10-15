@@ -34,7 +34,7 @@ struct AlbumGridView: View {
               artworkURL: album.artworkURL,
               title: album.title,
               artist: album.albumArtist,
-              year: "todo",
+              year: album.year.map(String.init) ?? "",
             )
           }
           .buttonStyle(.plain)
@@ -53,7 +53,7 @@ struct AlbumGridView: View {
           }
         }
       }
-      .navigationTitle("Albums")
+      .libraryNavigationTitle("Albums")
     }
     .accessibilityIdentifier("albums.scroll")
   }
