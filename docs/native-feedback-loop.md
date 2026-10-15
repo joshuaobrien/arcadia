@@ -30,7 +30,7 @@ Targeted `test --only-testing …`, explicit integration tests, `review` and `or
 
 Debug defaults to `ARCADIA_DATA_MODE=fixtures`, without needing a backend URL. `ARCADIA_FIXTURE_SCENARIO` selects `success`, `empty`, `failure`, `failure-then-success` or `two-page`. Fixtures have stable IDs and bundled artwork; they do not contact a server. Unknown mode/scenario values produce a configuration error.
 
-`integration` and `live-readonly` require an explicit `ARCADIA_BASE_URL` in development; they never fall back to the production URL embedded in a build. The native client uses GET requests. Live browse is an optional read-only smoke check, not the reproducible acceptance oracle. Release retains its configured backend URL and cannot enable development fixtures.
+`integration` and `live-readonly` require an explicit `ARCADIA_BASE_URL` in development; they never fall back to the production URL embedded in a build. The native client uses GET requests. Live browse is an optional read-only smoke check, not the reproducible acceptance oracle. These are legacy Arcadia API modes. Release now defaults to `jellyfin`: `ArcadiaApp` opens the direct Jellyfin connection flow, rather than using an Arcadia backend URL. Debug can select the same flow with `ARCADIA_DATA_MODE=jellyfin`; Release cannot enable development fixtures. Explicit legacy API modes retain their configured URL behavior.
 
 The behavioral suite checks:
 
@@ -41,6 +41,16 @@ The behavioral suite checks:
 - Two pages: scrolling loads the second page; expected IDs/count match and duplicate links are rejected.
 
 `oracle` changes the title only in the guest copy, verifies the success assertion fails, restores the file, and verifies the test passes. It rejects a build failure or a mutation that incorrectly passes. This is an assertion sensitivity check, not an audio playback test; track playback remains the existing stub.
+
+## Shared native player: Mac, iPhone and Duo
+
+Use the explicit [iPhone validation entrypoint](../test-environment/native/phone/README.md) and [Duo validation entrypoint](../test-environment/native/duo/README.md) for mobile player work. These run inside an owned, logged-in task guest with Xcode27.1 and the matching27.1 simulator runtime; Duo additionally requires the genuine Duo runtime and owned device. Record the actual template/image provenance, Xcode/runtime versions, device UDID and tool hashes. Follow each entrypoint's native permission/preflight requirements before capture. The `scripts/native-loop` commands above describe the Mac loop; the existing26.5 Mac CI image and workflow remain unchanged.
+
+The phone's eight `MobileListeningTests` are deterministic fixture UI checks, separate from real Jellyfin playback, playing-restart restoration and background/native-control validation. Select those additional modes explicitly using the phone instructions as they become available; a fixture pass does not establish real audio or background behavior. The checked-in `restore` mode requires real playback before restart, meaningful silent output while restored paused, and known-tone output after deliberate Resume. Follow the phone README's stated verification limits and accepted assumptions for native iOS controls. Duo similarly distinguishes `fixture`, `short` and `real` modes.
+
+For every acceptance run, retain the immutable source archive and its SHA, verify archived files before and after execution, and record requested and executed XCTest identifiers. Every exact selected method must pass once with zero failures or skips. Export full result bundles, logs, native screenshots/recordings and applicable raw PCM/assertions, helper provenance and cleanup reports, including failure evidence, before releasing the owned guest. Missing output callbacks do not establish silence.
+
+Keep each run's disposable fixture configuration and media frozen through capture and verification; do not reseed a backend used by another run. Use the [direct Jellyfin fixture setup](../test-environment/native/README.md), [known-tone/output contract](../test-environment/native/audio-verification.md) and [restored-session verification](../test-environment/native/session-verification.md). Keep credentials private and publish only reviewed, credential-free evidence.
 
 ## Disposable real API integration
 
