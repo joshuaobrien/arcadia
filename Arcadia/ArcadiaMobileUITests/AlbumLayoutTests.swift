@@ -57,6 +57,38 @@ final class AlbumLayoutTests: XCTestCase {
   }
 
   @MainActor
+  func testAccessibilityTextKeepsAlbumMetadataAndActionsReachable() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+    app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
+    app.launchEnvironment["ARCADIA_FIXTURE_SCENARIO"] = "long-album-metadata"
+    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
+    app.launch()
+    XCTAssertTrue(app.segmentedControls.buttons["Albums"].waitForExistence(timeout: 10))
+    app.segmentedControls.buttons["Albums"].tap()
+    let first = app.buttons["album.fixture-1"]
+    XCTAssertTrue(first.waitForExistence(timeout: 10))
+    first.tap()
+    XCTAssertTrue(app.staticTexts["The Extraordinary Adventures of a Very Long Album Title"].firstMatch.waitForExistence(timeout: 10))
+    capture(app, "Long album metadata - accessibility text size")
+    let play = app.buttons["album.play"]
+    for _ in 0..<12 {
+      if play.exists && play.isHittable && app.windows.firstMatch.frame.contains(play.frame) { break }
+      app.swipeUp()
+    }
+    XCTAssertTrue(play.isHittable && app.windows.firstMatch.frame.contains(play.frame))
+    let firstTrack = app.buttons["track.fixture-1-track-1.play"]
+    for _ in 0..<8 {
+      if firstTrack.exists && firstTrack.isHittable { break }
+      app.swipeUp()
+    }
+    XCTAssertTrue(firstTrack.isHittable)
+    firstTrack.tap()
+    XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 10))
+    capture(app, "Album actions and first track remain reachable at accessibility text size")
+  }
+
+  @MainActor
   private func capture(_ app: XCUIApplication, _ name: String) {
     let attachment = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
     attachment.name = name
