@@ -33,6 +33,38 @@ final class MobileListeningTests: XCTestCase {
   }
 
   @MainActor
+  func testExpandedPlayerPrioritizesMetadataSeekingAndTransport() {
+    let app = XCUIApplication()
+    app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
+    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
+    app.launch()
+    XCTAssertTrue(app.buttons["track.fixture-1-track-1.play"].waitForExistence(timeout: 10))
+    app.buttons["track.fixture-1-track-1.play"].tap()
+    XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 10))
+    app.buttons["player.pause"].tap()
+    app.buttons["player.expand"].tap()
+    let title = app.staticTexts["player.title"].firstMatch
+    let seek = app.sliders["player.seek"]
+    let resume = app.buttons["player.resume"]
+    XCTAssertTrue(seek.waitForExistence(timeout: 5))
+    XCTAssertLessThan(title.frame.maxY, seek.frame.minY)
+    XCTAssertGreaterThan(resume.frame.minY, seek.frame.maxY,
+      "Expanded transport must have its own prominent row below seeking")
+    for identifier in ["player.previous", "player.resume", "player.next"] {
+      let button = app.buttons[identifier]
+      XCTAssertTrue(button.isHittable)
+      XCTAssertGreaterThanOrEqual(button.frame.width, 44)
+      XCTAssertGreaterThanOrEqual(button.frame.height, 44)
+    }
+    capture(app, "Expanded player - readable metadata, seeking and dedicated transport")
+    app.buttons["queue.toggle"].tap()
+    XCTAssertTrue(app.staticTexts["queue.heading"].waitForExistence(timeout: 5))
+    app.navigationBars.buttons["Now Playing"].tap()
+    XCTAssertEqual(title.label, "The First Song")
+    XCTAssertTrue(resume.isHittable)
+  }
+
+  @MainActor
   func testPagedPlaylistCountDistinguishesLoadedSongsFromCompleteCollection() {
     let app = XCUIApplication()
     app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
