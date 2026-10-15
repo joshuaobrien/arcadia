@@ -16,11 +16,13 @@ struct AlbumCardView: View {
 
       Text(title)
         .font(.headline)
-        .lineLimit(1)
+        .lineLimit(2)
+        .fixedSize(horizontal: false, vertical: true)
 
       Text(artist)
         .foregroundStyle(.secondary)
-        .lineLimit(1)
+        .lineLimit(2)
+        .fixedSize(horizontal: false, vertical: true)
 
       Text(String(year))
         .font(.caption)

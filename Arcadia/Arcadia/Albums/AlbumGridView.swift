@@ -1,7 +1,5 @@
 import SwiftUI
 
-private let minimumAlbumWidth: CGFloat = 220
-
 struct AlbumGridView: View {
 
   let albumService: AlbumService
@@ -17,12 +15,7 @@ struct AlbumGridView: View {
         .font(.caption)
         .foregroundStyle(.secondary)
         .accessibilityIdentifier("albums.count")
-      LazyVGrid(
-        columns: [
-          GridItem(.adaptive(minimum: minimumAlbumWidth))
-        ],
-        spacing: DesignTokens.Spacing.xl
-      ) {
+      AlbumCardGrid {
         ForEach(albums) { album in
           NavigationLink {
             AlbumDetail(
@@ -39,7 +32,6 @@ struct AlbumGridView: View {
           }
           .buttonStyle(.plain)
           .accessibilityIdentifier("album.\(album.id)")
-          .padding()
         }
 
         if hasNextPage {
@@ -53,6 +45,7 @@ struct AlbumGridView: View {
           }
         }
       }
+      .padding(.horizontal, DesignTokens.Spacing.l)
       .libraryNavigationTitle("Albums")
     }
     .accessibilityIdentifier("albums.scroll")

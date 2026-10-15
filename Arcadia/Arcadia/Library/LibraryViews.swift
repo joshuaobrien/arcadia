@@ -100,7 +100,7 @@ struct ArtistDetail: View {
         ForEach(model.songs.items) { TrackRow(track: $0, showsTrackNumber: false) }
         LibraryPageStatus(model: model.songs, noun: "artist-songs")
         Text("Releases").font(.title2.bold()).accessibilityIdentifier("artist.releases.title")
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 180))]) {
+        AlbumCardGrid {
           ForEach(model.releases.items) { album in
             NavigationLink(value: LibraryRoute.album(album)) {
               AlbumCardView(
