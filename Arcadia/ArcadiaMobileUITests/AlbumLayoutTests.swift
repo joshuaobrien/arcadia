@@ -46,9 +46,11 @@ final class AlbumLayoutTests: XCTestCase {
     let album = app.buttons["album.fixture-1"]
     XCTAssertTrue(album.waitForExistence(timeout: 10))
     album.tap()
-    let title = app.staticTexts["The Extraordinary Adventures of a Very Long Album Title"].firstMatch
-    let artist = app.staticTexts["The Northern Lights Orchestra with The Evening Choir"].firstMatch
+    let title = app.staticTexts["album.title"]
+    let artist = app.staticTexts["album.artist"]
     XCTAssertTrue(title.waitForExistence(timeout: 10))
+    XCTAssertEqual(title.label, "The Extraordinary Adventures of a Very Long Album Title")
+    XCTAssertEqual(artist.label, "The Northern Lights Orchestra with The Evening Choir")
     capture(app, "Long album title and artist credits - default phone text size")
     XCTAssertGreaterThanOrEqual(title.frame.width, app.windows.firstMatch.frame.width * 0.8)
     XCTAssertGreaterThanOrEqual(artist.frame.width, app.windows.firstMatch.frame.width * 0.8)
