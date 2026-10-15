@@ -76,15 +76,22 @@ struct ExpandedPlayerView: View {
   private var playerContent: some View {
     GeometryReader { geometry in
       let isWide = geometry.size.width > geometry.size.height && !dynamicTypeSize.isAccessibilitySize
-      let layout = isWide
-        ? AnyLayout(HStackLayout(alignment: .center, spacing: 24))
-        : AnyLayout(VStackLayout(spacing: 24))
+      let layout =
+        if isWide {
+          AnyLayout(HStackLayout(alignment: .center, spacing: 24))
+        } else {
+          AnyLayout(VStackLayout(spacing: 24))
+        }
       ScrollView {
         layout {
           if !dynamicTypeSize.isAccessibilitySize {
-            artwork(size: isWide
-              ? min(200, geometry.size.height - 48)
-              : min(260, min(geometry.size.width - 64, geometry.size.height * 0.38)))
+            let artworkSize =
+              if isWide {
+                min(200, geometry.size.height - 48)
+              } else {
+                min(260, min(geometry.size.width - 64, geometry.size.height * 0.38))
+              }
+            artwork(size: artworkSize)
           }
           listeningControls
         }
