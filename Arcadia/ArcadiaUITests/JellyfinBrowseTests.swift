@@ -100,7 +100,13 @@ extension JellyfinBrowseTests {
     album.click()
     XCTAssertTrue(app.staticTexts["First Contact"].waitForExistence(timeout: 15))
     XCTAssertTrue(app.staticTexts["Persistent State"].exists)
-    XCTAssertTrue(app.staticTexts["Range Request"].exists)
+    let lastTrack = app.staticTexts["Range Request"]
+    let detail = app.scrollViews["album.detail.scroll"]
+    for _ in 0..<6 {
+      if lastTrack.exists && lastTrack.isHittable && detail.frame.contains(lastTrack.frame) { break }
+      detail.scroll(byDeltaX: 0, deltaY: -200)
+    }
+    XCTAssertTrue(lastTrack.exists && lastTrack.isHittable && detail.frame.contains(lastTrack.frame))
     XCTAssertTrue(app.images["artwork.loaded"].waitForExistence(timeout: 15))
     capture(app, "Jellyfin - real artwork and ordered tracks")
     app.terminate()
