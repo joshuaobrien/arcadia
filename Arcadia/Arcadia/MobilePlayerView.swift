@@ -75,7 +75,11 @@ struct ExpandedPlayerView: View {
 
   private var playerContent: some View {
     GeometryReader { geometry in
-      let isWide = geometry.size.width > geometry.size.height && !dynamicTypeSize.isAccessibilitySize
+      let usableWidth = max(0, geometry.size.width - geometry.safeAreaInsets.leading - geometry.safeAreaInsets.trailing)
+      let contentWidth = max(0, usableWidth - 48)
+      // Two 44pt skip targets, the padded 60pt play target, and two 32pt gaps.
+      let minimumTransportWidth: CGFloat = 44 * 2 + 60 + 32 * 2
+      let isWide = usableWidth > geometry.size.height && !dynamicTypeSize.isAccessibilitySize
       let layout =
         if isWide {
           AnyLayout(HStackLayout(alignment: .center, spacing: 24))
@@ -87,18 +91,20 @@ struct ExpandedPlayerView: View {
           if !dynamicTypeSize.isAccessibilitySize {
             let artworkSize =
               if isWide {
-                min(200, geometry.size.height - 48)
+                min(200, min(geometry.size.height - 48, max(0, contentWidth - 24 - minimumTransportWidth)))
               } else {
-                min(260, min(geometry.size.width - 64, geometry.size.height * 0.38))
+                min(260, min(contentWidth, geometry.size.height * 0.38))
               }
             artwork(size: artworkSize)
           }
           listeningControls
         }
-        .frame(maxWidth: isWide ? 760 : 520)
-        .frame(maxWidth: .infinity)
-        .padding(24)
+        .frame(maxWidth: min(contentWidth, isWide ? 760 : 520))
+        .frame(width: usableWidth)
+        .padding(.vertical, 24)
       }
+      .frame(width: usableWidth, alignment: .leading)
+      .padding(.leading, geometry.safeAreaInsets.leading)
     }
   }
 
