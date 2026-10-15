@@ -49,6 +49,12 @@ enum MusicSourceError: LocalizedError {
 // Resolved access is ephemeral; queues and saved sessions contain song metadata only.
 struct PlayableResource {
   let url: URL
+  let resolvedTrack: Track?
+
+  init(url: URL, resolvedTrack: Track? = nil) {
+    self.url = url
+    self.resolvedTrack = resolvedTrack
+  }
 }
 
 // Transitional Arcadia API sources retain album browsing until they support the

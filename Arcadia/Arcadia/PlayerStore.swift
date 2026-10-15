@@ -150,7 +150,6 @@ final class PlayerStore {
     errorText = nil
     resolve(entry)
   }
-
   private func startTransport() {
     if !PlaybackPreparation.play(player, activateAudio: activateAudio) { fail(generation) }
   }
@@ -164,6 +163,7 @@ final class PlayerStore {
   }
 
   private func load(_ resource: PlayableResource, generation expected: UUID) {
+    if let index = currentIndex { queue[index] = queue[index].withResolvedMetadata(resource.resolvedTrack) }
     let asset = AVURLAsset(url: resource.url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
     let item = AVPlayerItem(asset: asset)
     player.replaceCurrentItem(with: item)

@@ -17,6 +17,7 @@ final class MediaPlaybackBridge {
   private var isClosed = false
   private var artworkTask: Task<Void, Never>?
   private var artworkEntry: UUID?
+  private var artworkURL: URL?
   private var artwork: MPMediaItemArtwork?
   private var publishedState: PlayerStore.State?
 
@@ -131,18 +132,22 @@ final class MediaPlaybackBridge {
   }
 
   private func loadArtwork(_ track: Track) {
-    guard artworkEntry != player.currentEntryID else { return }
+    let url = track.artworkURL ?? track.albumReference?.artworkURL
+    guard artworkEntry != player.currentEntryID || artworkURL != url else { return }
     artworkTask?.cancel()
     artworkEntry = player.currentEntryID
+    artworkURL = url
     artwork = nil
-    guard let url = track.artworkURL ?? track.albumReference?.artworkURL else { return }
+    guard let url else { return }
     let expected = player.currentEntryID
     artworkTask = Task { [weak self] in
       guard let self else { return }
       do {
         let data = try await source.artworkData(for: url)
         try Task.checkCancellation()
-        guard !isClosed, player.currentEntryID == expected else { return }
+        guard !isClosed, player.currentEntryID == expected,
+          (player.currentTrack?.artworkURL ?? player.currentTrack?.albumReference?.artworkURL) == url
+        else { return }
         #if canImport(AppKit)
           guard let image = NSImage(data: data) else { return }
         #else

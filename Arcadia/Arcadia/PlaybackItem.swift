@@ -12,4 +12,9 @@ struct QueueEntry: Identifiable {
     self.track = track
     self.origin = origin
   }
+
+  func withResolvedMetadata(_ metadata: Track?) -> Self {
+    guard let metadata, metadata.stableID == track.stableID else { return self }
+    return Self(track: metadata, origin: origin, id: id)
+  }
 }

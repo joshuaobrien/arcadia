@@ -245,14 +245,16 @@ final class JellyfinMusicSource: MusicSource {
   }
 
   func playableResource(for track: Track) async throws -> PlayableResource {
-    _ = try await request.data(path: ["Users", session.userID, "Items", track.id])
+    let data = try await request.data(path: ["Users", session.userID, "Items", track.id])
+    let item: Item
+    do { item = try JSONDecoder().decode(Item.self, from: data) } catch { throw MusicSourceError.invalidResponse }
     return PlayableResource(
       url: request.url(
         path: ["Audio", track.id, "stream"],
         query: [
           URLQueryItem(name: "static", value: "true"),
           URLQueryItem(name: "api_key", value: session.token),
-        ]))
+        ]), resolvedTrack: song(item))
   }
 
   func artworkData(for url: URL) async throws -> Data {
