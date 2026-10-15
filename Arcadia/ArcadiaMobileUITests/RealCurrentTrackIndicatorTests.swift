@@ -48,18 +48,22 @@ final class RealCurrentTrackIndicatorTests: XCTestCase {
     if system.buttons["Not Now"].waitForExistence(timeout: 3) {
       system.buttons["Not Now"].tap()
     }
+    XCTAssertTrue(app.staticTexts["songs.count"].waitForExistence(timeout: 20))
     let play = app.buttons["track.\(configuration.firstSongID).play"]
-    XCTAssertTrue(play.waitForExistence(timeout: 15))
     let songs = app.scrollViews["songs.scroll"]
-    for _ in 0..<12 {
-      if play.exists && play.isHittable { break }
+    XCTAssertTrue(songs.waitForExistence(timeout: 10))
+    // The configured occurrence can be beyond the first source page. Scroll
+    // through the public library so its normal page loading discovers that ID.
+    for _ in 0..<40 {
+      if play.exists && play.isHittable && songs.frame.contains(play.frame) { break }
       songs.swipeUp()
     }
-    XCTAssertTrue(play.isHittable)
+    XCTAssertTrue(play.exists && play.isHittable && songs.frame.contains(play.frame))
     play.tap()
     XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 15))
     let marker = app.descendants(matching: .any).matching(
-      identifier: "track.\(configuration.firstSongID).playback").firstMatch
+      identifier: "track.\(configuration.firstSongID).playback"
+    ).firstMatch
     XCTAssertTrue(marker.waitForExistence(timeout: 10))
     XCTAssertTrue(waitForState("Playing", marker: marker))
     capture(app, "Real Jellyfin song library - currently playing song")
