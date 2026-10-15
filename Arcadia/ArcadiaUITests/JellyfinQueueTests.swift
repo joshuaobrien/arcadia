@@ -53,7 +53,9 @@ final class JellyfinQueueTests: XCTestCase {
     let thirdActions = String(thirdPlay.identifier.dropLast(4)) + "actions"
     let secondActions = String(secondPlay.identifier.dropLast(4)) + "actions"
     for identifier in [thirdActions, thirdActions, secondActions] {
-      app.descendants(matching: .any)[identifier].click()
+      let control = app.descendants(matching: .any)[identifier]
+      revealTrackControl(control, app: app)
+      control.click()
       app.menuItems["Add to Queue"].click()
     }
     app.buttons["queue.toggle"].click()
@@ -105,6 +107,16 @@ final class JellyfinQueueTests: XCTestCase {
     app.buttons["source.disconnect"].click()
     XCTAssertTrue(app.textFields["source.server"].waitForExistence(timeout: 5))
     XCTAssertFalse(app.staticTexts["player.title"].exists)
+  }
+
+  @MainActor
+  private func revealTrackControl(_ control: XCUIElement, app: XCUIApplication) {
+    let tracks = app.descendants(matching: .any)["tracks.loaded"]
+    for _ in 0..<4 {
+      if control.isHittable && tracks.frame.contains(control.frame) { break }
+      tracks.scroll(byDeltaX: 0, deltaY: -200)
+    }
+    XCTAssertTrue(control.isHittable && tracks.frame.contains(control.frame))
   }
 
   @MainActor
