@@ -13,3 +13,13 @@ Run everything in a disposable, logged-in macOS task VM, with Tart `--no-graphic
 The helper validates48kHz stereo Float32 interleaved format. Assertions select settled windows and require meaningful sample counts, nonzero output with the expected independently known tone, and silence while paused. This proves the application's output pipeline in the guest; it does not certify physical speaker acoustics, iOS hardware background audio or CarPlay. Simulator process attribution needs separate verification.
 
 Ticket52 used an approved local Xcode27.1RC template after the standard pinnedOCI image required a cold68GB download. Its manual provenance and evidence are recorded separately; noOCI digest was invented. That local template lacked Mint, so the already cached SwiftLint0.65.1 executable ran directly. Xcode27.1's formatter required a guest-only copy of `.swift-format` adding `orderedImports.shouldGroupImports=false`; repository config and CI were preserved.
+
+### Guest simulator permission preflight
+
+Before an iPhone capture journey, verify that the task's simulator UUID is the only booted device and that Device Hub shows that exact selected device. Keep Device Hub inside the background guest; a host viewer is unnecessary. Refuse existing result bundles, logs and capture/IPC directories before starting children.
+
+Inspect the guest's native UserNotificationCenter as well as the iOS screen. A macOS permission sheet can block the simulator's media broker while the app continues to show Loading; an iOS screenshot cannot reveal that sheet. Record only the prompt's static text, button labels, owned process and decision. Never edit a TCC database or resolve a different application's prompt.
+
+For output-only tests, the exact `SimulatorTrampoline.xpc` microphone prompt concerns unused input: choose **Don’t Allow**. The exact task-agent system-audio recording prompt may be allowed only while the owned output-capture helper is being started. These are separate decisions, not a blanket Allow policy. Check for newly appearing native prompts while the first public playback request is pending.
+
+Run a bounded two-second permission pilot with the accepted tap-only helper before the full journey. Reap its owned child and verify the native modal is gone. A zero-clock pilot proves capture permission, format and live callbacks; it does not prove application audio. Require independent known-tone PCM in the subsequent public UI journey.

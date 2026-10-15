@@ -2,6 +2,7 @@
 import importlib.util
 import io
 import json
+import shutil
 from pathlib import Path
 import tarfile
 import tempfile
@@ -34,6 +35,29 @@ class StagingTests(unittest.TestCase):
             self.assertEqual((second / module.CONFIGURATION).read_text(), 'someone changed this')
             self.assertTrue((second / module.MARKER).exists())
             self.assertEqual(report['refused_changed_configuration'], [str(second / module.CONFIGURATION)])
+
+    def test_copied_owned_runner_staging_is_adopted_only_with_matching_token_and_content(self):
+        module = driver()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            private = root / 'private.json'
+            private.write_text('private disposable input')
+            staging = module.PrivateStaging(private, {'token': 'our-run'})
+            initial, replacement = root / 'initial', root / 'replacement'
+            staging.install(initial)
+            shutil.copytree(initial, replacement)
+            staging.install(replacement)
+            self.assertIn(replacement, staging.directories)
+            self.assertEqual((replacement / module.CONFIGURATION).read_text(), private.read_text())
+            for name, changed in [(module.MARKER, '{"token":"other-run"}'),
+                                  (module.CONFIGURATION, 'changed private content')]:
+                clone = root / name
+                shutil.copytree(initial, clone)
+                (clone / name).write_text(changed)
+                with self.assertRaisesRegex(RuntimeError, 'pre-existing'):
+                    staging.install(clone)
+                self.assertNotIn(clone, staging.directories)
+                self.assertEqual((clone / name).read_text(), changed)
 
     def test_preexisting_configuration_is_never_overwritten_or_claimed(self):
         module = driver()

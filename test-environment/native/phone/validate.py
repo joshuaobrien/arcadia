@@ -53,6 +53,16 @@ class PrivateStaging:
                 raise RuntimeError('Private staging configuration changed')
             return
         if marker.exists() or destination.exists():
+            # XCTest can migrate the runner by copying this run's Documents.
+            # Adopt only an unchanged pair carrying our unique owner token.
+            try:
+                copied_owner = marker.exists() and json.loads(marker.read_text()) == self.owner
+            except (OSError, ValueError):
+                copied_owner = False
+            if (copied_owner and destination.is_file()
+                    and hashlib.sha256(destination.read_bytes()).hexdigest() == self.sha):
+                self.directories.add(documents)
+                return
             raise RuntimeError('Refusing to replace pre-existing phone acceptance staging')
         # Exclusive creation prevents claiming another driver's pre-existing input.
         with marker.open('x') as stream:
@@ -137,6 +147,11 @@ def coordinate_capture(args, root, staging, stopped, failures, started):
     import subprocess
     capture = root / 'audio'
     protocol = None
+    def checkpoint(stage, **fields):
+        record = {'stage': stage, 'timestamp': time.time(), **fields}
+        with (root / 'coordinator-events.jsonl').open('a') as stream:
+            stream.write(json.dumps(record) + '\n')
+    checkpoint('waiting-for-public-target')
     deadline = time.monotonic() + 300
     try:
         while time.monotonic() < deadline:
@@ -153,6 +168,7 @@ def coordinate_capture(args, root, staging, stopped, failures, started):
             if protocol is None and request.exists() and request.stat().st_mtime >= started:
                 rows = [row for row in output('ps', '-axo', 'pid,command').splitlines()
                         if '/' + args.device + '/' in row and '/Arcadia.app/Arcadia' in row]
+                checkpoint('public-target-observed', matching_app_processes=len(rows))
                 if len(rows) != 1:
                     raise RuntimeError('Expected exactly one actual app PID for the owned iPhone')
                 pid = int(rows[0].strip().split()[0])
@@ -165,6 +181,7 @@ def coordinate_capture(args, root, staging, stopped, failures, started):
                     time.sleep(0.2)
                 shutil.copyfile(capture / 'capture-ready', candidate / 'capture-ready')
                 protocol = candidate
+                checkpoint('capture-ready', app_pid=pid)
             if protocol is not None:
                 for name in ['phases.json', 'queue-before.json']:
                     path = protocol / name
@@ -172,10 +189,12 @@ def coordinate_capture(args, root, staging, stopped, failures, started):
                         shutil.copyfile(path, capture / name)
                 if (protocol / 'done').exists():
                     (capture / 'protocol-completed').touch()
+                    checkpoint('completed')
                     return
             time.sleep(0.2)
         raise TimeoutError('Public restoration journey did not complete')
     except Exception as error:
+        checkpoint('failed', error_type=type(error).__name__, message=str(error))
         failures.append(error)
     finally:
         if protocol is not None:
@@ -237,7 +256,9 @@ def main():
         raise RuntimeError('Use the accepted tap-only audio helper')
     (root / 'driver.json').write_text(json.dumps({
         'source_sha256': source_sha, 'driver_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-        'helper_sha256': helpers, 'requested_tests': [SELECTION]}, indent=2))
+        'helper_sha256': helpers, 'requested_tests': [SELECTION],
+        'verification_sha256': hashlib.sha256((repository / 'scripts/native_loop/verification.py').read_bytes()).hexdigest(),
+        'audio_verifier_sha256': hashlib.sha256((repository / 'test-environment/native/verify-audio.py').read_bytes()).hexdigest()}, indent=2))
     common = ['xcodebuild', '-project', str(repository / 'Arcadia/Arcadia.xcodeproj'), '-scheme', 'ArcadiaMobile',
               '-destination', 'platform=iOS Simulator,id=' + args.device, '-derivedDataPath', str(args.derived_data),
               '-skipMacroValidation', '-disableAutomaticPackageResolution', '-onlyUsePackageVersionsFromResolvedFile',
@@ -325,7 +346,13 @@ def main():
         export_results(repository, root, source_sha)
     except Exception as error:
         export_failure = error
-    for error in [test_failure, cleanup_failure, export_failure, *failures]:
+    (root / 'failures.json').write_text(json.dumps([
+        {'stage': name, 'error_type': type(error).__name__, 'message': str(error)}
+        for name, error in [('test', test_failure), ('cleanup', cleanup_failure), ('export', export_failure)]
+        if error is not None
+    ] + [{'stage': 'coordinator', 'error_type': type(error).__name__, 'message': str(error)}
+         for error in failures], indent=2))
+    for error in [*failures, test_failure, cleanup_failure, export_failure]:
         if error is not None:
             raise error
     if cleanup['refused_changed_configuration']:
