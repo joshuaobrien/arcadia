@@ -55,6 +55,17 @@ final class RestoringRealListeningTests: XCTestCase {
     app.buttons["player.expand"].tap()
     XCTAssertTrue(waitForState("Paused", app: app))
     XCTAssertTrue(waitForElapsed(seconds: (position - 1)...(position + 3), app: app))
+    let artwork = NSPredicate { _, _ in
+      let window = app.windows.firstMatch.frame
+      return app.images.matching(identifier: "artwork.loaded").allElementsBoundByIndex.contains { image in
+        let frame = image.frame
+        return image.isHittable && frame.width >= 200 && frame.height >= 200
+          && frame.intersection(window).width >= 200 && frame.intersection(window).height >= 200
+      }
+    }
+    XCTAssertEqual(
+      XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: artwork, object: app)], timeout: 10), .completed)
+    capture(app, "Real iPhone restored paused artwork - loaded in the current large Now Playing view")
     app.buttons["queue.toggle"].tap()
     XCTAssertEqual(queueIdentity(app), originalQueue)
     capture(app, "Real iPhone restored queue - same occurrence identities and order")

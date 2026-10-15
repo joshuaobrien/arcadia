@@ -2,7 +2,11 @@
 
 Run `validate.py restore` only **inside an owned, logged-in disposable macOS task VM** via Tart Guest Agent. It never starts, stops, or migrates VMs, opens a host viewer, grants permissions, or changes CI. This mode verifies real playing-restart restoration; it does not claim Lock Screen controls, hardware background audio, or native remote commands.
 
+Josh explicitly waived direct iOS native Now Playing card/system-command verification for this initial PR on 15 October 2026 ("just assume this works it's ok"). That portion is an accepted assumption, not a tested pass. Retained simulator reference recordings separately verify known actual output after personally reviewed rendered Lock Screens; they do not establish physical-device behavior or actual native remote-command routing. No hardware verification is claimed.
+
 Prepare an immutable native source archive using the existing native-loop snapshot whitelist, extract it at the repository root, and use the same archive for `--source-archive`. Keep warmed DerivedData private to this task. The archive's files are checked before build and after execution; its SHA and actual requested/executed test identifiers are retained. The archive must include the accepted `RestoringRealListeningTests.swift` and `verify-audio.py` must support the unchanged strict `iphone-restore` profile.
+
+Use [source-keyed helper builds](audio-helper.md) for a fresh guest/toolchain and pass `--audio-helper-manifest "$BUILT_MANIFEST"` with the returned binary. The validator recomputes committed source/plist/toolchain identity and verifies binary, bundle and signature; a manifest cannot supply commands. The historical exact binary remains a fast path without this optional argument.
 
 Supply the accepted tap-only capture helper (binary SHA256 `5aba931e1baf63f5cba3f96ee882a753391c1706cc6054a42090a9d5f55a255c`, source SHA256 `eae052df31d6ca3371e7f01a6a8a4eb21da15decc23abd0e6486e5e34bd1f331`). The microphone-concatenating experimental helper is not accepted. Capture runs with `--unmuted --paused-output`: a global guest output tap and actual zero-output engine clock survive termination of the old app process. The resumed known 680 Hz tone calibrates the same route; this global mix is not per-process attribution.
 

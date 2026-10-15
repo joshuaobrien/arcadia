@@ -238,6 +238,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('mode', choices=['restore'])
     parser.add_argument('--device', required=True)
+    parser.add_argument('--audio-helper-manifest', type=Path)
     for name in ['output', 'derived-data', 'source-archive', 'configuration', 'audio-helper',
                  'native-control', 'alerts-helper']:
         parser.add_argument('--' + name, required=True, type=Path)
@@ -252,11 +253,17 @@ def main():
     guard_source(repository, args.source_archive, root / 'source-before.json')
     helpers = {name: hashlib.sha256(getattr(args, name).read_bytes()).hexdigest()
                for name in ['audio_helper', 'native_control', 'alerts_helper']}
-    if helpers['audio_helper'] != '5aba931e1baf63f5cba3f96ee882a753391c1706cc6054a42090a9d5f55a255c':
-        raise RuntimeError('Use the accepted tap-only audio helper')
+    if args.audio_helper_manifest:
+        from audio_helper import validate_helper
+        helper_provenance = validate_helper(args.audio_helper, args.audio_helper_manifest)
+    else:
+        if helpers['audio_helper'] != '5aba931e1baf63f5cba3f96ee882a753391c1706cc6054a42090a9d5f55a255c':
+            raise RuntimeError('Use the accepted tap-only audio helper or its current source-keyed manifest')
+        helper_provenance = {'verified': True, 'validation': 'historical-accepted-binary',
+                             'binary_sha256': helpers['audio_helper']}
     (root / 'driver.json').write_text(json.dumps({
         'source_sha256': source_sha, 'driver_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-        'helper_sha256': helpers, 'requested_tests': [SELECTION],
+        'helper_sha256': helpers, 'helper_provenance': helper_provenance, 'requested_tests': [SELECTION],
         'verification_sha256': hashlib.sha256((repository / 'scripts/native_loop/verification.py').read_bytes()).hexdigest(),
         'audio_verifier_sha256': hashlib.sha256((repository / 'test-environment/native/verify-audio.py').read_bytes()).hexdigest()}, indent=2))
     common = ['xcodebuild', '-project', str(repository / 'Arcadia/Arcadia.xcodeproj'), '-scheme', 'ArcadiaMobile',
