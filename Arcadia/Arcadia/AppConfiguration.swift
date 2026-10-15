@@ -24,6 +24,7 @@ struct AppConfiguration {
     case failure
     case failureThenSuccess = "failure-then-success"
     case twoPage = "two-page"
+    case longAlbumMetadata = "long-album-metadata"
     case playbackFailure = "playback-failure"
     case delayedPlayback = "delayed-playback"
     case delayedLibrary = "delayed-library"

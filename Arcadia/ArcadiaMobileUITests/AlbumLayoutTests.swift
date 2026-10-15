@@ -35,6 +35,28 @@ final class AlbumLayoutTests: XCTestCase {
   }
 
   @MainActor
+  func testLongAlbumMetadataUsesReadablePhoneWidth() {
+    let app = XCUIApplication()
+    app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
+    app.launchEnvironment["ARCADIA_FIXTURE_SCENARIO"] = "long-album-metadata"
+    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
+    app.launch()
+    XCTAssertTrue(app.segmentedControls.buttons["Albums"].waitForExistence(timeout: 10))
+    app.segmentedControls.buttons["Albums"].tap()
+    let album = app.buttons["album.fixture-1"]
+    XCTAssertTrue(album.waitForExistence(timeout: 10))
+    album.tap()
+    let title = app.staticTexts["The Extraordinary Adventures of a Very Long Album Title"].firstMatch
+    let artist = app.staticTexts["The Northern Lights Orchestra with The Evening Choir"].firstMatch
+    XCTAssertTrue(title.waitForExistence(timeout: 10))
+    capture(app, "Long album title and artist credits - default phone text size")
+    XCTAssertGreaterThanOrEqual(title.frame.width, app.windows.firstMatch.frame.width * 0.8)
+    XCTAssertGreaterThanOrEqual(artist.frame.width, app.windows.firstMatch.frame.width * 0.8)
+    XCTAssertGreaterThan(title.frame.height, 60, "Long title wraps instead of fitting a narrow artwork-side column")
+    XCTAssertTrue(app.buttons["album.play"].isHittable)
+  }
+
+  @MainActor
   private func capture(_ app: XCUIApplication, _ name: String) {
     let attachment = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
     attachment.name = name
