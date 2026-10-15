@@ -88,6 +88,17 @@ final class MobileRealListeningTests: XCTestCase {
     app.buttons["player.expand"].tap()
     XCTAssertTrue(app.sliders["player.seek"].waitForExistence(timeout: 5))
     XCTAssertEqual(app.buttons.matching(identifier: "player.pause").count, 1)
+    let seeking = app.sliders["player.seek"]
+    let transport = app.buttons["player.pause"]
+    XCTAssertLessThan(app.staticTexts["player.title"].firstMatch.frame.maxY, seeking.frame.minY)
+    XCTAssertGreaterThan(transport.frame.minY, seeking.frame.maxY)
+    for identifier in ["player.previous", "player.pause", "player.next"] {
+      let button = app.buttons[identifier]
+      XCTAssertTrue(button.isHittable)
+      XCTAssertGreaterThanOrEqual(button.frame.width, 44)
+      XCTAssertGreaterThanOrEqual(button.frame.height, 44)
+    }
+    capture(app, "Real Jellyfin expanded player - metadata, seek and transport hierarchy")
     XCTAssertTrue(waitForState("Playing", app: app))
     try Data().write(to: audio.appendingPathComponent("target-request"))
     XCTAssertTrue(waitForFile(audio.appendingPathComponent("capture-ready"), timeout: 30))
