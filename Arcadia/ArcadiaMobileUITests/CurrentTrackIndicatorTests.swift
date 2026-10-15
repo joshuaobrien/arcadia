@@ -27,6 +27,78 @@ final class CurrentTrackIndicatorTests: XCTestCase {
   }
 
   @MainActor
+  func testPausedCurrentTrackRemainsMarkedAcrossAlbumArtistSearchAndPlaylist() {
+    let app = launchFixture()
+    XCTAssertTrue(app.buttons["track.fixture-1-track-1.play"].waitForExistence(timeout: 10))
+    app.buttons["track.fixture-1-track-1.play"].tap()
+    XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 10))
+    app.buttons["player.pause"].tap()
+    app.segmentedControls.buttons["Albums"].tap()
+    XCTAssertTrue(app.buttons["album.fixture-1"].waitForExistence(timeout: 10))
+    app.buttons["album.fixture-1"].tap()
+    assertPausedMarker(app)
+    capture(app, "Album tracks - shared paused current-track cue")
+    app.buttons["albums.back"].tap()
+    app.segmentedControls.buttons["Artists"].tap()
+    XCTAssertTrue(app.buttons["artist.fixture-artist-1"].waitForExistence(timeout: 10))
+    app.buttons["artist.fixture-artist-1"].tap()
+    assertPausedMarker(app)
+    app.tabBars.buttons["Search"].tap()
+    let query = app.textFields["search.query"]
+    XCTAssertTrue(query.waitForExistence(timeout: 5))
+    query.tap()
+    query.typeText("First\n")
+    assertPausedMarker(app)
+    app.tabBars.buttons["Playlists"].tap()
+    XCTAssertTrue(app.buttons["playlist.fixture-playlist-1"].waitForExistence(timeout: 10))
+    app.buttons["playlist.fixture-playlist-1"].tap()
+    assertPausedMarker(app)
+    capture(app, "Playlist - shared paused current-track cue")
+    XCTAssertTrue(app.buttons["player.resume"].exists)
+  }
+
+  @MainActor
+  func testQueueMarksOnlyActiveOccurrenceAmongIdenticalSongs() {
+    let app = launchFixture()
+    XCTAssertTrue(app.buttons["track.fixture-1-track-1.play"].waitForExistence(timeout: 10))
+    app.buttons["track.fixture-1-track-1.play"].tap()
+    XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 10))
+    app.buttons["player.pause"].tap()
+    for _ in 0..<2 {
+      app.buttons["track.fixture-1-track-1.actions"].tap()
+      app.buttons["Add to Queue"].tap()
+    }
+    app.buttons["player.expand"].tap()
+    app.buttons["queue.toggle"].tap()
+    let queue = app.scrollViews["queue.scroll"]
+    XCTAssertTrue(queue.waitForExistence(timeout: 5))
+    let markers = queue.descendants(matching: .any).matching(
+      NSPredicate(format: "identifier BEGINSWITH %@", "queue.playback."))
+    XCTAssertEqual(markers.count, 1)
+    let originalMarker = markers.firstMatch.identifier
+    XCTAssertTrue(waitForState("Paused", marker: markers.firstMatch))
+    let upcoming = queue.otherElements.matching(NSPredicate(format: "identifier BEGINSWITH %@", "queue.entry."))
+    XCTAssertEqual(upcoming.count, 2)
+    XCTAssertNotEqual(upcoming.element(boundBy: 0).identifier, upcoming.element(boundBy: 1).identifier)
+    capture(app, "Queue - one paused active occurrence and two identical upcoming songs")
+    let selectedID = upcoming.element(boundBy: 0).identifier.replacingOccurrences(of: "queue.entry.", with: "")
+    upcoming.element(boundBy: 0).buttons["queue.play"].tap()
+    let selected = queue.descendants(matching: .any).matching(identifier: "queue.playback.\(selectedID)").firstMatch
+    XCTAssertTrue(selected.waitForExistence(timeout: 10))
+    XCTAssertTrue(waitForState("Playing", marker: selected))
+    XCTAssertEqual(markers.count, 1)
+    XCTAssertFalse(queue.descendants(matching: .any).matching(identifier: originalMarker).firstMatch.exists)
+    capture(app, "Queue - selecting a duplicate moves the active-occurrence cue")
+  }
+
+  @MainActor
+  private func assertPausedMarker(_ app: XCUIApplication) {
+    let marker = app.descendants(matching: .any).matching(identifier: "track.fixture-1-track-1.playback").firstMatch
+    XCTAssertTrue(marker.waitForExistence(timeout: 10))
+    XCTAssertTrue(waitForState("Paused", marker: marker))
+  }
+
+  @MainActor
   private func waitForState(_ state: String, marker: XCUIElement) -> Bool {
     let predicate = NSPredicate(format: "value == %@", state)
     return XCTWaiter.wait(
