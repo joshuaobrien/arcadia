@@ -10,10 +10,11 @@
     private var interruption: UUID?
     private var configured = false
     private var active = false
+    private var servicesAvailable = true
     private var closed = false
 
     func activate() throws {
-      guard !closed else { throw CancellationError() }
+      guard !closed, servicesAvailable else { throw CancellationError() }
       if !configured {
         try session.setCategory(.playback, mode: .default)
         configured = true
@@ -27,6 +28,25 @@
     func observe(player: PlayerStore, flush: @escaping @MainActor () -> Void) {
       self.player = player
       observe(UIApplication.didEnterBackgroundNotification) { _ in flush() }
+      observe(AVAudioSession.mediaServicesWereLostNotification) { [weak self] _ in
+        guard let self, !closed else { return }
+        servicesAvailable = false
+        configured = false
+        active = false
+        beginInterruption()
+        finishInterruption(shouldResume: false)
+      }
+      observe(AVAudioSession.mediaServicesWereResetNotification) { [weak self] _ in
+        guard let self, !closed else { return }
+        // Apple requires reinitializing audio objects and configuration after a
+        // reset, with activation/playback deferred until a new user action.
+        servicesAvailable = true
+        configured = false
+        active = false
+        interruption = nil
+        self.player?.resetAudioServices()
+        AppDiagnostics.event("audio.services.reset")
+      }
       observe(AVAudioSession.routeChangeNotification) { [weak self] notification in
         guard let raw = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
           AVAudioSession.RouteChangeReason(rawValue: raw) == .oldDeviceUnavailable

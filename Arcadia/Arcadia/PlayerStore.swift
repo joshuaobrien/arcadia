@@ -13,6 +13,9 @@ final class PlayerStore {
   // selection counts even if its replacement confirmation is cancelled. Queue
   // edits and natural advancement do not change this intent revision.
   private(set) var playbackChoiceRevision = UUID()
+  // System lifecycle pauses invalidate older collection preparation without
+  // pretending the listener made a new explicit playback choice.
+  private(set) var audioLifecycleRevision = UUID()
   private(set) var queue: [QueueEntry] = []
   private(set) var state: State = .idle
   private(set) var errorText: String?
@@ -33,7 +36,7 @@ final class PlayerStore {
 
   @ObservationIgnored private let source: any MusicSource
   @ObservationIgnored private let activateAudio: @MainActor () throws -> Void
-  @ObservationIgnored private let player = AVPlayer()
+  @ObservationIgnored private var player = AVPlayer()
   @ObservationIgnored private var generation = UUID()
   @ObservationIgnored private var wantsPlayback = false
   @ObservationIgnored private var resolveTask: Task<Void, Never>?
@@ -61,7 +64,7 @@ final class PlayerStore {
       return
     }
     wantsPlayback = true
-    if state == .failed, restoration.position != nil {
+    if restoration.position != nil, state == .failed || player.currentItem == nil {
       resolveRestoredEntry(entry)
       return
     }
@@ -83,22 +86,18 @@ final class PlayerStore {
     pendingReplacement = nil
     if currentEntryID == id { resume() } else { start(entry) }
   }
-
   func togglePlayback() {
     if isPlaying || wantsPlayback { pause() } else { resume() }
   }
-
   func playNext() {
     guard canAdvance else { return }
     playbackChoiceRevision = UUID()
     advanceToNext()
   }
-
   private func advanceToNext() {
     guard let index = currentIndex, queue.indices.contains(index + 1) else { return }
     start(queue[index + 1])
   }
-
   func retry() {
     if let entry = currentEntry {
       if restoration.position != nil { resolveRestoredEntry(entry) } else { start(entry) }
@@ -106,9 +105,7 @@ final class PlayerStore {
   }
 
   func stop() {
-    invalidate()
-    player.pause()
-    player.replaceCurrentItem(with: nil)
+    clearTransport()
     restoration.cancel()
     queue = []
     pendingReplacement = nil
@@ -143,9 +140,7 @@ final class PlayerStore {
 
   private func start(_ entry: QueueEntry) {
     restoration.cancel()
-    invalidate()
-    player.pause()
-    player.replaceCurrentItem(with: nil)
+    clearTransport()
     currentEntryID = entry.id
     currentTime = 0
     let metadataDuration = entry.track.durationSeconds ?? 0
@@ -238,7 +233,7 @@ final class PlayerStore {
     AppDiagnostics.event("player.failed")
   }
 
-  private func invalidate() {
+  private func clearTransport() {
     generation = UUID()
     resolveTask?.cancel()
     durationTask?.cancel()
@@ -246,6 +241,8 @@ final class PlayerStore {
     durationTask = nil
     transportObservation?.cancel()
     transportObservation = nil
+    player.pause()
+    player.replaceCurrentItem(with: nil)
   }
 }
 
@@ -260,9 +257,7 @@ extension PlayerStore {
     }
     replaceAndPlay(tracks)
   }
-
   func cancelReplacement() { pendingReplacement = nil }
-
   func confirmReplacement() {
     guard let tracks = pendingReplacement else { return }
     pendingReplacement = nil
@@ -295,19 +290,16 @@ extension PlayerStore {
       message: tracks.count == 1
         ? "Added to queue: \(tracks[0].title ?? "Song")" : "Added \(tracks.count) songs to queue")
   }
-
   func undoAddition(_ feedbackID: UUID) {
     guard let feedback = queueFeedback, feedback.id == feedbackID else { return }
     let removable = Set(upcoming.map(\.id)).intersection(feedback.entryIDs)
     queue.removeAll { removable.contains($0.id) }
     self.feedback.clear()
   }
-
   func removeUpcoming(_ id: UUID) {
     guard upcoming.contains(where: { $0.id == id }) else { return }
     queue.removeAll { $0.id == id }
   }
-
   func moveUpcoming(_ id: UUID, by distance: Int) {
     guard let index = queue.firstIndex(where: { $0.id == id }),
       upcoming.contains(where: { $0.id == id })
@@ -331,9 +323,7 @@ extension PlayerStore {
   func restoreSession(_ data: Data, sourceBinding: UUID) throws {
     let snapshot = try JSONDecoder().decode(PlaybackSnapshot.self, from: data)
     try snapshot.validate(binding: sourceBinding)
-    invalidate()
-    player.pause()
-    player.replaceCurrentItem(with: nil)
+    clearTransport()
     pendingReplacement = nil
     feedback.clear()
     queue = snapshot.entries.map(\.queueEntry)
@@ -351,9 +341,7 @@ extension PlayerStore {
   }
 
   private func resolveRestoredEntry(_ entry: QueueEntry) {
-    invalidate()
-    player.pause()
-    player.replaceCurrentItem(with: nil)
+    clearTransport()
     restoration.prepareAgain()
     state = .loading
     errorText = nil
@@ -374,14 +362,28 @@ extension PlayerStore {
 extension PlayerStore {
   // Teardown releases AVFoundation resources without replacing the durable listening state with an empty queue.
   func releaseTransport() {
-    invalidate()
-    player.pause()
-    player.replaceCurrentItem(with: nil)
+    clearTransport()
     wantsPlayback = false
     if currentEntryID != nil { state = .paused }
   }
 
+  // Media-service resets orphan AVFoundation objects. Rebuild transport paused;
+  // source access, seeking and audio activation wait for deliberate Resume.
+  func resetAudioServices() {
+    audioLifecycleRevision = UUID()
+    let position = restoration.position ?? currentTime
+    clearTransport()
+    player = AVPlayer()
+    wantsPlayback = false
+    errorText = nil
+    restoration.cancel()
+    if currentEntry != nil { restoration.install(position: position) }
+    currentTime = position
+    state = currentEntry == nil ? .idle : .paused
+  }
+
   func beginAudioInterruption() -> UUID {
+    audioLifecycleRevision = UUID()
     let token = interruption.begin(
       entry: currentEntryID, generation: generation, choice: playbackChoiceRevision, requested: wantsPlayback)
     wantsPlayback = false

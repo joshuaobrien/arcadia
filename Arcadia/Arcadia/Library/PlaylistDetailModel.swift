@@ -23,6 +23,7 @@ final class PlaylistDetailModel {
     generation += 1
     let request = generation
     let choice = player.playbackChoiceRevision
+    let lifecycle = player.audioLifecycleRevision
     isPreparing = true
     playError = nil
     preparation = Task {
@@ -43,7 +44,9 @@ final class PlaylistDetailModel {
           cursor = page.nextCursor
           if let cursor, !visited.insert(cursor).inserted { throw MusicSourceError.invalidCursor }
         } while cursor != nil
-        guard !tracks.isEmpty, generation == request, player.playbackChoiceRevision == choice else { return }
+        guard !tracks.isEmpty, generation == request, player.playbackChoiceRevision == choice,
+          player.audioLifecycleRevision == lifecycle
+        else { return }
         // The central command evaluates queue safeguards against the current
         // session after every source page has loaded successfully.
         player.play(tracks)
