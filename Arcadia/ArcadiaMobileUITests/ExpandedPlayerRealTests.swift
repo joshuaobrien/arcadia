@@ -48,6 +48,15 @@ final class ExpandedPlayerRealTests: XCTestCase {
     if system.buttons["Not Now"].waitForExistence(timeout: 3) {
       system.buttons["Not Now"].tap()
     }
+    let savePassword = app.sheets["Save Password?"]
+    if savePassword.waitForExistence(timeout: 5) {
+      let notNow = savePassword.buttons["Not Now"]
+      XCTAssertTrue(notNow.isHittable)
+      notNow.tap()
+      let dismissed = XCTNSPredicateExpectation(
+        predicate: NSPredicate(format: "exists == false"), object: savePassword)
+      XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 5), .completed)
+    }
     app.tabBars.buttons["Search"].tap()
     let query = app.textFields["search.query"]
     XCTAssertTrue(query.waitForExistence(timeout: 5))
