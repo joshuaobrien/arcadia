@@ -8,6 +8,7 @@ from pathlib import Path
 import signal
 import subprocess
 import sys
+import time
 
 from native_preview.environment import (Unavailable, boot_ready, command, device_plan,
                                         simulator_inventory, toolchain)
@@ -50,6 +51,26 @@ def build(repository, cache, target, env):
         raise Unavailable('Build produced no app: ' + str(product))
     command('codesign', '--verify', '--deep', '--strict', product, env=env)
     return product
+
+
+def stop_mac_preview(product, env):
+    """Replace only this checkout's running review executable after rebuilding."""
+    executable = str(product / 'Contents/MacOS/Arcadia')
+    rows = command('ps', '-axo', 'pid=,comm=', env=env).splitlines()
+    for row in rows:
+        parts = row.strip().split(None, 1)
+        if len(parts) != 2 or parts[1] != executable:
+            continue
+        pid = int(parts[0])
+        try:
+            os.kill(pid, signal.SIGTERM)
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                os.kill(pid, 0)
+                time.sleep(0.1)
+            raise Unavailable('Previous Mac preview did not quit; close it and retry.')
+        except ProcessLookupError:
+            pass
 
 
 def launch_phone(plan, product, cache, env):
@@ -111,7 +132,8 @@ def main(argv=None):
                 raise Unavailable('Another preview build is running for this checkout.')
             (cache / 'environment.json').write_text(json.dumps(facts, indent=2) + '\n')
             mac = build(REPOSITORY, cache, 'mac', env)
-            command('open', '-a', mac, *[value for key, item in PREVIEW_ENV.items()
+            stop_mac_preview(mac, env)
+            command('open', '-n', '-a', mac, *[value for key, item in PREVIEW_ENV.items()
                                         for value in ['--env', key + '=' + item]], env=env)
             phone = build(REPOSITORY, cache, 'mobile', env)
             for plan in plans:

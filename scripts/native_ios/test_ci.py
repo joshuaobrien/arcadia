@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -10,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class CompilationLane(unittest.TestCase):
-    def run_lane(self, fail):
+    def run_lane(self, fail, stop_failure=False):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             provider = root / 'tart'
@@ -24,6 +25,8 @@ if args[0] == 'run':
     shared = next(arg for arg in args if arg.startswith('--dir=artifacts:'))
     (root / 'artifacts').write_text(shared.split(':', 1)[1])
     time.sleep(30)
+elif args[0] == 'stop' and os.environ['FAIL_STOP'] == '1':
+    sys.exit(9)
 elif args[0] == 'exec' and '--archive' in args:
     if os.environ['FAIL_GUEST'] == '1':
         sys.exit(7)
@@ -33,8 +36,8 @@ elif args[0] == 'exec' and '--archive' in args:
 ''')
             provider.chmod(0o755)
             env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ['PATH'],
-                       FAKE_ROOT=str(root), FAIL_GUEST=str(int(fail)))
-            result = subprocess.run([str(ROOT / 'scripts/ci-native-ios'), '--artifacts', str(root / 'evidence')],
+                       FAKE_ROOT=str(root), FAIL_GUEST=str(int(fail)), FAIL_STOP=str(int(stop_failure)))
+            result = subprocess.run([sys.executable, str(ROOT / 'scripts/ci-native-ios'), '--artifacts', str(root / 'evidence')],
                                     env=env, capture_output=True, text=True, timeout=40)
             report = json.loads((root / 'evidence/manifest.json').read_text())
             calls = [json.loads(line) for line in (root / 'calls').read_text().splitlines()]
@@ -49,6 +52,12 @@ elif args[0] == 'exec' and '--archive' in args:
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertTrue(report['passed'])
         self.assertEqual(len(report['source_sha256']), 64)
+
+    def test_stop_failure_still_attempts_delete_and_retains_error(self):
+        result, report = self.run_lane(False, stop_failure=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(report['cleanup_errors'])
+        self.assertFalse(report['passed'])
 
     def test_guest_failure_still_removes_owned_vm_and_retains_manifest(self):
         result, report = self.run_lane(True)

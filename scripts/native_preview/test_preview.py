@@ -4,7 +4,9 @@ import os
 from pathlib import Path
 import plistlib
 import subprocess
+import sys
 import tempfile
+import threading
 import unittest
 
 CLI = Path(__file__).resolve().parents[1] / 'native-preview'
@@ -21,6 +23,9 @@ if name == 'xcodebuild':
         cache = pathlib.Path(a[a.index('-derivedDataPath') + 1])
         mobile = 'generic/platform=iOS Simulator' in a
         (cache / 'Build/Products' / ('Debug-iphonesimulator' if mobile else 'Debug') / 'Arcadia.app').mkdir(parents=True)
+elif name == 'ps':
+    if os.environ.get('OLD_PID'):
+        print(os.environ['OLD_PID'] + ' ' + os.environ['OLD_EXECUTABLE'])
 elif name == 'xcrun':
     if '--show-sdk-version' in a:
         print(os.environ.get('SDK_VERSION', '27.1'))
@@ -43,7 +48,7 @@ class PreviewCLI(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.bin = self.root / 'bin'
         self.bin.mkdir()
-        for name in ['xcodebuild', 'xcrun', 'codesign', 'open']:
+        for name in ['xcodebuild', 'xcrun', 'codesign', 'open', 'ps']:
             script = self.bin / name
             script.write_text(FAKE_TOOL)
             script.chmod(0o755)
@@ -69,7 +74,7 @@ class PreviewCLI(unittest.TestCase):
         self.facts.write_text(json.dumps({'runtimes': [phone, fold] if duo else [phone], 'devices': devices}))
 
     def invoke(self, *args, **environment):
-        return subprocess.run([str(CLI), '--xcode', str(self.xcode), '--cache', str(self.cache), *args],
+        return subprocess.run([sys.executable, str(CLI), '--xcode', str(self.xcode), '--cache', str(self.cache), *args],
                               env=dict(self.env, **environment), capture_output=True, text=True,
                               cwd=self.root, timeout=30)
 
@@ -108,6 +113,18 @@ class PreviewCLI(unittest.TestCase):
         self.assertTrue(any(c['args'][:2] == ['simctl', 'bootstatus'] for c in calls))
         self.assertFalse(any(c['args'][:2] in [['simctl', 'install'], ['simctl', 'launch']] for c in calls))
 
+    def test_repeated_preview_replaces_owned_mac_process(self):
+        old = subprocess.Popen(['sleep', '30'])
+        waiter = threading.Thread(target=old.wait, daemon=True)
+        waiter.start()
+        self.addCleanup(lambda: old.kill() if old.poll() is None else None)
+        executable = self.cache / 'mac/Build/Products/Debug/Arcadia.app/Contents/MacOS/Arcadia'
+        result = self.invoke('--device', 'duo', OLD_PID=str(old.pid), OLD_EXECUTABLE=str(executable.resolve()))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        waiter.join(timeout=1)
+        self.assertEqual(old.returncode, -15)
+        self.assertTrue(any(c['tool'] == 'open' for c in self.recorded()))
+
     def test_success_uses_actual_checkout_and_real_jellyfin_on_owned_duo(self):
         result = self.invoke('--device', 'duo')
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -122,6 +139,7 @@ class PreviewCLI(unittest.TestCase):
         self.assertEqual(launch['mode'], 'jellyfin')
         mac = next(c for c in calls if c['tool'] == 'open' and 'ARCADIA_DATA_MODE=jellyfin' in c['args'])
         self.assertIn('Arcadia.app', ' '.join(mac['args']))
+        self.assertIn('-n', mac['args'])
 
 
 if __name__ == '__main__':

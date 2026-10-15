@@ -92,22 +92,33 @@ def main(argv=None):
         report['error'] = str(error)
         print('iOS CI failed: ' + str(error), flush=True)
     finally:
+        cleanup_errors = []
         if created:
             try:
-                subprocess.run(['tart', 'stop', vm], capture_output=True, timeout=30)
-                if process:
+                stopped = subprocess.run(['tart', 'stop', vm], capture_output=True, text=True, timeout=30)
+                if stopped.returncode:
+                    cleanup_errors.append('stop: ' + stopped.stderr)
+            except (OSError, subprocess.SubprocessError) as error:
+                cleanup_errors.append('stop: ' + str(error))
+            if process:
+                try:
+                    process.wait(timeout=15)
+                except subprocess.TimeoutExpired:
                     try:
-                        process.wait(timeout=15)
-                    except subprocess.TimeoutExpired:
                         process.kill()
                         process.wait(timeout=10)
+                    except (OSError, subprocess.SubprocessError) as error:
+                        cleanup_errors.append('runner: ' + str(error))
+            try:
                 removed = subprocess.run(['tart', 'delete', vm], capture_output=True, text=True, timeout=30)
                 report['vm_removed'] = removed.returncode == 0
                 if not report['vm_removed']:
-                    raise RuntimeError(removed.stderr)
-            except (OSError, RuntimeError, subprocess.SubprocessError) as error:
-                report['cleanup_error'] = str(error)
+                    cleanup_errors.append('delete: ' + removed.stderr)
+            except (OSError, subprocess.SubprocessError) as error:
+                cleanup_errors.append('delete: ' + str(error))
                 report['vm_removed'] = False
+            if cleanup_errors:
+                report['cleanup_errors'] = cleanup_errors
                 status = 1
         inputs_directory.cleanup()
         report['passed'] = status == 0
