@@ -2,9 +2,6 @@ import SwiftUI
 
 struct PlayerBar: View {
   @Environment(PlayerStore.self) private var playerStore
-  @State private var isScrubbing = false
-  @State private var scrubPosition = 0.0
-  @State private var resumedAfterScrubbing = false
 
   var body: some View {
     if let track = playerStore.currentTrack {
@@ -29,14 +26,8 @@ struct PlayerBar: View {
             .foregroundStyle(.secondary)
             .accessibilityIdentifier("player.state")
         }
-        if let error = playerStore.errorText {
-          HStack {
-            Text(error).accessibilityIdentifier("player.error")
-            Button("Retry") { playerStore.retry() }.accessibilityIdentifier("player.retry")
-          }
-          .font(.caption)
-        }
-        progress
+        PlaybackFailureView()
+        PlaybackProgressView()
       }
       .padding()
       .background(.bar)
@@ -44,8 +35,29 @@ struct PlayerBar: View {
       .accessibilityIdentifier("player.bar")
     }
   }
+}
 
-  private var progress: some View {
+struct PlaybackFailureView: View {
+  @Environment(PlayerStore.self) private var playerStore
+
+  var body: some View {
+    if let error = playerStore.errorText {
+      HStack {
+        Text(error).accessibilityIdentifier("player.error")
+        Button("Retry") { playerStore.retry() }.accessibilityIdentifier("player.retry")
+      }
+      .font(.caption)
+    }
+  }
+}
+
+struct PlaybackProgressView: View {
+  @Environment(PlayerStore.self) private var playerStore
+  @State private var isScrubbing = false
+  @State private var scrubPosition = 0.0
+  @State private var resumedAfterScrubbing = false
+
+  var body: some View {
     let displayed = isScrubbing ? scrubPosition : playerStore.currentTime
     return HStack(spacing: DesignTokens.Spacing.m) {
       Text(formatTime(displayed))
@@ -93,12 +105,13 @@ struct PlayerBar: View {
 
 struct PlaybackToggleButton: View {
   @Environment(PlayerStore.self) private var playerStore
+  var symbolSize: CGFloat = 20
   var body: some View {
     Button {
       playerStore.togglePlayback()
     } label: {
       Image(systemName: playerStore.isPlaybackRequested ? "pause.fill" : "play.fill")
-        .font(.system(size: 20))
+        .font(.system(size: symbolSize))
         .frame(minWidth: 44, minHeight: 44)
     }
     .buttonStyle(.borderless)
@@ -110,12 +123,13 @@ struct PlaybackToggleButton: View {
 
 struct NextSongButton: View {
   @Environment(PlayerStore.self) private var playerStore
+  var symbolSize: CGFloat = 20
   var body: some View {
     Button {
       playerStore.playNext()
     } label: {
       Image(systemName: "forward.end.fill")
-        .font(.system(size: 20))
+        .font(.system(size: symbolSize))
         .frame(minWidth: 44, minHeight: 44)
     }
     .buttonStyle(.borderless)
@@ -127,12 +141,13 @@ struct NextSongButton: View {
 
 struct PreviousSongButton: View {
   @Environment(PlayerStore.self) private var playerStore
+  var symbolSize: CGFloat = 20
   var body: some View {
     Button {
       playerStore.playPrevious()
     } label: {
       Image(systemName: "backward.end.fill")
-        .font(.system(size: 20))
+        .font(.system(size: symbolSize))
         .frame(minWidth: 44, minHeight: 44)
     }
     .buttonStyle(.borderless)
