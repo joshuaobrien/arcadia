@@ -66,7 +66,11 @@ final class RealAlbumLayoutTests: XCTestCase {
     XCTAssertTrue(app.windows.firstMatch.frame.contains(title.frame))
     XCTAssertTrue(app.windows.firstMatch.frame.contains(artist.frame))
     let play = app.buttons["album.play"]
-    XCTAssertTrue(play.isHittable && play.isEnabled)
+    XCTAssertEqual(
+      XCTWaiter.wait(
+        for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: play)], timeout: 15),
+      .completed)
+    XCTAssertTrue(play.isHittable)
     capture(app, "Real Jellyfin album detail - readable shared metadata and actions")
     play.tap()
     XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 15))
