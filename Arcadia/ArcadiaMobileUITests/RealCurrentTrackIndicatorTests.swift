@@ -49,6 +49,7 @@ final class RealCurrentTrackIndicatorTests: XCTestCase {
       system.buttons["Not Now"].tap()
     }
     let play = app.buttons["track.\(configuration.firstSongID).play"]
+    XCTAssertTrue(play.waitForExistence(timeout: 15))
     let songs = app.scrollViews["songs.scroll"]
     for _ in 0..<12 {
       if play.exists && play.isHittable { break }
