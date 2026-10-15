@@ -7,9 +7,12 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
-import tarfile
+import sys
 import time
 import uuid
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from source_archive import guard_source as verify_source_archive
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('mode', choices=['fixture', 'short', 'real'])
@@ -35,22 +38,7 @@ def output(*command):
     return subprocess.check_output(list(map(str, command)), text=True).strip()
 
 def guard_source(name):
-    mismatches = []
-    count = 0
-    with tarfile.open(args.source_archive) as archive:
-        for entry in archive:
-            if not entry.isfile():
-                continue
-            path = repository / entry.name
-            expected = hashlib.sha256(archive.extractfile(entry).read()).hexdigest()
-            actual = hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None
-            count += 1
-            if actual != expected:
-                mismatches.append(entry.name)
-    report = {'source_sha256': source_sha, 'checked_files': count, 'mismatches': mismatches, 'passed': not mismatches}
-    (root / name).write_text(json.dumps(report, indent=2))
-    if mismatches:
-        raise RuntimeError('Immutable source archive mismatch')
+    verify_source_archive(repository, args.source_archive, root / name)
 
 guard_source('source-before.json')
 inventory = json.loads(output('xcrun', 'simctl', 'list', 'devices', 'booted', '--json'))
