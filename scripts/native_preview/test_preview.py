@@ -50,7 +50,7 @@ class PreviewCLI(unittest.TestCase):
         self.bin.mkdir()
         for name in ['xcodebuild', 'xcrun', 'codesign', 'open', 'ps']:
             script = self.bin / name
-            script.write_text(FAKE_TOOL)
+            script.write_text(FAKE_TOOL.replace('#!/usr/bin/env python3', '#!' + sys.executable))
             script.chmod(0o755)
         self.xcode = self.root / 'Xcode.app'
         (self.xcode / 'Contents/Developer').mkdir(parents=True)
