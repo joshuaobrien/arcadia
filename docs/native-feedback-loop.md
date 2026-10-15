@@ -124,3 +124,42 @@ Progress output identifies source transfer, VM startup, dependency resolution/co
 Fresh task VMs can reuse a dependency seed stored at `~/.cache/arcadia-native-dependencies` on the VM host (`--dependency-cache` overrides it). The versioned key covers the pinned VM image/toolchain, `Package.resolved` and Xcode project settings. Seeds include package checkouts, dependency products/intermediates, module caches, explicit SDK modules, generated module maps and Xcode build metadata; they exclude Arcadia app/test products and intermediates, index/test logs and app runtime state. Stable paths and a stable development bundle identifier inside each isolated guest preserve dependency signatures. Changing a global bundle identifier per task also changes package build settings and can invalidate dependency reuse. Development identity remains distinct from production; task isolation comes from the fresh VM. Each guest restores a private copy, never writes directly to a shared cache, and rebuilds its own development app in isolated storage. Changed cache inputs clear guest DerivedData and select a new key. Publication is atomic and locked; a checksum mismatch falls back to a cold build. `start --no-dependency-cache` disables restoration and publication for that task. Release builds retain their separate configuration and do not seed this Debug cache. The dependency cache does not change the existing CI or Mint cache.
 
 Test, review and oracle operations first run cached lint against the exact source snapshot. The successful lint gate is reused only for the same snapshot, VM image and helper bundle. XCTest evidence records requested and executed identifiers; an exact selected method must pass, and missing or unexpected selections fail the operation. The default test command selects `ArcadiaTests` and `FeedbackLoopTests`; it does not claim coverage of every UI test class. Add relevant classes with repeated `--only-testing` arguments.
+
+
+## Local interactive previews
+
+Automated development and verification continue to use the background task VM. For a requested hands-on review, the maintained local launcher builds and opens the Mac app and a dedicated iPhone simulator:
+
+```sh
+./scripts/native-preview                         # Mac + regular iPhone
+./scripts/native-preview --device duo            # Mac + iPhone Duo
+./scripts/native-preview --device both           # Mac + both phones
+./scripts/native-preview --device both --check   # read-only capability check
+./scripts/native-preview --device duo --check --json
+```
+
+Run it from any working directory using the path to this checkout's script. It always builds that checkout. It selects the highest installed Xcode in `/Applications`, respecting `DEVELOPER_DIR` or an explicit `--xcode /Applications/Xcode_27.1.app`. It never changes `xcode-select`, downloads runtimes, accepts licenses or erases devices. Finish Xcode's first-launch setup before running it.
+
+All mobile builds need an iOS Simulator SDK of at least 27.1 because the shared UI references those APIs at compile time. A regular iPhone needs an available iOS 26 or later runtime; Duo needs an available 27.1 or later runtime that supports the Duo device type. Install runtimes through the selected Xcode. The preflight checks actual SDK and runtime capabilities before building, with an actionable error for a missing capability.
+
+Previews explicitly use direct Jellyfin mode, never the fixture default or the Arcadia backend. Connect through the app's source screen. The review bundle identifiers and credential namespace are separate from production. Existing `Arcadia PR12 iPhone` and `Arcadia PR12 Duo` devices and the previous review session are reused; otherwise the launcher creates its own `Arcadia Preview` devices. It does not modify unrelated simulators. A failed migration reported by `simctl bootstatus` stops launch even if that tool exits successfully.
+
+DerivedData, build logs, phase timings, simulator boot logs and `environment.json` persist under `~/Library/Caches/Arcadia/native-preview/<checkout-id>/`; `--cache PATH` overrides that location. Repeated runs reuse the cache. Compilation prints progress every 15 seconds. Concurrent launches from one checkout are rejected; Ctrl-C stops the owned build process. The selected viewer opens only for this explicit interactive command.
+
+## Additive iOS compilation CI
+
+`.gitea/workflows/native-ios.yml` adds an independent check without changing the existing macOS workflow or `scripts/ci-native.sh`. It compiles the `ArcadiaMobile` app **and its UI-test bundle** with `build-for-testing`, using the resolved package versions. This catches mobile-only SDK and test compilation failures. It does not execute UI tests or establish behavioral coverage; retain the existing iPhone/Duo behavioral verification for that purpose.
+
+The macOS runner must have Tart and the prepared local template `arcadia-mobile-xcode-27-1-27a9275`, with Xcode 27.1 and a working Tart Guest Agent. `NATIVE_IOS_TEMPLATE` can select a replacement template; the guest still verifies its actual SDK and records the selected toolchain. Each run clones a uniquely named disposable VM, uses no graphics/audio/clipboard, shares an allowlisted source snapshot read-only, checks source integrity before and after compilation, and removes its own VM on completion or cancellation. It never changes the template or existing macOS CI cache.
+
+To reproduce on that runner:
+
+```sh
+./scripts/ci-native-ios --artifacts "$PWD/artifacts/native-ios"
+```
+
+The workflow uploads the build log, phase timings, toolchain facts, source-integrity reports, compile verdict and VM-cleanup manifest even on failure. The verdict explicitly distinguishes compilation from behavioral execution. CLI regression checks run without Xcode or a VM:
+
+```sh
+python3 -m unittest discover -s scripts/native_preview -p 'test_*.py' -v
+```
