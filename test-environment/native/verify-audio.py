@@ -8,13 +8,14 @@ from pathlib import Path
 
 parser = argparse.ArgumentParser()
 parser.add_argument('directory', type=Path)
-parser.add_argument('--profile', choices=['iphone-restore', 'transport', 'browsing', 'playlist', 'restart-before', 'restart-after', 'restart-paused-output'], default='transport')
+parser.add_argument('--profile', choices=['iphone-background', 'iphone-restore', 'transport', 'browsing', 'playlist', 'restart-before', 'restart-after', 'restart-paused-output'], default='transport')
 args = parser.parse_args()
 root = args.directory
 chunks = json.loads((root / 'chunks.json').read_text())
 phases = json.loads((root / 'phases.json').read_text())
 raw = (root / 'captured-float32.raw').read_bytes()
 expected = {
+    'iphone-background': {'foreground': 600, 'background': 600, 'locked': 600},
     'iphone-restore': {'before-restart': 680, 'restored-paused': None, 'restored-resumed': 680},
     'playlist': {'search-song': 520, 'paused': None, 'playlist-first': 600, 'playlist-second': 520, 'duplicate-natural': 600},
     'browsing': {'standalone': 520, 'artist-navigation': 520, 'artist-song': 600},

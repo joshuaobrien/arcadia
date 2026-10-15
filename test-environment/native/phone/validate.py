@@ -33,6 +33,15 @@ CONFIGURATION = 'arcadia-jellyfin-fixture.json'
 MARKER = 'arcadia-phone-validation.json'
 SELECTION = ('ArcadiaMobileUITests/RestoringRealListeningTests/'
              'testRealJellyfinRestoresTheSameQueueAndPositionPausedAfterRestart')
+MODES = {
+    'restore': (SELECTION, 'mobile-restore-58', 'iphone-restore', ['--unmuted', '--paused-output']),
+    'background': ('ArcadiaMobileUITests/RestoringRealListeningTests/'
+                   'testRealJellyfinContinuesAcrossHomeAndRenderedLock',
+                   'mobile-background-60', 'iphone-background', ['--unmuted']),
+    'real': ('ArcadiaMobileUITests/MobileRealListeningTests/'
+             'testRealJellyfinConnectionSearchPlaybackAndQueueEditing',
+             'mobile-audio-57', 'transport', ['--unmuted']),
+}
 RUNNER = 'tokyo.drift.ArcadiaMobileUITests.xctrunner'
 
 
@@ -163,7 +172,7 @@ def coordinate_capture(args, root, staging, stopped, failures, started):
                 time.sleep(0.2)
                 continue
             staging.install(documents)
-            candidate = documents / 'mobile-restore-58'
+            candidate = documents / MODES[args.mode][1]
             request = candidate / 'target-request'
             if protocol is None and request.exists() and request.stat().st_mtime >= started:
                 rows = [row for row in output('ps', '-axo', 'pid,command').splitlines()
@@ -182,6 +191,44 @@ def coordinate_capture(args, root, staging, stopped, failures, started):
                 shutil.copyfile(capture / 'capture-ready', candidate / 'capture-ready')
                 protocol = candidate
                 checkpoint('capture-ready', app_pid=pid)
+            if (protocol is not None and args.mode == 'background'
+                    and (protocol / 'native-lock-request').exists()
+                    and not (protocol / 'native-lock-reviewed').exists()):
+                device = json.loads((root / 'device.json').read_text())
+                with (root / 'native-lock-action.jsonl').open('w') as log:
+                    run(args.native_control, args.device, device['name'], 'lock', stdout=log, timeout=30)
+                # AX success is not rendered state. Save a settled full-device frame for explicit review.
+                time.sleep(2)
+                image = root / 'native-lock-settled.png'
+                run('xcrun', 'simctl', 'io', args.device, 'screenshot', image, timeout=30)
+                review = {'device': args.device, 'image_sha256': hashlib.sha256(image.read_bytes()).hexdigest(),
+                          'owner': staging.owner, 'required_observation': 'Rendered native lock screen, not the app or Home'}
+                (root / 'rendered-lock-review-required.json').write_text(json.dumps(review, indent=2))
+                checkpoint('waiting-for-rendered-lock-review', image_sha256=review['image_sha256'])
+                review_deadline = time.monotonic() + 75
+                acknowledgement = root / 'rendered-lock-reviewed.json'
+                retry = root / 'rendered-lock-rejected.json'
+                retried = False
+                while not acknowledgement.exists():
+                    if stopped.is_set() or time.monotonic() > review_deadline:
+                        raise RuntimeError('Rendered native lock review was not acknowledged')
+                    if retry.exists() and not retried:
+                        if json.loads(retry.read_text()) != review:
+                            raise RuntimeError('Rejected lock frame does not match this run and image')
+                        shutil.copyfile(image, root / 'native-lock-rejected.png')
+                        with (root / 'native-lock-retry-action.jsonl').open('w') as log:
+                            run(args.native_control, args.device, device['name'], 'lock', stdout=log, timeout=30)
+                        time.sleep(3)
+                        run('xcrun', 'simctl', 'io', args.device, 'screenshot', image, timeout=30)
+                        review['image_sha256'] = hashlib.sha256(image.read_bytes()).hexdigest()
+                        (root / 'rendered-lock-review-required.json').write_text(json.dumps(review, indent=2))
+                        checkpoint('waiting-for-retried-lock-review', image_sha256=review['image_sha256'])
+                        retried = True
+                    time.sleep(0.2)
+                if json.loads(acknowledgement.read_text()) != review:
+                    raise RuntimeError('Rendered native lock review does not match this run and image')
+                (protocol / 'native-lock-reviewed').touch()
+                checkpoint('rendered-lock-reviewed', image_sha256=review['image_sha256'])
             if protocol is not None:
                 for name in ['phases.json', 'queue-before.json']:
                     path = protocol / name
@@ -206,12 +253,12 @@ def coordinate_capture(args, root, staging, stopped, failures, started):
         (capture / 'done').touch()
 
 
-def export_results(repository, root, source_sha):
+def export_results(repository, root, source_sha, selection):
     import os
     result = root / 'results.xcresult'
     if not result.exists():
         (root / 'verification.json').write_text(json.dumps({
-            'verified': False, 'source_sha256': source_sha, 'requested_tests': [SELECTION],
+            'verified': False, 'source_sha256': source_sha, 'requested_tests': [selection],
             'error': 'No XCTest result bundle'}))
         raise RuntimeError('No XCTest result bundle')
     for operation in ['summary', 'tests']:
@@ -221,7 +268,7 @@ def export_results(repository, root, source_sha):
     run('xcrun', 'xcresulttool', 'export', 'attachments', '--path', result,
         '--output-path', root / 'attachments')
     run('python3', repository / 'scripts/native_loop/verification.py', root / 'tests.json',
-        root / 'verification.json', SELECTION, env=dict(os.environ, ARCADIA_SOURCE_SHA256=source_sha))
+        root / 'verification.json', selection, env=dict(os.environ, ARCADIA_SOURCE_SHA256=source_sha))
     summary = json.loads((root / 'summary.json').read_text())
     if summary.get('passedTests') != 1 or summary.get('failedTests', 0) or summary.get('skippedTests', 0):
         raise RuntimeError('Exact restoration method must pass once with zero skips')
@@ -236,13 +283,14 @@ def main():
     import time
     import uuid
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('mode', choices=['restore'])
+    parser.add_argument('mode', choices=list(MODES))
     parser.add_argument('--device', required=True)
     parser.add_argument('--audio-helper-manifest', type=Path)
     for name in ['output', 'derived-data', 'source-archive', 'configuration', 'audio-helper',
                  'native-control', 'alerts-helper']:
         parser.add_argument('--' + name, required=True, type=Path)
     args = parser.parse_args()
+    selection, _, profile, capture_flags = MODES[args.mode]
     for name in ['output', 'derived_data', 'source_archive', 'configuration', 'audio_helper',
                  'native_control', 'alerts_helper']:
         setattr(args, name, getattr(args, name).resolve())
@@ -263,13 +311,13 @@ def main():
                              'binary_sha256': helpers['audio_helper']}
     (root / 'driver.json').write_text(json.dumps({
         'source_sha256': source_sha, 'driver_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-        'helper_sha256': helpers, 'helper_provenance': helper_provenance, 'requested_tests': [SELECTION],
+        'helper_sha256': helpers, 'helper_provenance': helper_provenance, 'requested_tests': [selection],
         'verification_sha256': hashlib.sha256((repository / 'scripts/native_loop/verification.py').read_bytes()).hexdigest(),
         'audio_verifier_sha256': hashlib.sha256((repository / 'test-environment/native/verify-audio.py').read_bytes()).hexdigest()}, indent=2))
     common = ['xcodebuild', '-project', str(repository / 'Arcadia/Arcadia.xcodeproj'), '-scheme', 'ArcadiaMobile',
               '-destination', 'platform=iOS Simulator,id=' + args.device, '-derivedDataPath', str(args.derived_data),
               '-skipMacroValidation', '-disableAutomaticPackageResolution', '-onlyUsePackageVersionsFromResolvedFile',
-              '-collect-test-diagnostics', 'never', '-parallel-testing-enabled', 'NO', '-only-testing:' + SELECTION]
+              '-collect-test-diagnostics', 'never', '-parallel-testing-enabled', 'NO', '-only-testing:' + selection]
     # Build/install and all native preflight work precede the capture arming deadline.
     with (root / 'build.log').open('w') as log:
         run(*common, 'build-for-testing', stdout=log, stderr=subprocess.STDOUT)
@@ -284,7 +332,7 @@ def main():
                  and row.strip().split(None, 1)[1].startswith(str(args.audio_helper.resolve()) + ' ')]
     if producers:
         raise RuntimeError('An audio capture helper is already running')
-    owner = {'controller': 'phone-restore', 'token': str(uuid.uuid4()),
+    owner = {'controller': 'phone-' + args.mode, 'token': str(uuid.uuid4()),
              'source_sha256': source_sha, 'output': str(root)}
     staging = PrivateStaging(args.configuration, owner)
     documents = runner_documents(args.device)
@@ -301,7 +349,7 @@ def main():
         (root / 'staging.json').write_text(json.dumps({'initial_documents': str(documents), 'owner': owner}, indent=2))
         started = time.time()
         log = (capture / 'capture.log').open('w')
-        child = subprocess.Popen([str(args.audio_helper), str(capture), '--unmuted', '--paused-output'],
+        child = subprocess.Popen([str(args.audio_helper), str(capture), *capture_flags],
                                  stdout=log, stderr=subprocess.STDOUT)
         children.append((child, log))
         armed_deadline = time.monotonic() + 15
@@ -350,7 +398,7 @@ def main():
     # Always export raw XCTest failure evidence before evaluating the final gates.
     export_failure = None
     try:
-        export_results(repository, root, source_sha)
+        export_results(repository, root, source_sha, selection)
     except Exception as error:
         export_failure = error
     (root / 'failures.json').write_text(json.dumps([
@@ -368,8 +416,8 @@ def main():
         raise RuntimeError('An owned capture child failed')
     if not (capture / 'protocol-completed').exists():
         raise RuntimeError('Missing complete public restoration IPC')
-    run('python3', repository / 'test-environment/native/verify-audio.py', capture, '--profile', 'iphone-restore')
-    print('PASS: exact canonical ' + SELECTION + '; source ' + source_sha)
+    run('python3', repository / 'test-environment/native/verify-audio.py', capture, '--profile', profile)
+    print('PASS: exact canonical ' + selection + '; source ' + source_sha)
 
 
 if __name__ == '__main__':

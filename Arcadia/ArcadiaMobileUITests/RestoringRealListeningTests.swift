@@ -83,7 +83,65 @@ final class RestoringRealListeningTests: XCTestCase {
   }
 
   @MainActor
+  func testRealJellyfinContinuesAcrossHomeAndRenderedLock() throws {
+    let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    let fixture = documents.appendingPathComponent("arcadia-jellyfin-fixture.json")
+    try XCTSkipUnless(waitForFile(fixture, timeout: 15), "Requires the explicit real-source background driver.")
+    let configuration = try JSONDecoder().decode(BackgroundConfiguration.self, from: Data(contentsOf: fixture))
+    XCTAssertEqual(configuration.duration_seconds, 300)
+    XCTAssertEqual(configuration.expected_hz, 600)
+    let directory = "mobile-background-60"
+    let audio = documents.appendingPathComponent(directory)
+    if FileManager.default.fileExists(atPath: audio.path) { try FileManager.default.removeItem(at: audio) }
+    try FileManager.default.createDirectory(at: audio, withIntermediateDirectories: true)
+    let app = connect(server: configuration.server, username: configuration.username, password: configuration.password)
+    trackControl(configuration.secondSongID, action: "play", app: app).tap()
+    XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 15))
+    app.buttons["player.expand"].tap()
+    XCTAssertTrue(waitForState("Playing", app: app))
+    XCTAssertEqual(app.staticTexts["player.title"].firstMatch.label, "Persistent State")
+    app.buttons["queue.toggle"].tap()
+    let originalQueue = queueIdentity(app)
+    XCTAssertEqual(originalQueue.count, 1)
+    try JSONSerialization.data(withJSONObject: originalQueue).write(
+      to: audio.appendingPathComponent("queue-before.json"))
+    app.navigationBars.buttons["Now Playing"].tap()
+    let position = elapsedSeconds(app)
+    try Data().write(to: audio.appendingPathComponent("target-request"))
+    XCTAssertTrue(waitForFile(audio.appendingPathComponent("capture-ready"), timeout: 30))
+    var phases: [[String: Any]] = []
+    phase("foreground", phases: &phases, directory: directory)
+    XCUIDevice.shared.press(.home)
+    let background = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "state == %d", XCUIApplication.State.runningBackground.rawValue), object: app)
+    XCTAssertEqual(XCTWaiter.wait(for: [background], timeout: 5), .completed)
+    phase("background", phases: &phases, directory: directory)
+    try Data().write(to: audio.appendingPathComponent("native-lock-request"))
+    // The driver requires a separately reviewed, rendered native lock frame before acknowledging.
+    XCTAssertTrue(waitForFile(audio.appendingPathComponent("native-lock-reviewed"), timeout: 90))
+    phase("locked", phases: &phases, directory: directory)
+    try Data().write(to: audio.appendingPathComponent("done"))
+    app.activate()
+    XCTAssertTrue(waitForState("Playing", app: app))
+    XCTAssertEqual(app.staticTexts["player.title"].firstMatch.label, "Persistent State")
+    XCTAssertGreaterThan(elapsedSeconds(app), position)
+    app.buttons["queue.toggle"].tap()
+    XCTAssertEqual(queueIdentity(app), originalQueue)
+    capture(app, "Real Jellyfin foreground background and rendered-lock continuity - same queue")
+    app.navigationBars.buttons["Now Playing"].tap()
+    app.buttons["player.pause"].tap()
+    app.buttons["player.dismiss"].tap()
+    app.buttons["source.disconnect"].tap()
+    XCTAssertTrue(app.textFields["source.server"].waitForExistence(timeout: 10))
+  }
+
+  @MainActor
   private func connect(_ configuration: Configuration) -> XCUIApplication {
+    connect(server: configuration.server, username: configuration.username, password: configuration.password)
+  }
+
+  @MainActor
+  private func connect(server: String, username: String, password: String) -> XCUIApplication {
     addUIInterruptionMonitor(withDescription: "Native Passwords save prompt") { prompt in
       if prompt.buttons["Not Now"].exists {
         prompt.buttons["Not Now"].tap()
@@ -98,10 +156,10 @@ final class RestoringRealListeningTests: XCTestCase {
     app.launch()
     XCTAssertTrue(app.textFields["source.server"].waitForExistence(timeout: 10))
     app.textFields["source.server"].tap()
-    app.textFields["source.server"].typeText(configuration.server)
+    app.textFields["source.server"].typeText(server)
     app.textFields["source.username"].tap()
-    app.textFields["source.username"].typeText(configuration.username)
-    UIPasteboard.general.string = configuration.password
+    app.textFields["source.username"].typeText(username)
+    UIPasteboard.general.string = password
     let password = app.secureTextFields["source.password"]
     password.tap()
     password.press(forDuration: 1.2)
@@ -272,6 +330,15 @@ final class RestoringRealListeningTests: XCTestCase {
     attachment.name = name
     attachment.lifetime = .keepAlways
     add(attachment)
+  }
+
+  private struct BackgroundConfiguration: Decodable {
+    let server: String
+    let username: String
+    let password: String
+    let secondSongID: String
+    let duration_seconds: Int
+    let expected_hz: Int
   }
 
   private struct Configuration: Decodable {

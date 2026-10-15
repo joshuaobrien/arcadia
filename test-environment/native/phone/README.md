@@ -35,3 +35,32 @@ Host-safe filesystem guard tests do not build or launch apps:
 ```sh
 python3 -m unittest discover -s test-environment/native/phone -p 'test_*.py'
 ```
+
+## Final real-source acceptance modes
+
+The same explicit driver supports `real`: it selects only
+`MobileRealListeningTests/testRealJellyfinConnectionSearchPlaybackAndQueueEditing`, follows
+`mobile-audio-57`, and requires the five `transport` PCM phases. Supply the rich fixture
+configuration. This mode uses the actual app process tap (`--unmuted`), without the
+restoration mode's global output clock.
+
+`background` selects only
+`RestoringRealListeningTests/testRealJellyfinContinuesAcrossHomeAndRenderedLock` and follows
+`mobile-background-60`. Supply the separate 300-second, 600 Hz single-song fixture:
+`server`, `username`, `password`, `secondSongID`, `duration_seconds: 300`, and
+`expected_hz: 600`. It does not require a first song. The exact same queue occurrence
+and advancing position must survive Home and a rendered native lock without a Resume action.
+Actual process-attributed PCM must independently match 600 Hz in all three phases.
+
+For the locked phase, native AX action success is insufficient. The controller writes
+`native-lock-settled.png` and `rendered-lock-review-required.json`, then waits up to
+75 seconds. Inspect that exact full-device image to confirm the rendered native lock
+screen, then copy the required JSON unchanged to `rendered-lock-reviewed.json` in the
+same owned output directory. Its image SHA, device and unique run owner must match.
+If the first frame shows Home/app, copy that required JSON to
+`rendered-lock-rejected.json` instead. The controller preserves the rejected frame and
+allows exactly one native Lock retry with a new image SHA to review. A second rejection
+fails; the original timeout remains bounded. Never acknowledge an app/Home frame, and do not activate/query the app before the locked
+capture completes. This explicit visual checkpoint verifies rendered state; it does not
+claim that native Now Playing cards or system commands were tested. Those retain the
+user-approved initial-PR exception above.
