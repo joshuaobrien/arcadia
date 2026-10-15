@@ -76,6 +76,13 @@ final class ExpandedPlayerRealTests: XCTestCase {
       XCTAssertGreaterThanOrEqual(button.frame.width, 44)
       XCTAssertGreaterThanOrEqual(button.frame.height, 44)
     }
+    resume.tap()
+    let playing = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "label == %@", "Playing"),
+      object: app.staticTexts["player.state"])
+    XCTAssertEqual(XCTWaiter.wait(for: [playing], timeout: 15), .completed)
+    app.buttons["player.pause"].tap()
+    XCTAssertTrue(resume.waitForExistence(timeout: 5))
     seek.adjust(toNormalizedSliderPosition: 0.5)
     XCTAssertTrue(resume.exists, "Seeking must preserve paused intent")
     XCTAssertEqual(app.staticTexts["player.title"].firstMatch.label, title)
