@@ -5,34 +5,24 @@ struct CurrentPlaybackIndicator: View {
   let identifier: String
 
   var body: some View {
-    Label(title, systemImage: symbol)
+    let presentation = statusPresentation
+    return Label(presentation.title, systemImage: presentation.symbol)
       .font(.caption.weight(.medium))
       .foregroundStyle(.secondary)
       .accessibilityElement(children: .ignore)
       .accessibilityLabel("Current track")
-      .accessibilityValue(title)
+      .accessibilityValue(presentation.title)
       .accessibilityIdentifier(identifier)
   }
 
-  private var title: String {
+  private var statusPresentation: (title: String, symbol: String) {
     switch state {
-    case .playing: "Playing"
-    case .paused: "Paused"
-    case .loading: "Loading"
-    case .failed: "Playback failed"
-    case .ended: "Finished"
-    case .idle: "Selected"
-    }
-  }
-
-  private var symbol: String {
-    switch state {
-    case .playing: "waveform"
-    case .paused: "pause.fill"
-    case .loading: "hourglass"
-    case .failed: "exclamationmark.triangle"
-    case .ended: "checkmark.circle"
-    case .idle: "circle.inset.filled"
+    case .playing: ("Playing", "waveform")
+    case .paused: ("Paused", "pause.fill")
+    case .loading: ("Loading", "hourglass")
+    case .failed: ("Playback failed", "exclamationmark.triangle")
+    case .ended: ("Finished", "checkmark.circle")
+    case .idle: ("Selected", "circle.inset.filled")
     }
   }
 }
