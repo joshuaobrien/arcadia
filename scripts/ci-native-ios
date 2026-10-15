@@ -1,0 +1,9 @@
+#!/usr/bin/env python3
+"""Compile the iOS app and UI-test bundle in a disposable background VM."""
+from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from native_ios.ci import main
+
+raise SystemExit(main())

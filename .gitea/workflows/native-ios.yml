@@ -1,0 +1,32 @@
+name: Native iOS
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: native-ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compile:
+    name: Compile iOS app and UI-test bundle (Xcode27.1)
+    runs-on: macos
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Check preview command behavior
+        run: |
+          python3 -m unittest discover -s scripts/native_preview -p 'test_*.py'
+          python3 -m unittest discover -s scripts/native_ios -p 'test_*.py'
+      - name: Compile in an ephemeral background VM
+        run: ./scripts/ci-native-ios --artifacts "$PWD/artifacts/native-ios"
+      - name: Upload compile evidence (not behavioral UI results)
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: native-ios-${{ github.sha }}
+          path: artifacts/native-ios/
+          retention-days: 14
