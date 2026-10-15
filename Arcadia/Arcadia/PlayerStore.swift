@@ -94,6 +94,12 @@ final class PlayerStore {
     playbackChoiceRevision = UUID()
     advanceToNext()
   }
+  func playPrevious() {
+    guard let index = currentIndex else { return }
+    playbackChoiceRevision = UUID()
+    let destination = currentTime >= 3 ? index : max(0, index - 1)
+    start(queue[destination], requestingPlayback: wantsPlayback)
+  }
   private func advanceToNext() {
     guard let index = currentIndex, queue.indices.contains(index + 1) else { return }
     start(queue[index + 1])
@@ -138,15 +144,15 @@ final class PlayerStore {
     }
   }
 
-  private func start(_ entry: QueueEntry) {
+  private func start(_ entry: QueueEntry, requestingPlayback: Bool = true) {
     restoration.cancel()
     clearTransport()
     currentEntryID = entry.id
     currentTime = 0
     let metadataDuration = entry.track.durationSeconds ?? 0
     duration = metadataDuration.isFinite && metadataDuration > 0 ? metadataDuration : 0
-    wantsPlayback = true
-    state = .loading
+    wantsPlayback = requestingPlayback
+    state = requestingPlayback ? .loading : .paused
     errorText = nil
     resolve(entry)
   }
