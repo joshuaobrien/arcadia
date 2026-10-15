@@ -10,6 +10,7 @@ struct CurrentPlaybackIndicator: View {
       .font(.caption.weight(.medium))
       .foregroundStyle(.secondary)
       .accessibilityElement(children: .ignore)
+      .accessibilityAddTraits(.isStaticText)
       .accessibilityLabel("Current track")
       .accessibilityValue(presentation.title)
       .accessibilityIdentifier(identifier)
