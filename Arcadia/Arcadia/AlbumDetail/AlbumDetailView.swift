@@ -26,41 +26,54 @@ struct AlbumMetadataView: View {
   let year: String
   let trackCount: String
 
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
   var body: some View {
-    HStack(alignment: .bottom, spacing: DesignTokens.Spacing.l) {
-      AlbumArtwork(
-        artworkURL: artworkURL
-      )
-      .frame(width: 220, height: 220)
-      .clipShape(RoundedRectangle(cornerRadius: DesignTokens.Spacing.m))
-      .shadow(
-        color: .black.opacity(0.2),
-        radius: DesignTokens.Radius.l,
-        y: 5
-      )
-
-      VStack(alignment: .leading, spacing: DesignTokens.Spacing.s) {
-        Text("ALBUM")
-          .font(.caption.monospaced())
-          .foregroundStyle(.secondary)
-        Text(title)
-          .font(.largeTitle)
-          .fontWeight(.bold)
-
-        Text(artist)
-          .font(.title2)
-          .foregroundStyle(.secondary)
-
-        HStack(spacing: DesignTokens.Spacing.xs) {
-          Text(year)
-
-          Text("•")
-          Text("\(trackCount) tracks")
+    Group {
+      if dynamicTypeSize.isAccessibilitySize {
+        stackedHeader
+      } else {
+        ViewThatFits(in: .horizontal) {
+          HStack(alignment: .bottom, spacing: DesignTokens.Spacing.l) {
+            artwork.frame(width: 220, height: 220)
+            metadata.frame(minWidth: 280, maxWidth: .infinity, alignment: .leading)
+          }
+          stackedHeader
         }
+      }
+    }
+  }
+
+  private var stackedHeader: some View {
+    VStack(alignment: .leading, spacing: DesignTokens.Spacing.l) {
+      artwork.frame(width: 140, height: 140)
+      metadata.frame(maxWidth: .infinity, alignment: .leading)
+    }
+  }
+
+  private var artwork: some View {
+    AlbumArtwork(artworkURL: artworkURL)
+      .clipShape(RoundedRectangle(cornerRadius: DesignTokens.Radius.m))
+  }
+
+  private var metadata: some View {
+    VStack(alignment: .leading, spacing: DesignTokens.Spacing.s) {
+      Text("ALBUM")
+        .font(.caption.monospaced())
+        .foregroundStyle(.secondary)
+      Text(title)
+        .font(.largeTitle.bold())
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityIdentifier("album.title")
+      Text(artist)
+        .font(.title2)
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityIdentifier("album.artist")
+      Text([year, trackCount.isEmpty ? "" : "\(trackCount) tracks"].filter { !$0.isEmpty }.joined(separator: " • "))
         .font(.callout)
         .foregroundStyle(.secondary)
-      }
-
+        .fixedSize(horizontal: false, vertical: true)
     }
   }
 }
