@@ -43,6 +43,7 @@ struct CompactPlayerView: View {
 
 struct ExpandedPlayerView: View {
   @Environment(PlayerStore.self) private var playerStore
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   @Binding var queueScrollPosition: ScrollPosition
   @Binding var queueScrollOffset: CGFloat
 
@@ -74,18 +75,69 @@ struct ExpandedPlayerView: View {
 
   private var playerContent: some View {
     GeometryReader { geometry in
-      VStack(spacing: 16) {
-        if let track = playerStore.currentTrack {
-          AlbumArtwork(artworkURL: track.artworkURL)
-            .aspectRatio(1, contentMode: .fit)
-            .frame(maxHeight: max(0, min(320, geometry.size.height - 180)))
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-            .padding(.horizontal, 24)
+      let isWide = geometry.size.width > geometry.size.height && !dynamicTypeSize.isAccessibilitySize
+      let layout = isWide
+        ? AnyLayout(HStackLayout(alignment: .center, spacing: 24))
+        : AnyLayout(VStackLayout(spacing: 24))
+      ScrollView {
+        layout {
+          if !dynamicTypeSize.isAccessibilitySize {
+            artwork(size: isWide
+              ? min(200, geometry.size.height - 48)
+              : min(260, min(geometry.size.width - 64, geometry.size.height * 0.38)))
+          }
+          listeningControls
         }
-        Spacer(minLength: 0)
-        PlayerBar()
+        .frame(maxWidth: isWide ? 760 : 520)
+        .frame(maxWidth: .infinity)
+        .padding(24)
       }
-      .padding(.top, 16)
+    }
+  }
+
+  @ViewBuilder
+  private func artwork(size: CGFloat) -> some View {
+    if let track = playerStore.currentTrack {
+      AlbumArtwork(artworkURL: track.artworkURL)
+        .frame(width: max(0, size), height: max(0, size))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .accessibilityHidden(true)
+    }
+  }
+
+  @ViewBuilder
+  private var listeningControls: some View {
+    if let track = playerStore.currentTrack {
+      VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 6) {
+          Text(track.title ?? "Untitled track")
+            .font(.title2.bold())
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("player.title")
+          Text(track.artists?.joined(separator: ", ") ?? "Unknown Artist")
+            .font(.title3)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("player.artist")
+        }
+        PlaybackProgressView()
+        HStack(spacing: 32) {
+          PreviousSongButton(symbolSize: 26)
+          PlaybackToggleButton(symbolSize: 32)
+            .padding(8)
+            .background(.quaternary, in: Circle())
+          NextSongButton(symbolSize: 26)
+        }
+        .frame(maxWidth: .infinity)
+        HStack {
+          if playerStore.state == .loading { ProgressView().controlSize(.small) }
+          Text(playerStore.state.rawValue.capitalized)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier("player.state")
+        }
+        PlaybackFailureView()
+      }
     }
   }
 }

@@ -47,6 +47,7 @@ final class MobileListeningTests: XCTestCase {
     let seek = app.sliders["player.seek"]
     let resume = app.buttons["player.resume"]
     XCTAssertTrue(seek.waitForExistence(timeout: 5))
+    capture(app, "Expanded player - matched control hierarchy review")
     XCTAssertLessThan(title.frame.maxY, seek.frame.minY)
     XCTAssertGreaterThan(resume.frame.minY, seek.frame.maxY,
       "Expanded transport must have its own prominent row below seeking")
