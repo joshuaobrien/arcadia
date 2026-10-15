@@ -5,12 +5,27 @@ import XCTest
 final class PlaybackLifecycleTests: XCTestCase {
   @MainActor
   func testRouteLossRejectsAPlaylistPreparedBeforeTheRouteChanged() async throws {
-    try await assertPreparedPlaylistStaysCancelled(endInterruption: true)
+    try await assertPreparedPlaylistStaysCancelled(after: { player in
+      let token = player.beginAudioInterruption()
+      player.endAudioInterruption(token, shouldResume: false)
+    })
   }
 
   @MainActor
   func testActiveInterruptionRejectsAPlaylistPreparedBeforeTheInterruption() async throws {
-    try await assertPreparedPlaylistStaysCancelled(endInterruption: false)
+    try await assertPreparedPlaylistStaysCancelled(after: { player in
+      _ = player.beginAudioInterruption()
+    })
+  }
+
+  @MainActor
+  func testStopRejectsAPlaylistPreparedBeforeSessionTeardown() async throws {
+    try await assertPreparedPlaylistStaysCancelled(after: { $0.stop() }, clearsQueue: true, expectedState: .idle)
+  }
+
+  @MainActor
+  func testReleasedTransportRejectsAPlaylistPreparedBeforeSessionTeardown() async throws {
+    try await assertPreparedPlaylistStaysCancelled(after: { $0.releaseTransport() })
   }
 
   @MainActor
@@ -64,11 +79,15 @@ final class PlaybackLifecycleTests: XCTestCase {
   }
 
   @MainActor
-  private func assertPreparedPlaylistStaysCancelled(endInterruption: Bool) async throws {
+  private func assertPreparedPlaylistStaysCancelled(
+    after event: @MainActor (PlayerStore) -> Void, clearsQueue: Bool = false,
+    expectedState: PlayerStore.State = .paused
+  ) async throws {
     let fixture = FixtureAlbumClient(scenario: .success)
     let tracks = try await fixture.fetchAlbum(FetchAlbumRequest(albumId: "fixture-1")).items
     let source = DelayedPlaylistSource(fixture: fixture, track: tracks[1])
-    let player = PlayerStore(source: source)
+    var activations = 0
+    let player = PlayerStore(source: source, activateAudio: { activations += 1 })
     player.play([tracks[0]])
     for _ in 0..<100 {
       if player.isPlaying { break }
@@ -82,8 +101,9 @@ final class PlaybackLifecycleTests: XCTestCase {
     model.play(using: player)
     await source.waitForRequest()
 
-    let token = player.beginAudioInterruption()
-    if endInterruption { player.endAudioInterruption(token, shouldResume: false) }
+    let activationsBefore = activations
+    let requestsBefore = await source.resourceRequestCount()
+    event(player)
     await source.finishPage()
     for _ in 0..<1000 {
       if !model.isPreparing { break }
@@ -91,9 +111,13 @@ final class PlaybackLifecycleTests: XCTestCase {
     }
 
     XCTAssertFalse(model.isPreparing)
-    XCTAssertEqual(player.queue.map(\.id), originalQueue)
+    XCTAssertEqual(player.queue.map(\.id), clearsQueue ? [] : originalQueue)
     XCTAssertFalse(player.isPlaybackRequested)
+    XCTAssertEqual(player.state, expectedState)
     XCTAssertEqual(player.playbackChoiceRevision, explicitChoice)
+    XCTAssertEqual(activations, activationsBefore)
+    let requestsAfter = await source.resourceRequestCount()
+    XCTAssertEqual(requestsAfter, requestsBefore)
     player.stop()
   }
 }

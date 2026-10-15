@@ -103,8 +103,8 @@ final class PlayerStore {
       if restoration.position != nil { resolveRestoredEntry(entry) } else { start(entry) }
     }
   }
-
   func stop() {
+    audioLifecycleRevision = UUID()
     clearTransport()
     restoration.cancel()
     queue = []
@@ -310,7 +310,6 @@ extension PlayerStore {
     let entry = queue.remove(at: index)
     queue.insert(entry, at: destination)
   }
-
 }
 
 extension PlayerStore {
@@ -362,6 +361,7 @@ extension PlayerStore {
 extension PlayerStore {
   // Teardown releases AVFoundation resources without replacing the durable listening state with an empty queue.
   func releaseTransport() {
+    audioLifecycleRevision = UUID()
     clearTransport()
     wantsPlayback = false
     if currentEntryID != nil { state = .paused }
