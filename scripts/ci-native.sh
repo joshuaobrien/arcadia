@@ -115,7 +115,7 @@ vm_run "cd /tmp/build && export PATH=/opt/homebrew/bin:\$PATH MINT_PATH='/Volume
 echo "==> swift-format"
 vm_run "cd /tmp/build && xcrun swift-format lint --configuration .swift-format --recursive --strict Arcadia/Arcadia"
 
-cache() { vm_run "cd /tmp/build && /usr/bin/python3 scripts/ci-build-cache $1 --derived $2 --shared '/Volumes/My Shared Files/dependencies' --name $3"; }
+cache() { echo "==> Dependency cache $1 ($3)"; vm_run "cd /tmp/build && /usr/bin/python3 scripts/ci-build-cache $1 --derived $2 --shared '/Volumes/My Shared Files/dependencies' --name $3"; }
 cache restore /tmp/arcadia-debug debug
 echo "==> Building"
 vm_run "cd /tmp/build/Arcadia && xcodebuild -project Arcadia.xcodeproj -scheme Arcadia -configuration Debug -destination 'platform=macOS' -derivedDataPath /tmp/arcadia-debug -skipMacroValidation build CODE_SIGNING_ALLOWED=NO"

@@ -15,7 +15,11 @@ python3 scripts/ci-worker --template arcadia-ci-xcode-26-5-cache --artifacts art
 python3 scripts/ci-worker --template arcadia-mobile-xcode-27-1-27a9275 --artifacts artifacts/provision --provision
 ```
 
-Provisioning records the local config and available OCI-manifest fingerprint.
+Provisioning records local config/NVRAM hashes, the available OCI-manifest hash,
+and disk size, inode/device identity and nanosecond modification time. Disk writes
+or replacement therefore require explicit reprovisioning without hashing 87 GiB
+on every job. This detects ordinary template drift; it is not a cryptographic
+attestation against an administrator deliberately rewriting disk metadata.
 It does not boot, download or modify the template. Reprovision only after an
 intentional verified toolchain change. Jobs reject absent or changed identities.
 Mac `TART_IMAGE` and iOS `NATIVE_IOS_TEMPLATE` now select **local template names**,
@@ -47,7 +51,9 @@ Ownership is recorded before cloning. Cancellation terminates the owned process
 group and stops/deletes only the recorded clone with bounded waits. Cleanup errors
 are visible failures. After a crash, reconciliation requires both a dead owner PID
 and authoritative confirmation that the corresponding Gitea run completed.
-Missing credentials or an active run prevent automatic reclamation. CI supplies
+Missing credentials or an active run prevent automatic reclamation. Reconciliation verifies actual VM
+absence after cleanup; a stop error followed by successful deletion is retained
+as an attempt warning rather than permanently poisoning admission. CI supplies
 `ARCADIA_CI_TOKEN` for this read; the credential is never written to receipts or
 passed as a guest build argument. `--reconcile` runs the same recovery check alone.
 

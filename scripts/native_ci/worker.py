@@ -27,8 +27,13 @@ def fingerprint(template):
     for name in ['config.json', 'disk.img', 'nvram.bin']:
         if not (template / name).is_file():
             raise RuntimeError('Provision an intact local template; missing ' + name)
-    return {name: hashlib.sha256((template / name).read_bytes()).hexdigest()
-            for name in ['config.json', 'manifest.json'] if (template / name).exists()}
+    identity = {name: hashlib.sha256((template / name).read_bytes()).hexdigest()
+                for name in ['config.json', 'manifest.json', 'nvram.bin'] if (template / name).exists()}
+    # Detect writes/replacement without reading an entire 87 GiB disk on every job.
+    disk = (template / 'disk.img').stat()
+    identity['disk'] = {'bytes': disk.st_size, 'modified_ns': disk.st_mtime_ns,
+                        'inode': disk.st_ino, 'device': disk.st_dev}
+    return identity
 
 
 def valid_seed(seed):
@@ -38,6 +43,29 @@ def valid_seed(seed):
                 json.loads(receipt.read_text()).get('sha256') == hashlib.sha256(seed.read_bytes()).hexdigest())
     except (OSError, ValueError):
         return False
+
+
+def inventory():
+    return json.loads(subprocess.check_output(['tart', 'list', '--format', 'json'], text=True, timeout=15))
+
+
+def remove_worker(vm):
+    attempts = []
+    try:
+        if not any(v.get('Name', v.get('name')) == vm for v in inventory()):
+            return True, attempts
+        for operation in ['stop', 'delete']:
+            try:
+                result = subprocess.run(['tart', operation, vm], capture_output=True, text=True, timeout=25)
+                if result.returncode:
+                    attempts.append(operation + ': ' + result.stderr.strip())
+            except (OSError, subprocess.SubprocessError) as error:
+                attempts.append(operation + ': ' + str(error))
+        absent = not any(v.get('Name', v.get('name')) == vm for v in inventory())
+        return absent, attempts
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        attempts.append('Cannot verify worker absence: ' + str(error))
+        return False, attempts
 
 
 def reconcile(state):
@@ -65,15 +93,11 @@ def reconcile(state):
             run = json.load(response)
         if run.get('status') != 'completed':
             raise RuntimeError('Recorded worker still belongs to an active CI run: ' + vm)
-        errors = []
-        for operation in ['stop', 'delete']:
-            result = subprocess.run(['tart', operation, vm], capture_output=True, text=True, timeout=25)
-            if result.returncode:
-                errors.append(operation + ' failed')
-        owned.update(worker_removed=not errors, reconciliation_errors=errors)
+        absent, attempts = remove_worker(vm)
+        owned.update(worker_removed=absent, reconciliation_attempt_errors=attempts)
         write_json(path, owned)
-        outcomes.append({'vm': vm, 'removed': not errors})
-        if errors:
+        outcomes.append({'vm': vm, 'removed': absent})
+        if not absent:
             raise RuntimeError('Orphan cleanup failed: ' + vm)
     return outcomes
 
@@ -137,8 +161,8 @@ def main(argv=None):
         report['reconciled'] = reconcile(args.state)
         if args.reconcile:
             return 0
-        inventory = json.loads(subprocess.check_output(['tart', 'list', '--format', 'json'], text=True, timeout=15))
-        if sum(str(v.get('State', v.get('state', ''))).lower() in {'running', 'suspended'} for v in inventory) >= args.max_guests:
+        guests = inventory()
+        if sum(str(v.get('State', v.get('state', ''))).lower() in {'running', 'suspended'} for v in guests) >= args.max_guests:
             raise RuntimeError('Guest capacity occupied; no worker created')
         report.update({'vm': 'arcadia-fast-ci-' + uuid.uuid4().hex[:12], 'pid': os.getpid(),
                        'run_id': os.environ.get('GITHUB_RUN_ID'), 'repository': os.environ.get('GITHUB_REPOSITORY'), 'identity': identity,
@@ -158,7 +182,9 @@ def main(argv=None):
         project = args.source / 'Arcadia/Arcadia.xcodeproj/project.pbxproj'
         if project.is_file():
             inputs.append(project.read_bytes())
-        for relative in ['scripts/native_ci/build_cache.py', 'scripts/native_loop/dependencies.py']:
+        for relative in ['scripts/native_ci/build_cache.py', 'scripts/native_loop/dependencies.py',
+                         'scripts/ci-native.sh', 'scripts/native_ios/guest.py',
+                         'scripts/native_preview/environment.py']:
             helper = args.source / relative
             if helper.is_file():
                 inputs.append(helper.read_bytes())
@@ -239,24 +265,24 @@ def main(argv=None):
                     os.killpg(child.pid, signal.SIGTERM)
                 except ProcessLookupError:
                     pass
-            cleanup = []
-            for operation in ['stop', 'delete']:
-                try:
-                    result = subprocess.run(['tart', operation, report['vm']], capture_output=True,
-                                            text=True, timeout=25)
-                    if result.returncode:
-                        # A partial clone may never have registered a VM. Verify absence below.
-                        cleanup.append(operation + ': ' + result.stderr.strip())
-                    if operation == 'delete':
-                        report['worker_removed'] = result.returncode == 0
-                except (OSError, subprocess.SubprocessError) as error:
-                    cleanup.append(operation + ': ' + str(error))
             if child:
+                # A process group may outlive its leader. Kill the remaining owned
+                # group before deleting a clone that a descendant could still create.
                 try:
-                    child.wait(timeout=5)
+                    child.wait(timeout=3)
                 except subprocess.TimeoutExpired:
+                    pass
+                try:
                     os.killpg(child.pid, signal.SIGKILL)
-                    child.wait(timeout=5)
+                except ProcessLookupError:
+                    pass
+                child.wait(timeout=5)
+                if child.stdout:
+                    child.stdout.close()
+            absent, attempts = remove_worker(report['vm'])
+            report['worker_removed'] = absent
+            report['cleanup_attempt_errors'] = attempts
+            cleanup = [] if absent else ['Owned VM still present or absence unverified']
             report['template_unchanged'] = fingerprint(template) == identity
             if not report['template_unchanged']:
                 cleanup.append('Golden template identity changed')

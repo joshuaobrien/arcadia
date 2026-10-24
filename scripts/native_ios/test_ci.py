@@ -21,7 +21,11 @@ args = sys.argv[1:]
 root = pathlib.Path(os.environ['FAKE_ROOT'])
 with (root / 'calls').open('a') as log:
     log.write(json.dumps(args) + '\\n')
-if args[0] == 'list': print('[]')
+store = root / 'vms.json'
+vms = json.loads(store.read_text()) if store.exists() else []
+if args[0] == 'list': print(json.dumps(vms))
+if args[0] == 'clone': store.write_text(json.dumps([{'Name': args[2], 'State': 'stopped'}]))
+if args[0] == 'delete': store.write_text('[]')
 if args[0] == 'run':
     shared = next(arg for arg in args if arg.startswith('--dir=artifacts:'))
     (root / 'artifacts').write_text(shared.split(':', 1)[1])
@@ -63,11 +67,11 @@ elif args[0] == 'exec' and '--archive' in args:
         self.assertTrue(report['passed'])
         self.assertEqual(len(report['source_sha256']), 64)
 
-    def test_stop_failure_still_attempts_delete_and_retains_error(self):
+    def test_stop_failure_still_deletes_and_verifies_absence(self):
         result, report = self.run_lane(False, stop_failure=True)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertTrue(report['cleanup_errors'])
-        self.assertFalse(report['passed'])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(report['vm_removed'])
+        self.assertTrue(report['passed'])
 
     def test_guest_failure_still_removes_owned_vm_and_retains_manifest(self):
         result, report = self.run_lane(True)

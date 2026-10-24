@@ -61,6 +61,7 @@ def main(argv=None):
         if not managed:
             run('tart', 'clone', args.template, vm, timeout=300)
             created = True
+        print('==> Booting isolated iOS worker', flush=True)
         with (artifacts / 'vm.log').open('w') as log:
             process = subprocess.Popen(['tart', 'run', '--no-graphics', '--no-audio', '--no-clipboard',
                                         '--dir=input:' + str(inputs) + ':ro',
@@ -82,6 +83,7 @@ def main(argv=None):
             time.sleep(2)
         else:
             raise RuntimeError('Guest agent readiness timed out')
+        print('==> Source verification and iOS compilation', flush=True)
         run('tart', 'exec', vm, '/usr/bin/python3', '/Volumes/My Shared Files/input/guest.py',
             '--archive', '/Volumes/My Shared Files/input/source.tgz', '--sha', sha,
             '--artifacts', '/Volumes/My Shared Files/artifacts', '--run', token, timeout=1200)

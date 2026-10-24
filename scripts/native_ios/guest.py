@@ -38,6 +38,7 @@ def main():
         from native_ci.build_cache import main as cache
         derived = Path.home() / 'arcadia-ci-derived/ios'
         shared = '/Volumes/My Shared Files/dependencies'
+        print('==> Dependency cache restore', flush=True)
         cache(['restore', '--derived', str(derived), '--shared', shared, '--name', 'ios'])
         guard_source(source, args.archive, artifacts / 'source-before.json')
         command = ['/usr/bin/env', 'DEVELOPER_DIR=' + env['DEVELOPER_DIR'], 'xcodebuild',
@@ -46,7 +47,9 @@ def main():
                    '-derivedDataPath', str(derived), '-skipMacroValidation',
                    '-onlyUsePackageVersionsFromResolvedFile', 'CODE_SIGN_IDENTITY=-',
                    'CODE_SIGN_STYLE=Manual', 'DEVELOPMENT_TEAM=', 'build-for-testing']
+        print('==> iOS app and UI-test bundle compilation', flush=True)
         status = execute(str(artifacts / 'build.log'), command)
+        print('==> Final source integrity verification', flush=True)
         guard_source(source, args.archive, artifacts / 'source-after.json')
         products = derived / 'Build/Products/Debug-iphonesimulator'
         expected = [products / 'Arcadia.app', products / 'ArcadiaMobileUITests-Runner.app']
@@ -54,6 +57,7 @@ def main():
                        'passed': status == 0 and all(path.is_dir() for path in expected)})
         if not report['passed']:
             raise RuntimeError('iOS compile check failed; see build.log')
+        print('==> Dependency cache publication', flush=True)
         cache(['publish', '--derived', str(derived), '--shared', shared, '--name', 'ios'])
         print('PASS: iOS app and UI-test bundle compiled. No UI tests executed.', flush=True)
         return 0
