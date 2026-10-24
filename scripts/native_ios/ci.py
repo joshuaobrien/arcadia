@@ -24,7 +24,7 @@ def interrupted(signum, frame):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source', type=Path, default=Path(__file__).resolve().parents[2])
-    parser.add_argument('--template', default=os.environ.get('NATIVE_IOS_TEMPLATE', 'arcadia-mobile-xcode-27-1-27a9275'))
+    parser.add_argument('--template', default=os.environ.get('NATIVE_IOS_TEMPLATE', 'arcadia-mobile-xcode-27-1-fastlane-2-241-1'))
     parser.add_argument('--artifacts', type=Path, default=Path('artifacts/native-ios'))
     args = parser.parse_args(argv)
     source, artifacts = args.source.resolve(), args.artifacts.resolve()
@@ -41,19 +41,17 @@ def main(argv=None):
     try:
         inputs = Path(inputs_directory.name)
         archive = inputs / 'source.tgz'
-        names = ['Arcadia', 'scripts/native_ios/guest.py', 'scripts/native_preview/environment.py',
-                 'scripts/native_loop/progress.py', 'scripts/native_loop/dependencies.py',
-                 'scripts/native_ci/build_cache.py', 'test-environment/native/source_archive.py']
-        def include(member):
-            if any(part in {'xcuserdata', 'DerivedData', '.build', '.DS_Store', '__pycache__'}
-                   for part in Path(member.name).parts):
-                return None
-            if not (member.isfile() or member.isdir()):
-                raise RuntimeError('Source snapshot cannot contain links: ' + member.name)
-            return member
-        with tarfile.open(archive, 'w:gz') as output:
-            for name in names:
-                output.add(source / name, arcname=name, filter=include)
+        names = ['Arcadia', 'Gemfile', 'Gemfile.lock', 'fastlane',
+                 'scripts/native_ios/guest.py', 'scripts/native_preview/environment.py',
+                 'scripts/native_loop/progress.py', 'test-environment/native/source_archive.py']
+        run('/usr/bin/tar', '--format=pax', '-czf', archive, '-C', source,
+            '--exclude=xcuserdata', '--exclude=DerivedData', '--exclude=.build',
+            '--exclude=.DS_Store', '--exclude=__pycache__', *names)
+        # Validate before mounting; native tar transports exact file timestamps.
+        with tarfile.open(archive) as snapshot:
+            for member in snapshot:
+                if not (member.isfile() or member.isdir()):
+                    raise RuntimeError('Source snapshot cannot contain links: ' + member.name)
         sha = hashlib.sha256(archive.read_bytes()).hexdigest()
         report['source_sha256'] = sha
         shutil.copyfile(source / 'scripts/native_ios/guest.py', inputs / 'guest.py')
@@ -66,7 +64,7 @@ def main(argv=None):
             process = subprocess.Popen(['tart', 'run', '--no-graphics', '--no-audio', '--no-clipboard',
                                         '--dir=input:' + str(inputs) + ':ro',
                                         '--dir=artifacts:' + str(artifacts),
-                                        '--dir=dependencies:' + os.environ.get('ARCADIA_CI_CACHE_DIR', str(inputs / 'dependencies')), vm],
+                                        '--dir=derived:' + os.environ['ARCADIA_CI_DERIVED_DIR'], vm],
                                        stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
         print('Waiting for guest agent (maximum120s)…', flush=True)
         deadline = time.monotonic() + 120

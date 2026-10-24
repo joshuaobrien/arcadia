@@ -1,5 +1,6 @@
 """Exercise the host CLI against a fake VM provider, without starting a VM."""
 import json
+import shutil
 import os
 from pathlib import Path
 import subprocess
@@ -16,7 +17,8 @@ class CompilationLane(unittest.TestCase):
             root = Path(temporary)
             provider = root / 'tart'
             provider.write_text('''#!/usr/bin/env python3
-import json, os, pathlib, sys, time
+import json, os, pathlib, sys, time, tarfile
+from decimal import Decimal
 args = sys.argv[1:]
 root = pathlib.Path(os.environ['FAKE_ROOT'])
 with (root / 'calls').open('a') as log:
@@ -29,12 +31,18 @@ if args[0] == 'delete': store.write_text('[]')
 if args[0] == 'run':
     shared = next(arg for arg in args if arg.startswith('--dir=artifacts:'))
     (root / 'artifacts').write_text(shared.split(':', 1)[1])
+    inputs = next(arg for arg in args if arg.startswith('--dir=input:'))
+    (root / 'inputs').write_text(inputs.split(':', 1)[1].removesuffix(':ro'))
     time.sleep(30)
 elif args[0] == 'stop' and os.environ['FAIL_STOP'] == '1':
     sys.exit(9)
 elif args[0] == 'exec' and '--archive' in args:
     if os.environ['FAIL_GUEST'] == '1':
         sys.exit(7)
+    with tarfile.open(pathlib.Path((root / 'inputs').read_text()) / 'source.tgz') as archive:
+        member = archive.getmember('Arcadia/Arcadia/AppConfiguration.swift')
+        actual = int(Decimal(member.pax_headers['mtime']) * 10**9)
+        assert actual == 1792818515224361504, ('Source transfer lost nanoseconds', actual)
     artifacts = pathlib.Path((root / 'artifacts').read_text())
     sha = args[args.index('--sha') + 1]
     (artifacts / 'verification.json').write_text(json.dumps({'passed': True, 'source_sha256': sha}))
@@ -51,7 +59,15 @@ elif args[0] == 'exec' and '--archive' in args:
             subprocess.run([sys.executable, str(ROOT / 'scripts/ci-worker'), '--template', 'gold',
                             '--artifacts', str(root / 'evidence'), '--provision'], env=env, check=True,
                            capture_output=True)
-            result = subprocess.run([sys.executable, str(ROOT / 'scripts/ci-native-ios'), '--artifacts', str(root / 'evidence')],
+            source = root / 'source'
+            source.mkdir()
+            for name in ['Arcadia', 'scripts', 'test-environment', 'fastlane']:
+                if (ROOT / name).is_dir():
+                    shutil.copytree(ROOT / name, source / name, ignore=shutil.ignore_patterns('__pycache__', 'xcuserdata'))
+            for name in ['Gemfile', 'Gemfile.lock']:
+                shutil.copy2(ROOT / name, source / name)
+            os.utime(source / 'Arcadia/Arcadia/AppConfiguration.swift', ns=(1792818515224361504, 1792818515224361504))
+            result = subprocess.run([sys.executable, str(ROOT / 'scripts/ci-native-ios'), '--source', str(source), '--artifacts', str(root / 'evidence')],
                                     env=env, capture_output=True, text=True, timeout=40)
             report = json.loads((root / 'evidence/manifest.json').read_text())
             calls = [json.loads(line) for line in (root / 'calls').read_text().splitlines()]

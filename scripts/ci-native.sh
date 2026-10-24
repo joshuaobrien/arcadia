@@ -14,7 +14,7 @@ set -euo pipefail
 if [[ "${ARCADIA_CI_MANAGED:-}" != 1 ]]; then
   SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
   exec python3 "$SCRIPT_DIR/ci-worker" \
-    --template "${TART_IMAGE:-arcadia-ci-xcode-26-5-cache}" --source "${1:-$PWD}" \
+    --template "${TART_IMAGE:-arcadia-ci-xcode-26-5-fastlane-2-241-1}" --source "${1:-$PWD}" \
     --artifacts "${CI_EVIDENCE_DIR:-${ARTIFACT_DIR:-$PWD/artifacts/native-mac}}" \
     -- bash "$SCRIPT_DIR/ci-native.sh" "$@"
 fi
@@ -42,7 +42,7 @@ if [[ -n "$ARTIFACT_DIR" ]]; then
 fi
 
 echo "==> Booting"
-TART_RUN_ARGS=(--no-graphics --no-audio --no-clipboard "--dir=mint:$MINT_CACHE" "--dir=dependencies:$ARCADIA_CI_CACHE_DIR" "--dir=evidence:$ARCADIA_CI_EVIDENCE_DIR")
+TART_RUN_ARGS=(--no-graphics --no-audio --no-clipboard "--dir=mint:$MINT_CACHE" "--dir=derived:$ARCADIA_CI_DERIVED_DIR" "--dir=evidence:$ARCADIA_CI_EVIDENCE_DIR")
 if [[ -n "$ARTIFACT_DIR" ]]; then
   TART_RUN_ARGS+=("--dir=artifacts:$ARTIFACT_DIR")
 fi
@@ -100,8 +100,8 @@ chmod +x "$WORK"/*.exp
 vm_run() { /usr/bin/expect -f "$WORK/ssh.exp" "$VM_USER" "$IP" "$1" "$VM_PASS"; }
 
 echo "==> Copying source"
-tar czf "$WORK/src.tgz" -C "$SRC_DIR" --exclude='.git' \
-  Arcadia .swiftlint.yml .swift-format Mintfile scripts/ci-build-cache scripts/native_ci/build_cache.py scripts/native_loop/dependencies.py
+tar --format=pax -czf "$WORK/src.tgz" -C "$SRC_DIR" --exclude='.git' \
+  Arcadia .swiftlint.yml .swift-format Mintfile Gemfile Gemfile.lock fastlane
 /usr/bin/expect -f "$WORK/scp.exp" "$WORK/src.tgz" "$VM_USER" "$IP" /tmp/src.tgz "$VM_PASS"
 vm_run "rm -rf /tmp/build && mkdir -p /tmp/build && tar xzf /tmp/src.tgz -C /tmp/build"
 
@@ -115,36 +115,21 @@ vm_run "cd /tmp/build && export PATH=/opt/homebrew/bin:\$PATH MINT_PATH='/Volume
 echo "==> swift-format"
 vm_run "cd /tmp/build && xcrun swift-format lint --configuration .swift-format --recursive --strict Arcadia/Arcadia"
 
-cache() { echo "==> Dependency cache $1 ($3)"; vm_run "cd /tmp/build && /usr/bin/python3 scripts/ci-build-cache $1 --derived $2 --shared '/Volumes/My Shared Files/dependencies' --name $3"; }
-cache restore /tmp/arcadia-debug debug
-echo "==> Building"
-vm_run "cd /tmp/build/Arcadia && xcodebuild -project Arcadia.xcodeproj -scheme Arcadia -configuration Debug -destination 'platform=macOS' -derivedDataPath /tmp/arcadia-debug -skipMacroValidation build CODE_SIGNING_ALLOWED=NO"
-
-echo "==> Testing"
+FASTLANE="export PATH=/opt/homebrew/opt/ruby@3.4/bin:/opt/homebrew/bin:\$PATH BUNDLE_GEMFILE=/tmp/build/Gemfile BUNDLE_PATH=/Users/admin/.cache/arcadia-fastlane BUNDLE_FROZEN=1 FASTLANE_SKIP_UPDATE_CHECK=1 FASTLANE_HIDE_CHANGELOG=1 FASTLANE_OPT_OUT_USAGE=1 && cd /tmp/build && bundle exec fastlane"
+echo "==> Building and testing (Fastlane)"
 TEST_STATUS=0
-vm_run "cd /tmp/build/Arcadia && xcodebuild -project Arcadia.xcodeproj -scheme Arcadia -configuration Debug -destination 'platform=macOS' -derivedDataPath /tmp/arcadia-debug -resultBundlePath /tmp/arcadia-ci-tests.xcresult -skipMacroValidation -only-testing:ArcadiaTests test CODE_SIGNING_ALLOWED=NO" || TEST_STATUS=$?
+vm_run "$FASTLANE mac_ci" || TEST_STATUS=$?
 vm_run "xcrun xcresulttool get test-results summary --path /tmp/arcadia-ci-tests.xcresult > '/Volumes/My Shared Files/evidence/tests-summary.json'" || true
 [[ "$TEST_STATUS" == 0 ]] || exit "$TEST_STATUS"
 
 if [[ -n "$ARTIFACT_DIR" ]]; then
   printf -v ESCAPED_BASE_URL '%q' "$ARCADIA_BASE_URL"
-
-  cache restore /tmp/arcadia-release release
-  echo "==> Building unsigned Release artifact"
-  vm_run "cd /tmp/build/Arcadia && xcodebuild -project Arcadia.xcodeproj -scheme Arcadia -configuration Release -destination 'platform=macOS' -derivedDataPath /tmp/arcadia-release -skipMacroValidation CODE_SIGNING_ALLOWED=NO ARCADIA_BASE_URL=$ESCAPED_BASE_URL"
-
-  cache publish /tmp/arcadia-release release
-  echo "==> Ad-hoc signing Release artifact"
-  vm_run "codesign --force --deep --sign - /tmp/arcadia-release/Build/Products/Release/Arcadia.app"
-  vm_run "codesign --verify --deep --strict --verbose=2 /tmp/arcadia-release/Build/Products/Release/Arcadia.app"
-
-  echo "==> Packaging Arcadia.zip"
-  vm_run "ditto -c -k --sequesterRsrc --keepParent /tmp/arcadia-release/Build/Products/Release/Arcadia.app '/Volumes/My Shared Files/artifacts/Arcadia.zip'"
+  echo "==> Release build, signing and packaging (Fastlane)"
+  vm_run "export ARCADIA_BASE_URL=$ESCAPED_BASE_URL; $FASTLANE mac_release"
   [[ -f "$ARTIFACT_DIR/Arcadia.zip" ]] || {
     echo "Release artifact was not copied out of the VM" >&2
     exit 1
   }
 fi
 
-cache publish /tmp/arcadia-debug debug
 echo "==> Done"
