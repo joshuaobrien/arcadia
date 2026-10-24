@@ -34,6 +34,7 @@ final class MediaPlaybackBridge {
       $0.pause()
     }
     register(center.togglePlayPauseCommand) { $0.togglePlayback() }
+    register(center.previousTrackCommand) { $0.playPrevious() }
     register(center.nextTrackCommand, advancing: true) { $0.playNext() }
     let availability = availability
     let seek = center.changePlaybackPositionCommand.addTarget { [weak player, availability] event in
@@ -48,7 +49,6 @@ final class MediaPlaybackBridge {
       return .success
     }
     targets.append((center.changePlaybackPositionCommand, seek))
-    center.previousTrackCommand.isEnabled = false
     observe()
   }
 
@@ -98,6 +98,7 @@ final class MediaPlaybackBridge {
     center.playCommand.isEnabled = available && !player.isPlaying
     center.pauseCommand.isEnabled = available && player.isPlaybackRequested
     center.togglePlayPauseCommand.isEnabled = available
+    center.previousTrackCommand.isEnabled = available
     center.nextTrackCommand.isEnabled = player.canAdvance
     center.changePlaybackPositionCommand.isEnabled = available && player.duration > 0
     guard let track = player.currentTrack else {

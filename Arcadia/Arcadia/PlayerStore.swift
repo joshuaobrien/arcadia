@@ -4,8 +4,6 @@ import Observation
 @MainActor
 @Observable
 final class PlayerStore {
-  enum State: String { case idle, loading, playing, paused, failed, ended }
-
   private(set) var currentTime: Double = 0
   private(set) var duration: Double = 0
   private(set) var currentEntryID: UUID?
@@ -23,11 +21,8 @@ final class PlayerStore {
   var queueFeedback: QueueFeedbackState.Feedback? { feedback.current }
   var needsReplacementConfirmation: Bool { pendingReplacement != nil }
 
-  var currentTrack: Track? { currentEntry?.track }
-  var isPlaying: Bool { state == .playing }
   var isPlaybackRequested: Bool { wantsPlayback }
   var canAdvance: Bool { currentIndex.map { queue.indices.contains($0 + 1) } ?? false }
-  var currentEntry: QueueEntry? { queue.first { $0.id == currentEntryID } }
   var upcoming: [QueueEntry] {
     guard let currentIndex else { return queue }
     return Array(queue.dropFirst(currentIndex + 1))
@@ -50,14 +45,12 @@ final class PlayerStore {
     self.source = source
     self.activateAudio = activateAudio
   }
-
   func pause() {
     playbackChoiceRevision = UUID()
     wantsPlayback = false
     player.pause()
     if currentTrack != nil && state != .failed && state != .ended { state = .paused }
   }
-
   func resume() {
     guard let entry = currentEntry else {
       if let first = queue.first { playQueuedEntry(first.id) }
@@ -79,20 +72,27 @@ final class PlayerStore {
     startTransport()
     updateTransport(generation)
   }
-
   func playQueuedEntry(_ id: UUID) {
     guard let entry = queue.first(where: { $0.id == id }) else { return }
     playbackChoiceRevision = UUID()
     pendingReplacement = nil
     if currentEntryID == id { resume() } else { start(entry) }
   }
-  func togglePlayback() {
-    if isPlaying || wantsPlayback { pause() } else { resume() }
-  }
   func playNext() {
     guard canAdvance else { return }
     playbackChoiceRevision = UUID()
     advanceToNext()
+  }
+  func playPrevious() {
+    guard let index = currentIndex else { return }
+    playbackChoiceRevision = UUID()
+    let destination = currentTime >= 3 ? index : max(0, index - 1)
+    let ready = player.currentItem?.status == .readyToPlay && duration > 0 && state != .failed
+    if destination == index, restoration.position == nil, ready {
+      seek(to: 0, resumeAfterSeeking: wantsPlayback)
+    } else {
+      start(queue[destination], requestingPlayback: wantsPlayback)
+    }
   }
   private func advanceToNext() {
     guard let index = currentIndex, queue.indices.contains(index + 1) else { return }
@@ -138,15 +138,15 @@ final class PlayerStore {
     }
   }
 
-  private func start(_ entry: QueueEntry) {
+  private func start(_ entry: QueueEntry, requestingPlayback: Bool = true) {
     restoration.cancel()
     clearTransport()
     currentEntryID = entry.id
     currentTime = 0
     let metadataDuration = entry.track.durationSeconds ?? 0
     duration = metadataDuration.isFinite && metadataDuration > 0 ? metadataDuration : 0
-    wantsPlayback = true
-    state = .loading
+    wantsPlayback = requestingPlayback
+    state = requestingPlayback ? .loading : .paused
     errorText = nil
     resolve(entry)
   }
