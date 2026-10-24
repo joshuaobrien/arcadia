@@ -34,6 +34,7 @@ if sys.argv[1] == 'list': print(json.dumps(vms))
 if sys.argv[1] == 'clone':
     vms.append({'Name': sys.argv[3], 'State': 'stopped'})
     store.write_text(json.dumps(vms))
+    if os.environ.get('PAUSE_CLONE'): __import__('time').sleep(60)
 if sys.argv[1] == 'stop' and os.environ.get('FAIL_STOP'): sys.exit(9)
 if sys.argv[1] == 'delete':
     if os.environ.get('FAIL_DELETE'): sys.exit(9)
@@ -58,8 +59,7 @@ if sys.argv[1] == 'delete':
         self.assertNotIn('pull', calls)
 
     def test_low_disk_refuses_before_clone_and_retains_template(self):
-        template = self.templates / 'gold'
-        template.mkdir()
+        template = self.provision()
         result = self.invoke('--reserve-gib', '100000000')
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('disk', result.stderr.lower())
@@ -147,6 +147,26 @@ seed.with_suffix('.json').write_text(json.dumps({'sha256': hashlib.sha256(seed.r
         self.assertTrue(receipt['cleanup_attempt_errors'])
         self.assertEqual(self.invoke('--reserve-gib', '0').returncode, 0)
 
+    def test_changed_cache_inputs_invalidate_seed_and_current_source_runs(self):
+        self.provision()
+        source = self.root / 'source'
+        project = source / 'Arcadia/Arcadia.xcodeproj/project.pbxproj'
+        project.parent.mkdir(parents=True)
+        project.write_text('initial build settings')
+        current = source / 'current.py'
+        current.write_text('print("initial current source")')
+        command = 'exec(open(' + repr(str(current)) + ').read())'
+        first = self.invoke('--reserve-gib', '0', '--source', str(source), command=command)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        initial = json.loads((self.root / 'evidence/worker.json').read_text())['dependency_key']
+        project.write_text('changed build settings')
+        current.write_text('print("changed current source")')
+        second = self.invoke('--reserve-gib', '0', '--source', str(source), command=command)
+        self.assertEqual(second.returncode, 0, second.stderr)
+        changed = json.loads((self.root / 'evidence/worker.json').read_text())['dependency_key']
+        self.assertNotEqual(initial, changed)
+        self.assertIn('changed current source', second.stdout)
+
     def test_corrupt_dependency_metadata_falls_back_to_current_build(self):
         self.provision()
         self.assertEqual(self.invoke('--reserve-gib', '0').returncode, 0)
@@ -181,7 +201,8 @@ seed.with_suffix('.json').write_text(json.dumps({'sha256': hashlib.sha256(seed.r
             thread.start()
             self.env.update(GITHUB_API_URL='http://127.0.0.1:' + str(server.server_port),
                             GITHUB_REPOSITORY='jj/arcadia', ARCADIA_CI_TOKEN='test')
-            result = self.invoke('--reserve-gib', '0', '--reconcile')
+            # Recovery must remain available when a crashed worker consumed the reserve.
+            result = self.invoke('--reserve-gib', '100000000', '--reconcile')
             server.shutdown()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(json.loads(owned.read_text())['worker_removed'])
@@ -206,6 +227,39 @@ seed.with_suffix('.json').write_text(json.dumps({'sha256': hashlib.sha256(seed.r
         receipt = json.loads((self.root / 'evidence/worker.json').read_text())
         self.assertEqual(receipt['error'], 'Cancelled')
         self.assertTrue(receipt['worker_removed'])
+
+    def test_cancelled_partial_clone_is_removed_and_next_job_can_run(self):
+        self.provision()
+        self.env['PAUSE_CLONE'] = '1'
+        process = subprocess.Popen([sys.executable, str(CLI), '--template', 'gold',
+                                   '--template-root', str(self.templates), '--state', str(self.root / 'state'),
+                                   '--artifacts', str(self.root / 'evidence'), '--reserve-gib', '0',
+                                   '--', sys.executable, '-c', 'print("should not start")'],
+                                  env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        self.addCleanup(lambda: process.poll() is None and process.kill())
+        deadline = time.monotonic() + 3
+        while not (self.root / 'vms.json').exists() and time.monotonic() < deadline:
+            time.sleep(.02)
+        self.assertTrue((self.root / 'vms.json').exists())
+        process.terminate()
+        output, error = process.communicate(timeout=5)
+        self.assertEqual(process.returncode, 130, output + error)
+        receipt = json.loads((self.root / 'evidence/worker.json').read_text())
+        self.assertTrue(receipt['worker_removed'])
+        self.assertNotIn('should not start', output)
+        del self.env['PAUSE_CLONE']
+        self.assertEqual(self.invoke('--reserve-gib', '0').returncode, 0)
+
+    def test_command_deadline_fails_and_releases_next_job(self):
+        self.provision()
+        result = self.invoke('--reserve-gib', '0', '--command-timeout', '.1',
+                             command='import time; print("diagnostic retained", flush=True); time.sleep(60)')
+        self.assertNotEqual(result.returncode, 0)
+        receipt = json.loads((self.root / 'evidence/worker.json').read_text())
+        self.assertIn('deadline', receipt['error'])
+        self.assertTrue(receipt['worker_removed'])
+        self.assertIn('diagnostic retained', (self.root / 'evidence/worker.log').read_text())
+        self.assertEqual(self.invoke('--reserve-gib', '0').returncode, 0)
 
     def test_cancellation_stops_descendant_that_ignores_termination(self):
         self.provision()

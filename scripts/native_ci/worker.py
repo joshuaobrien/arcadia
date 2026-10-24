@@ -197,8 +197,6 @@ def main(argv=None):
     try:
         if not template.is_dir():
             raise RuntimeError('Provision the local CI template before running: ' + args.template)
-        if shutil.disk_usage(args.template_root).free < args.reserve_gib * 1024 ** 3:
-            raise RuntimeError('Insufficient disk reserve; no worker created')
         identity = fingerprint(template)
         if args.provision:
             write_json(record, {'template': args.template, 'identity': identity})
@@ -218,6 +216,8 @@ def main(argv=None):
         if args.reconcile:
             report.update(passed=True, scope='reconciliation')
             return 0
+        if shutil.disk_usage(args.template_root).free < args.reserve_gib * 1024 ** 3:
+            raise RuntimeError('Insufficient disk reserve; no worker created')
         guests = inventory()
         if sum(str(v.get('State', v.get('state', ''))).lower() in {'running', 'suspended'} for v in guests) >= args.max_guests:
             raise RuntimeError('Guest capacity occupied; no worker created')
