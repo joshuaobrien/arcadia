@@ -93,7 +93,11 @@ final class ExpandedPlayerRealTests: XCTestCase {
     app.buttons["player.pause"].tap()
     XCTAssertTrue(resume.waitForExistence(timeout: 5))
     seek.adjust(toNormalizedSliderPosition: 0.5)
+    XCTAssertTrue(waitForElapsed(seconds: 14...16, app: app), "Real audio must seek near its 15-second midpoint")
     XCTAssertTrue(resume.exists, "Seeking must preserve paused intent")
+    seek.adjust(toNormalizedSliderPosition: 0)
+    XCTAssertTrue(waitForElapsed(seconds: 0...1, app: app), "Real audio must rewind to the beginning")
+    XCTAssertTrue(resume.exists, "Rewinding must preserve paused intent")
     XCTAssertEqual(app.staticTexts["player.title"].firstMatch.label, title)
     capture(app, "Real Jellyfin expanded player - metadata, seeking and prominent transport")
     app.buttons["queue.toggle"].tap()
@@ -104,6 +108,20 @@ final class ExpandedPlayerRealTests: XCTestCase {
     XCTAssertEqual(app.staticTexts["player.title"].firstMatch.label, title)
     capture(app, "Real Jellyfin expanded player - paused session survives queue navigation")
 
+  }
+
+  @MainActor
+  private func waitForElapsed(seconds: ClosedRange<Int>, app: XCUIApplication) -> Bool {
+    let elapsed = app.descendants(matching: .any).matching(identifier: "player.elapsed").firstMatch
+    let predicate = NSPredicate { _, _ in
+      guard elapsed.exists else { return false }
+      let text = elapsed.label.isEmpty ? (elapsed.value as? String ?? "") : elapsed.label
+      let parts = text.split(separator: ":")
+      guard parts.count == 2, let minutes = Int(parts[0]), let remainder = Int(parts[1]) else { return false }
+      return seconds.contains(minutes * 60 + remainder)
+    }
+    return XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: elapsed)], timeout: 5)
+      == .completed
   }
 
   @MainActor
