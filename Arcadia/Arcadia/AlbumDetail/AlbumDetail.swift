@@ -67,6 +67,9 @@ struct AlbumDetail: View {
     }
     .accessibilityIdentifier("album.detail.scroll")
     .libraryNavigationTitle(album.title)
+    #if os(iOS)
+      .navigationBarTitleDisplayMode(.inline)
+    #endif
     .navigationBarBackButtonHidden(true)
     .toolbar {
       ToolbarItem(placement: .navigation) { AlbumBackButton() }

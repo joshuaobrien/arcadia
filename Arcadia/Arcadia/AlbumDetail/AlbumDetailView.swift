@@ -31,7 +31,7 @@ struct AlbumMetadataView: View {
   var body: some View {
     Group {
       if dynamicTypeSize.isAccessibilitySize {
-        stackedHeader
+        metadata.frame(maxWidth: .infinity, alignment: .leading)
       } else {
         ViewThatFits(in: .horizontal) {
           HStack(alignment: .bottom, spacing: DesignTokens.Spacing.l) {
@@ -58,15 +58,17 @@ struct AlbumMetadataView: View {
 
   private var metadata: some View {
     VStack(alignment: .leading, spacing: DesignTokens.Spacing.s) {
-      Text("ALBUM")
-        .font(.caption.monospaced())
-        .foregroundStyle(.secondary)
+      if !dynamicTypeSize.isAccessibilitySize {
+        Text("ALBUM")
+          .font(.caption.monospaced())
+          .foregroundStyle(.secondary)
+      }
       Text(title)
-        .font(.largeTitle.bold())
+        .font(dynamicTypeSize.isAccessibilitySize ? .headline.bold() : .largeTitle.bold())
         .fixedSize(horizontal: false, vertical: true)
         .accessibilityIdentifier("album.title")
       Text(artist)
-        .font(.title2)
+        .font(dynamicTypeSize.isAccessibilitySize ? .body : .title2)
         .foregroundStyle(.secondary)
         .fixedSize(horizontal: false, vertical: true)
         .accessibilityIdentifier("album.artist")
