@@ -25,6 +25,9 @@ final class SearchDiscoveryTests: XCTestCase {
     XCTAssertEqual(empty.value as? String, "No songs found")
     let artists = app.buttons["search.show.artists"]
     XCTAssertTrue(artists.waitForExistence(timeout: 10))
+    let matches = app.staticTexts["search.other.matches"]
+    XCTAssertTrue(matches.exists)
+    XCTAssertLessThan(matches.frame.maxY, empty.frame.minY, "Successful matches should lead the empty-category context")
     XCTAssertFalse(app.staticTexts["search.all.empty"].exists)
     artists.click()
     XCTAssertTrue(app.buttons["search.artist.fixture-artist-1"].waitForExistence(timeout: 10))
@@ -73,6 +76,18 @@ final class SearchDiscoveryTests: XCTestCase {
     RunLoop.current.run(until: Date(timeIntervalSinceNow: 4))
     XCTAssertTrue(app.buttons["track.fixture-1-track-3.play"].exists)
     XCTAssertFalse(app.buttons["track.fixture-1-track-1.play"].exists)
+  }
+
+  @MainActor
+  func testMatchingCategoryCountDoesNotClaimLoadedPageIsTotal() {
+    let app = launchSearch(scenario: "two-page", query: "Fixture Album")
+    let albums = app.buttons["search.show.albums"]
+    XCTAssertTrue(albums.waitForExistence(timeout: 10))
+    XCTAssertEqual(albums.label, "Show Albums (20+)")
+    XCTAssertTrue(app.staticTexts["search.songs.empty"].exists)
+    XCTAssertFalse(app.staticTexts["search.all.empty"].exists)
+    albums.click()
+    XCTAssertEqual(app.textFields["search.query"].value as? String, "Fixture Album")
   }
 
   @MainActor
