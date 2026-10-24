@@ -15,6 +15,7 @@ struct QueueView: View {
             Text("Now Playing").font(.headline)
             Text(current.track.title ?? "Untitled track")
               .accessibilityIdentifier("queue.current.\(current.id)")
+            CurrentPlaybackIndicator(state: playerStore.state, identifier: "queue.playback.\(current.id)")
           }
           Text("Up Next").font(.headline)
           ForEach(playerStore.upcoming) { entry in

@@ -103,6 +103,9 @@ struct TrackRow: View {
       Text(track.title ?? "Untitled track")
         .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : (isCompact ? 2 : 1))
         .accessibilityIdentifier("track.\(track.id).title")
+      if playerStore.currentTrack?.stableID == track.stableID {
+        CurrentPlaybackIndicator(state: playerStore.state, identifier: "track.\(track.id).playback")
+      }
       if let references = track.artistReferences, !references.isEmpty {
         let artistLayout =
           dynamicTypeSize.isAccessibilitySize
