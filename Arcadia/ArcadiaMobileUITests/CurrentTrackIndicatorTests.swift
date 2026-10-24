@@ -9,9 +9,17 @@ final class CurrentTrackIndicatorTests: XCTestCase {
     XCTAssertTrue(app.buttons["track.fixture-1-track-1.play"].waitForExistence(timeout: 10))
     app.buttons["track.fixture-1-track-1.play"].tap()
     XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 10))
+    app.buttons["player.expand"].tap()
+    XCTAssertEqual(
+      XCTWaiter.wait(
+        for: [
+          XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "Playing"), object: app.staticTexts["player.state"])
+        ],
+        timeout: 10), .completed)
+    app.buttons["player.dismiss"].tap()
     capture(app, "Song library - currently playing track")
-    capture(app, "Song library - playing row control before inline Pause")
-    let first = app.descendants(matching: .any).matching(identifier: "track.fixture-1-track-1.play").firstMatch
+    let first = app.buttons["track.fixture-1-track-1.play"]
     XCTAssertTrue(first.waitForExistence(timeout: 5))
     XCTAssertTrue(waitForState("Playing", marker: first))
     app.buttons["track.fixture-1-track-1.play"].tap()
@@ -32,7 +40,7 @@ final class CurrentTrackIndicatorTests: XCTestCase {
     app.navigationBars.buttons["Now Playing"].tap()
     app.buttons["player.dismiss"].tap()
     app.buttons["player.next"].tap()
-    let second = app.descendants(matching: .any).matching(identifier: "track.fixture-1-track-2.play").firstMatch
+    let second = app.buttons["track.fixture-1-track-2.play"]
     XCTAssertTrue(second.waitForExistence(timeout: 10))
     XCTAssertEqual(first.value as? String, "")
     XCTAssertTrue(waitForState("Playing", marker: second))
@@ -217,7 +225,7 @@ final class CurrentTrackIndicatorTests: XCTestCase {
 
   @MainActor
   private func assertPausedMarker(_ app: XCUIApplication) {
-    let marker = app.descendants(matching: .any).matching(identifier: "track.fixture-1-track-1.play").firstMatch
+    let marker = app.buttons["track.fixture-1-track-1.play"]
     XCTAssertTrue(marker.waitForExistence(timeout: 10))
     XCTAssertTrue(waitForState("Paused", marker: marker))
   }

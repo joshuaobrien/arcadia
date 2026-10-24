@@ -61,13 +61,11 @@ final class RealCurrentTrackIndicatorTests: XCTestCase {
     XCTAssertTrue(play.exists && play.isHittable && songs.frame.contains(play.frame))
     play.tap()
     XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 15))
-    let marker = app.descendants(matching: .any).matching(
-      identifier: "track.\(configuration.firstSongID).play"
-    ).firstMatch
+    let marker = app.buttons["track.\(configuration.firstSongID).play"]
     XCTAssertTrue(marker.waitForExistence(timeout: 10))
     XCTAssertTrue(waitForState("Playing", marker: marker))
     capture(app, "Real Jellyfin song library - currently playing song")
-    app.buttons["player.pause"].tap()
+    marker.tap()
     XCTAssertTrue(waitForState("Paused", marker: marker))
     capture(app, "Real Jellyfin song library - paused song remains identified")
   }

@@ -14,10 +14,11 @@ final class CurrentTrackIndicatorTests: XCTestCase {
     XCTAssertTrue(play.waitForExistence(timeout: 10))
     play.click()
     XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 10))
+    XCTAssertTrue(waitForState("Playing", marker: app.staticTexts["player.state"]))
     capture(app, "Mac song library - playing row control before inline Pause")
     play.click()
     capture(app, "Mac song library - current paused track")
-    let marker = app.descendants(matching: .any).matching(identifier: "track.fixture-1-track-1.play").firstMatch
+    let marker = app.buttons["track.fixture-1-track-1.play"]
     XCTAssertTrue(marker.waitForExistence(timeout: 5))
     XCTAssertTrue(waitForState("Paused", marker: marker))
     play.click()
