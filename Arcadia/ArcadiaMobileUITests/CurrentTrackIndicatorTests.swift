@@ -192,11 +192,14 @@ final class CurrentTrackIndicatorTests: XCTestCase {
     XCTAssertEqual(retained.upcoming, original.upcoming)
     app.buttons["player.dismiss"].tap()
     second.tap()
-    XCTAssertTrue(app.buttons["queue.replace.confirm"].waitForExistence(timeout: 5))
-    app.buttons["queue.replace.cancel"].tap()
+    let replacement = app.alerts["Replace your queue?"]
+    let confirm = replacement.buttons.matching(identifier: "queue.replace.confirm").firstMatch
+    let cancel = replacement.buttons.matching(identifier: "queue.replace.cancel").firstMatch
+    XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+    cancel.tap()
     XCTAssertTrue(waitForState("Paused", marker: first))
     second.tap()
-    app.buttons["queue.replace.confirm"].tap()
+    confirm.tap()
     XCTAssertTrue(waitForState("Playing", marker: second))
     XCTAssertEqual(first.label, "Play The First Song")
     XCTAssertEqual(second.label, "Pause The Second Song")
