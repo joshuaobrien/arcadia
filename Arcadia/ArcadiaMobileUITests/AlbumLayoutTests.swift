@@ -71,16 +71,22 @@ final class AlbumLayoutTests: XCTestCase {
     let first = app.buttons["album.fixture-1"]
     XCTAssertTrue(first.waitForExistence(timeout: 10))
     first.tap()
-    XCTAssertTrue(
-      app.staticTexts["The Extraordinary Adventures of a Very Long Album Title"].firstMatch.waitForExistence(
-        timeout: 10))
-    capture(app, "Long album metadata - accessibility text size")
+    let title = app.staticTexts["album.title"]
+    let artist = app.staticTexts["album.artist"]
+    XCTAssertTrue(title.waitForExistence(timeout: 10))
+    XCTAssertEqual(title.label, "The Extraordinary Adventures of a Very Long Album Title")
+    XCTAssertEqual(artist.label, "The Northern Lights Orchestra with The Evening Choir")
+    let window = app.windows.firstMatch
+    capture(app, "Long album identity - largest accessibility text size")
+    XCTAssertTrue(window.frame.contains(title.frame), "The complete album title is readable on entry")
     let play = app.buttons["album.play"]
-    for _ in 0..<12 {
-      if play.exists && play.isHittable && app.windows.firstMatch.frame.contains(play.frame) { break }
-      app.swipeUp()
+    if !play.isHittable || !window.frame.contains(play.frame) {
+      app.scrollViews["album.detail.scroll"].swipeUp()
     }
-    XCTAssertTrue(play.isHittable && app.windows.firstMatch.frame.contains(play.frame))
+    XCTAssertTrue(
+      play.isHittable && window.frame.contains(play.frame),
+      "Starting an identified album takes at most one scroll at the largest text size")
+    capture(app, "Album playback action - within one scroll at largest accessibility text size")
     let firstTrack = app.buttons["track.fixture-1-track-1.play"]
     for _ in 0..<8 {
       if firstTrack.exists && firstTrack.isHittable { break }
