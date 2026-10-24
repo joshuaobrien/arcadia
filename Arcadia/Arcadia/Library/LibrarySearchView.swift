@@ -11,7 +11,7 @@ struct LibrarySearchView: View {
         .onSubmit { model.search(immediately: true) }
       Picker("Category", selection: $model.category) {
         ForEach(SearchCategory.allCases) { category in
-          Text("\(category.title) (\(model.sections[category]?.items.count ?? 0))")
+          Text("\(category.title) (\(searchCount(model.sections[category])))")
             .tag(category)
             .accessibilityIdentifier("search.category.\(category.rawValue)")
         }
@@ -86,22 +86,31 @@ private struct SearchEmptyCategoryView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: DesignTokens.Spacing.m) {
-      ContentUnavailableView {
-        Label("No \(model.category.rawValue) found", systemImage: "magnifyingglass")
-          .accessibilityIdentifier("search.\(model.category.rawValue).empty")
-      } description: {
-        if model.hasNoMatches {
-          Text("No matches in your library. Try a different search.")
-            .accessibilityIdentifier("search.all.empty")
-        } else {
-          Text("Search other categories for this query.")
+      if !model.matchingCategories.isEmpty {
+        Text("Matches in other categories")
+          .font(.headline)
+          .accessibilityIdentifier("search.other.matches")
+        ForEach(model.matchingCategories.filter { $0 != model.category }) { category in
+          Button("Show \(category.title) (\(searchCount(model.sections[category])))") {
+            model.category = category
+          }
+          .buttonStyle(.bordered)
+          .accessibilityIdentifier("search.show.\(category.rawValue)")
         }
       }
-      ForEach(model.matchingCategories.filter { $0 != model.category }) { category in
-        Button("Show \(category.title) (\(model.sections[category]?.items.count ?? 0))") {
-          model.category = category
+      if model.hasNoMatches {
+        ContentUnavailableView {
+          Label("No \(model.category.rawValue) found", systemImage: "magnifyingglass")
+            .accessibilityIdentifier("search.\(model.category.rawValue).empty")
+        } description: {
+          Text("No matches in your library. Try a different search.")
+            .accessibilityIdentifier("search.all.empty")
         }
-        .accessibilityIdentifier("search.show.\(category.rawValue)")
+      } else {
+        Text("No \(model.category.rawValue) found")
+          .font(.subheadline)
+          .foregroundStyle(.secondary)
+          .accessibilityIdentifier("search.\(model.category.rawValue).empty")
       }
       if !model.pendingCategories.isEmpty {
         ProgressView("Searching other categories")
@@ -120,4 +129,10 @@ private struct SearchEmptyCategoryView: View {
     }
     .frame(maxWidth: .infinity, alignment: .leading)
   }
+}
+
+@MainActor
+private func searchCount(_ page: PagedLibrary<LibrarySearchResult>?) -> String {
+  let count = page?.items.count ?? 0
+  return "\(count)\(page?.nextCursor == nil ? "" : "+")"
 }
