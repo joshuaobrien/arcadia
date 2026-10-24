@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 
 final class MobileListeningTests: XCTestCase {
@@ -30,6 +31,40 @@ final class MobileListeningTests: XCTestCase {
     capture(app, "Phone expanded player - shared artwork and controls")
     app.buttons["queue.toggle"].tap()
     capture(app, "Phone dedicated queue - shared listening session")
+  }
+
+  @MainActor
+  func testExpandedPlayerPrioritizesMetadataSeekingAndTransport() {
+    let app = XCUIApplication()
+    app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
+    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
+    app.launch()
+    XCTAssertTrue(app.buttons["track.fixture-1-track-1.play"].waitForExistence(timeout: 10))
+    app.buttons["track.fixture-1-track-1.play"].tap()
+    XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 10))
+    app.buttons["player.pause"].tap()
+    app.buttons["player.expand"].tap()
+    let title = app.staticTexts["player.title"].firstMatch
+    let seek = app.sliders["player.seek"]
+    let resume = app.buttons["player.resume"]
+    XCTAssertTrue(seek.waitForExistence(timeout: 5))
+    capture(app, "Expanded player - matched control hierarchy review")
+    XCTAssertLessThan(title.frame.maxY, seek.frame.minY)
+    XCTAssertGreaterThan(
+      resume.frame.minY, seek.frame.maxY,
+      "Expanded transport must have its own prominent row below seeking")
+    for identifier in ["player.previous", "player.resume", "player.next"] {
+      let button = app.buttons[identifier]
+      XCTAssertTrue(button.isHittable)
+      XCTAssertGreaterThanOrEqual(button.frame.width, 44)
+      XCTAssertGreaterThanOrEqual(button.frame.height, 44)
+    }
+    capture(app, "Expanded player - readable metadata, seeking and dedicated transport")
+    app.buttons["queue.toggle"].tap()
+    XCTAssertTrue(app.staticTexts["queue.heading"].waitForExistence(timeout: 5))
+    app.navigationBars.buttons["Now Playing"].tap()
+    XCTAssertEqual(title.label, "The First Song")
+    XCTAssertTrue(resume.isHittable)
   }
 
   @MainActor
@@ -159,6 +194,53 @@ final class MobileListeningTests: XCTestCase {
   }
 
   @MainActor
+  func testExpandedPlayerAtAccessibilityTextSizeKeepsTimesAndTransportReadable() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+    app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
+    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
+    app.launch()
+    let play = app.buttons["track.fixture-1-track-1.play"]
+    XCTAssertTrue(play.waitForExistence(timeout: 10))
+    play.tap()
+    XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 10))
+    app.buttons["player.pause"].tap()
+    app.buttons["player.expand"].tap()
+    let seek = app.sliders["player.seek"]
+    XCTAssertTrue(seek.waitForExistence(timeout: 5))
+    capture(app, "Expanded player accessibility XXXL - elapsed, duration and transport readability")
+    let bounds = XCTAttachment(string: app.debugDescription)
+    bounds.name = "Expanded player accessibility XXXL public bounds"
+    bounds.lifetime = .keepAlways
+    add(bounds)
+    let window = app.windows.firstMatch.frame
+    let traits = UITraitCollection(preferredContentSizeCategory: .accessibilityExtraExtraExtraLarge)
+    let caption = UIFont.preferredFont(forTextStyle: .caption1, compatibleWith: traits)
+    let timeFont = UIFont.monospacedDigitSystemFont(ofSize: caption.pointSize, weight: .regular)
+    for identifier in ["player.elapsed", "player.duration"] {
+      let time = app.staticTexts[identifier]
+      XCTAssertTrue(time.exists && time.isHittable)
+      XCTAssertTrue(window.contains(time.frame))
+      let textWidth = (time.label as NSString).size(withAttributes: [.font: timeFont]).width
+      XCTAssertGreaterThanOrEqual(
+        time.frame.width + 1, textWidth,
+        "\(identifier) must provide enough width for its scaled time text")
+      XCTAssertFalse(time.frame.intersects(seek.frame))
+    }
+    XCTAssertTrue(seek.isHittable)
+    XCTAssertTrue(window.contains(seek.frame))
+    for identifier in ["player.previous", "player.resume", "player.next"] {
+      let button = app.buttons[identifier]
+      if !button.isHittable { app.swipeUp() }
+      XCTAssertTrue(button.isHittable)
+      XCTAssertTrue(window.contains(button.frame))
+      XCTAssertGreaterThanOrEqual(button.frame.width, 44)
+      XCTAssertGreaterThanOrEqual(button.frame.height, 44)
+    }
+    capture(app, "Expanded player accessibility XXXL - reachable transport")
+  }
+
+  @MainActor
   func testPhoneSearchAcceptsTypedQueryAndShowsMatchingSong() {
     let app = XCUIApplication()
     app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
@@ -214,7 +296,8 @@ final class MobileListeningTests: XCTestCase {
       guard parts.count == 2, let minutes = Int(parts[0]), let remainder = Int(parts[1]) else { return false }
       return seconds.contains(minutes * 60 + remainder)
     }
-    return XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: elapsed)], timeout: 5) == .completed
+    return XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: elapsed)], timeout: 5)
+      == .completed
   }
 
   @MainActor

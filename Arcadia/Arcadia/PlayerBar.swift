@@ -2,9 +2,6 @@ import SwiftUI
 
 struct PlayerBar: View {
   @Environment(PlayerStore.self) private var playerStore
-  @State private var isScrubbing = false
-  @State private var scrubPosition = 0.0
-  @State private var resumedAfterScrubbing = false
 
   var body: some View {
     if let track = playerStore.currentTrack {
@@ -29,14 +26,8 @@ struct PlayerBar: View {
             .foregroundStyle(.secondary)
             .accessibilityIdentifier("player.state")
         }
-        if let error = playerStore.errorText {
-          HStack {
-            Text(error).accessibilityIdentifier("player.error")
-            Button("Retry") { playerStore.retry() }.accessibilityIdentifier("player.retry")
-          }
-          .font(.caption)
-        }
-        progress
+        PlaybackFailureView()
+        PlaybackProgressView()
       }
       .padding()
       .background(.bar)
@@ -44,44 +35,93 @@ struct PlayerBar: View {
       .accessibilityIdentifier("player.bar")
     }
   }
+}
 
-  private var progress: some View {
+struct PlaybackFailureView: View {
+  @Environment(PlayerStore.self) private var playerStore
+
+  var body: some View {
+    if let error = playerStore.errorText {
+      HStack {
+        Text(error).accessibilityIdentifier("player.error")
+        Button("Retry") { playerStore.retry() }.accessibilityIdentifier("player.retry")
+      }
+      .font(.caption)
+    }
+  }
+}
+
+struct PlaybackProgressView: View {
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+  @Environment(PlayerStore.self) private var playerStore
+  @State private var isScrubbing = false
+  @State private var scrubPosition = 0.0
+  @State private var resumedAfterScrubbing = false
+
+  var body: some View {
     let displayed = isScrubbing ? scrubPosition : playerStore.currentTime
-    return HStack(spacing: DesignTokens.Spacing.m) {
-      Text(formatTime(displayed))
-        .frame(width: 42, alignment: .trailing)
-        .accessibilityIdentifier("player.elapsed")
-      Slider(
-        value: Binding(
-          get: { displayed / max(playerStore.duration, 1) },
-          set: { fraction in
-            let value = fraction * max(playerStore.duration, 1)
-            scrubPosition = value
-            if !isScrubbing {
-              playerStore.seek(to: value, resumeAfterSeeking: playerStore.isPlaybackRequested)
-            }
-          }), in: 0...1,
-        onEditingChanged: { isEditing in
-          if isEditing {
-            scrubPosition = playerStore.currentTime
-            resumedAfterScrubbing = playerStore.isPlaybackRequested
-            isScrubbing = true
-            playerStore.pause()
-          } else if isScrubbing {
-            playerStore.seek(to: scrubPosition, resumeAfterSeeking: resumedAfterScrubbing)
-            isScrubbing = false
+    return Group {
+      if dynamicTypeSize.isAccessibilitySize {
+        VStack(spacing: DesignTokens.Spacing.s) {
+          HStack {
+            elapsedTime(displayed)
+            Spacer()
+            totalTime
           }
+          seekControl(displayed: displayed)
         }
-      )
-      .disabled(playerStore.duration <= 0 || playerStore.state == .failed)
-      .accessibilityLabel("Playback position")
-      .accessibilityIdentifier("player.seek")
-      Text(formatTime(playerStore.duration))
-        .frame(width: 42, alignment: .leading)
-        .accessibilityIdentifier("player.duration")
+      } else {
+        HStack(spacing: DesignTokens.Spacing.m) {
+          elapsedTime(displayed)
+          seekControl(displayed: displayed)
+          totalTime
+        }
+      }
     }
     .font(.caption.monospacedDigit())
     .foregroundStyle(.secondary)
+  }
+
+  private func elapsedTime(_ displayed: Double) -> some View {
+    Text(formatTime(displayed))
+      .frame(minWidth: 42, alignment: .trailing)
+      .fixedSize(horizontal: true, vertical: false)
+      .accessibilityIdentifier("player.elapsed")
+  }
+
+  private var totalTime: some View {
+    Text(formatTime(playerStore.duration))
+      .frame(minWidth: 42, alignment: .leading)
+      .fixedSize(horizontal: true, vertical: false)
+      .accessibilityIdentifier("player.duration")
+  }
+
+  private func seekControl(displayed: Double) -> some View {
+    Slider(
+      value: Binding(
+        get: { displayed / max(playerStore.duration, 1) },
+        set: { fraction in
+          let value = fraction * max(playerStore.duration, 1)
+          scrubPosition = value
+          if !isScrubbing {
+            playerStore.seek(to: value, resumeAfterSeeking: playerStore.isPlaybackRequested)
+          }
+        }), in: 0...1,
+      onEditingChanged: { isEditing in
+        if isEditing {
+          scrubPosition = playerStore.currentTime
+          resumedAfterScrubbing = playerStore.isPlaybackRequested
+          isScrubbing = true
+          playerStore.pause()
+        } else if isScrubbing {
+          playerStore.seek(to: scrubPosition, resumeAfterSeeking: resumedAfterScrubbing)
+          isScrubbing = false
+        }
+      }
+    )
+    .disabled(playerStore.duration <= 0 || playerStore.state == .failed)
+    .accessibilityLabel("Playback position")
+    .accessibilityIdentifier("player.seek")
   }
 
   private func formatTime(_ seconds: Double) -> String {
@@ -93,12 +133,13 @@ struct PlayerBar: View {
 
 struct PlaybackToggleButton: View {
   @Environment(PlayerStore.self) private var playerStore
+  var symbolSize: CGFloat = 20
   var body: some View {
     Button {
       playerStore.togglePlayback()
     } label: {
       Image(systemName: playerStore.isPlaybackRequested ? "pause.fill" : "play.fill")
-        .font(.system(size: 20))
+        .font(.system(size: symbolSize))
         .frame(minWidth: 44, minHeight: 44)
     }
     .buttonStyle(.borderless)
@@ -110,12 +151,13 @@ struct PlaybackToggleButton: View {
 
 struct NextSongButton: View {
   @Environment(PlayerStore.self) private var playerStore
+  var symbolSize: CGFloat = 20
   var body: some View {
     Button {
       playerStore.playNext()
     } label: {
       Image(systemName: "forward.end.fill")
-        .font(.system(size: 20))
+        .font(.system(size: symbolSize))
         .frame(minWidth: 44, minHeight: 44)
     }
     .buttonStyle(.borderless)
@@ -127,12 +169,13 @@ struct NextSongButton: View {
 
 struct PreviousSongButton: View {
   @Environment(PlayerStore.self) private var playerStore
+  var symbolSize: CGFloat = 20
   var body: some View {
     Button {
       playerStore.playPrevious()
     } label: {
       Image(systemName: "backward.end.fill")
-        .font(.system(size: 20))
+        .font(.system(size: symbolSize))
         .frame(minWidth: 44, minHeight: 44)
     }
     .buttonStyle(.borderless)

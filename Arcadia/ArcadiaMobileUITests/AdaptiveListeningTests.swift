@@ -106,11 +106,39 @@ final class AdaptiveListeningTests: XCTestCase {
       XCTAssertTrue(app.windows.firstMatch.frame.contains(expanded.buttons["player.resume"].frame))
       XCTAssertTrue(app.windows.firstMatch.frame.contains(expanded.sliders["player.seek"].frame))
       capture(app, "Committed native Duo \(phase) - retained paused song and controls")
+      assertPlayerControlsAvoidNativeRail(app, expanded: expanded, phase: phase)
       XCTAssertEqual(inspectQueue(app), originalQueue)
     }
     app.buttons["player.dismiss"].tap()
     XCTAssertTrue(app.staticTexts["artist.songs.title"].waitForExistence(timeout: 5))
     try Data("done".utf8).write(to: directory.appendingPathComponent("done"), options: .atomic)
+  }
+
+  @MainActor
+  private func assertPlayerControlsAvoidNativeRail(
+    _ app: XCUIApplication, expanded: XCUIElement, phase: String
+  ) {
+    let controls = [
+      expanded.staticTexts["player.title"], expanded.sliders["player.seek"],
+      expanded.buttons["player.previous"], expanded.buttons["player.resume"],
+      expanded.buttons["player.next"],
+    ]
+    let nativeRail = [app.buttons["queue.toggle"], app.buttons["player.dismiss"]]
+    let bounds = XCTAttachment(
+      string: (controls + nativeRail).map { "\($0.identifier)=\($0.frame)" }.joined(separator: "\n"))
+    bounds.name = "Committed native \(phase) - player and native rail nonintersection bounds"
+    bounds.lifetime = .keepAlways
+    add(bounds)
+    for control in controls {
+      XCTAssertTrue(control.exists && control.isHittable, "\(phase): \(control.identifier) is reachable")
+      XCTAssertTrue(app.windows.firstMatch.frame.contains(control.frame))
+      for nativeButton in nativeRail {
+        XCTAssertTrue(nativeButton.exists && nativeButton.isHittable)
+        XCTAssertFalse(
+          control.frame.intersects(nativeButton.frame),
+          "\(phase): \(control.identifier) must not lie under \(nativeButton.identifier)")
+      }
+    }
   }
 
   @MainActor
