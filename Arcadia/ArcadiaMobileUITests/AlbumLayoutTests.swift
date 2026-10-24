@@ -90,7 +90,7 @@ final class AlbumLayoutTests: XCTestCase {
     let firstTrack = app.buttons["track.fixture-1-track-1.play"]
     for _ in 0..<8 {
       if firstTrack.exists && firstTrack.isHittable { break }
-      app.swipeUp()
+      app.scrollViews["album.detail.scroll"].swipeUp()
     }
     XCTAssertTrue(firstTrack.isHittable)
     firstTrack.tap()
