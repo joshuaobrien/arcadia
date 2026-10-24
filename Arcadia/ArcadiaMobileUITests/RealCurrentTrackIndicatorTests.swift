@@ -68,6 +68,10 @@ final class RealCurrentTrackIndicatorTests: XCTestCase {
     marker.tap()
     XCTAssertTrue(waitForState("Paused", marker: marker))
     capture(app, "Real Jellyfin song library - paused song remains identified")
+    marker.tap()
+    XCTAssertTrue(waitForState("Playing", marker: marker))
+    XCTAssertEqual(marker.label, "Pause First Contact")
+    capture(app, "Real Jellyfin song library - inline Resume continues the current song")
   }
 
   @MainActor

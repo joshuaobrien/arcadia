@@ -43,7 +43,7 @@ final class CurrentTrackIndicatorTests: XCTestCase {
     first.click()
     XCTAssertTrue(waitForState("Paused", marker: first))
     XCTAssertEqual(first.label, "Resume The First Song")
-    app.buttons["track.fixture-1-track-2.actions"].click()
+    app.descendants(matching: .any)["track.fixture-1-track-2.actions"].click()
     app.menuItems["Add to Queue"].click()
     app.sliders["player.seek"].adjust(toNormalizedSliderPosition: 0.5)
     let elapsed = app.staticTexts["player.elapsed"]
