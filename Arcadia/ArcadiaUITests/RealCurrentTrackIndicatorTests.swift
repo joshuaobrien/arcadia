@@ -41,29 +41,54 @@ final class RealCurrentTrackIndicatorTests: XCTestCase {
     album.click()
     let control = app.buttons["track.\(config.firstSongID).play"]
     XCTAssertTrue(control.waitForExistence(timeout: 15))
+    reveal(control, app: app)
     control.click()
     waitFor("Playing", control: control)
     XCTAssertEqual(control.label, "Pause First Contact")
+    reveal(control, app: app)
     control.click()
     waitFor("Paused", control: control)
     XCTAssertEqual(control.label, "Resume First Contact")
     app.sliders["player.seek"].adjust(toNormalizedSliderPosition: 0.25)
     let elapsed = app.staticTexts["player.elapsed"]
+    let advanced = NSPredicate { _, _ in
+      Self.seconds(elapsed.value as? String).map { $0 >= 3 } ?? false
+    }
     XCTAssertEqual(
-      XCTWaiter.wait(
-        for: [
-          XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "NOT (value IN %@)", ["0:00", "0:01", "0:02"]), object: elapsed)
-        ],
-        timeout: 5), .completed)
+      XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: advanced, object: elapsed)], timeout: 5),
+      .completed)
+    let before = try XCTUnwrap(Self.seconds(elapsed.value as? String))
+    XCTAssertGreaterThanOrEqual(before, 3)
     capture(app, "Real Jellyfin Mac - inline paused current control")
+    reveal(control, app: app)
     control.click()
     waitFor("Playing", control: control)
+    reveal(control, app: app)
     control.click()
     waitFor("Paused", control: control)
-    XCTAssertFalse(["0:00", "0:01", "0:02"].contains(elapsed.value as? String ?? ""))
+    let after = try XCTUnwrap(Self.seconds(elapsed.value as? String))
+    XCTAssertGreaterThanOrEqual(after, 3)
+    XCTAssertLessThanOrEqual(abs(after - before), 3)
     XCTAssertEqual(app.staticTexts["player.title"].value as? String, "First Contact")
     capture(app, "Real Jellyfin Mac - inline Resume retained the current song position")
+  }
+
+  @MainActor
+  private func reveal(_ control: XCUIElement, app: XCUIApplication) {
+    for _ in 0..<6 {
+      if control.isHittable && app.windows.firstMatch.frame.contains(control.frame) { return }
+      app.scrollViews["album.detail.scroll"].scroll(byDeltaX: 0, deltaY: -180)
+    }
+    XCTAssertTrue(control.isHittable)
+  }
+
+  nonisolated private static func seconds(_ text: String?) -> Int? {
+    guard let text else { return nil }
+    let parts = text.split(separator: ":")
+    guard parts.count == 2, let minutes = Int(parts[0]), let seconds = Int(parts[1]),
+      minutes >= 0, (0..<60).contains(seconds)
+    else { return nil }
+    return minutes * 60 + seconds
   }
 
   @MainActor
