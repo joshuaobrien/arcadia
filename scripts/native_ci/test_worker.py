@@ -229,11 +229,13 @@ private.symlink_to(held, target_is_directory=True)
         private.mkdir(parents=True)
         (private / 'source-fixture').write_text('private input')
 
+        server_status = ['in_progress']
+
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self):
                 self.send_response(200)
                 self.end_headers()
-                self.wfile.write(b'{"id":7,"status":"completed"}')
+                self.wfile.write(json.dumps({'id': 7, 'status': server_status[0]}).encode())
 
             def log_message(self, *args):
                 pass
@@ -243,6 +245,11 @@ private.symlink_to(held, target_is_directory=True)
             thread.start()
             self.env.update(GITHUB_API_URL='http://127.0.0.1:' + str(server.server_port),
                             GITHUB_REPOSITORY='jj/arcadia', ARCADIA_CI_TOKEN='test')
+            active = self.invoke('--reserve-gib', '100000000', '--reconcile')
+            self.assertNotEqual(active.returncode, 0)
+            self.assertIn('active CI run', active.stderr)
+            self.assertTrue(private.exists())
+            server_status[0] = 'completed'
             # Recovery must remain available when a crashed worker consumed the reserve.
             result = self.invoke('--reserve-gib', '100000000', '--reconcile')
             server.shutdown()

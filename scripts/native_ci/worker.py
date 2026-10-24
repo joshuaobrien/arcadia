@@ -290,7 +290,7 @@ def main(argv=None):
                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         deadline = time.monotonic() + args.command_timeout
         last_progress = time.monotonic()
-        with selectors.DefaultSelector() as reader, (durable / 'worker.log').open('wb') as log:
+        with selectors.DefaultSelector() as reader, (durable / 'worker.log').open('wb', buffering=0) as log:
             reader.register(child.stdout, selectors.EVENT_READ)
             pending = b''
             logged = 0
