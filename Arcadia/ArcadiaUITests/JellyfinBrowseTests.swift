@@ -85,8 +85,8 @@ extension JellyfinBrowseTests {
     capture(app, "Jellyfin - recoverable sign-in failure")
     paste(configuration.password, into: app.secureTextFields["source.password"])
     app.buttons["source.connect"].click()
-    XCTAssertTrue(app.staticTexts["Songs"].waitForExistence(timeout: 20))
-    app.staticTexts["Albums"].click()
+    XCTAssertTrue(app.staticTexts["library.destination.songs"].waitForExistence(timeout: 20))
+    app.staticTexts["library.destination.albums"].click()
     let count = app.staticTexts["albums.count"]
     XCTAssertTrue(count.waitForExistence(timeout: 20))
     let album = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Orb Sessions'")).firstMatch
@@ -100,7 +100,13 @@ extension JellyfinBrowseTests {
     album.click()
     XCTAssertTrue(app.staticTexts["First Contact"].waitForExistence(timeout: 15))
     XCTAssertTrue(app.staticTexts["Persistent State"].exists)
-    XCTAssertTrue(app.staticTexts["Range Request"].exists)
+    let lastTrack = app.staticTexts["Range Request"]
+    let detail = app.scrollViews["album.detail.scroll"]
+    for _ in 0..<6 {
+      if lastTrack.exists && lastTrack.isHittable && detail.frame.contains(lastTrack.frame) { break }
+      detail.scroll(byDeltaX: 0, deltaY: -200)
+    }
+    XCTAssertTrue(lastTrack.exists && lastTrack.isHittable && detail.frame.contains(lastTrack.frame))
     XCTAssertTrue(app.images["artwork.loaded"].waitForExistence(timeout: 15))
     capture(app, "Jellyfin - real artwork and ordered tracks")
     app.terminate()

@@ -16,83 +16,60 @@ struct AlbumDetail: View {
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: DesignTokens.Spacing.m) {
-      HStack(alignment: .bottom, spacing: DesignTokens.Spacing.l) {
-        AlbumArtwork(
-          artworkURL: self.album.artworkURL
-        )
-        .frame(width: 220, height: 220)
-        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.Spacing.m))
-        .shadow(
-          color: .black.opacity(0.2),
-          radius: DesignTokens.Radius.l,
-          y: 5
+    ScrollView {
+      VStack(alignment: .leading, spacing: DesignTokens.Spacing.m) {
+        AlbumMetadataView(
+          artworkURL: album.artworkURL,
+          title: album.title,
+          artist: album.albumArtist,
+          year: album.year.map(String.init) ?? "",
+          trackCount: album.trackCount.map(String.init) ?? ""
         )
 
-        VStack(alignment: .leading, spacing: DesignTokens.Spacing.s) {
-          Text("ALBUM")
-            .font(.caption.monospaced())
-            .foregroundStyle(.secondary)
-          Text(album.title)
-            .font(.largeTitle)
-            .fontWeight(.bold)
+        HStack {
+          Button("Play album", systemImage: "play.fill") { playerStore.play(model.tracks) }
+            .accessibilityIdentifier("album.play")
+          Menu {
+            Button("Play Album Next") { playerStore.insertNext(model.tracks) }
+            Button("Add Album to Queue") { playerStore.append(model.tracks) }
+          } label: {
+            Image(systemName: "ellipsis")
+          }
+          .songMenuStyle()
+          .frame(width: 28)
+          .accessibilityLabel("Album actions")
+          .accessibilityIdentifier("album.actions")
+        }
+        .disabled(model.isLoading || model.tracks.isEmpty)
 
-          Text(album.albumArtist)
-            .font(.title2)
-            .foregroundStyle(.secondary)
+        Divider()
 
-          HStack(spacing: DesignTokens.Spacing.xs) {
-            if let year = album.year {
-              Text(String(year))
-            }
-
-            if let trackCount = album.trackCount {
-              Text("•")
-              Text("\(trackCount) tracks")
+        if model.isLoading {
+          ProgressView("Loading tracks")
+            .accessibilityIdentifier("tracks.loading")
+        } else if let errorText = model.errorText {
+          ContentUnavailableView(
+            "Couldn't Load Tracks",
+            systemImage: "exclamationmark.triangle",
+            description: Text(errorText)
+          )
+          .accessibilityIdentifier("tracks.error")
+        } else {
+          LazyVStack(alignment: .leading, spacing: DesignTokens.Spacing.s) {
+            ForEach(model.tracks) { track in
+              TrackRow(track: track)
             }
           }
-          .font(.callout)
-          .foregroundStyle(.secondary)
+          .accessibilityIdentifier("tracks.loaded")
         }
       }
-
-      HStack {
-        Button("Play album", systemImage: "play.fill") { playerStore.play(model.tracks) }
-          .accessibilityIdentifier("album.play")
-        Menu {
-          Button("Play Album Next") { playerStore.insertNext(model.tracks) }
-          Button("Add Album to Queue") { playerStore.append(model.tracks) }
-        } label: {
-          Image(systemName: "ellipsis")
-        }
-        .songMenuStyle()
-        .frame(width: 28)
-        .accessibilityLabel("Album actions")
-        .accessibilityIdentifier("album.actions")
-      }
-      .disabled(model.isLoading || model.tracks.isEmpty)
-
-      Divider()
-
-      if model.isLoading {
-        ProgressView("Loading tracks")
-          .accessibilityIdentifier("tracks.loading")
-      } else if let errorText = model.errorText {
-        ContentUnavailableView(
-          "Couldn't Load Tracks",
-          systemImage: "exclamationmark.triangle",
-          description: Text(errorText)
-        )
-        .accessibilityIdentifier("tracks.error")
-      } else {
-        List(model.tracks) { track in
-          TrackRow(track: track)
-        }
-        .accessibilityIdentifier("tracks.loaded")
-      }
+      .padding()
     }
-    .padding()
+    .accessibilityIdentifier("album.detail.scroll")
     .libraryNavigationTitle(album.title)
+    #if os(iOS)
+      .navigationBarTitleDisplayMode(.inline)
+    #endif
     .navigationBarBackButtonHidden(true)
     .toolbar {
       ToolbarItem(placement: .navigation) { AlbumBackButton() }

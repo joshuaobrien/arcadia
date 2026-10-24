@@ -31,7 +31,7 @@
         }
         return FetchAlbumsResponse(albums: albums(1...20), nextCursor: "page-2")
       }
-      return FetchAlbumsResponse(albums: albums(1...1), nextCursor: nil)
+      return FetchAlbumsResponse(albums: albums(1...(scenario == .longAlbumMetadata ? 2 : 1)), nextCursor: nil)
     }
 
     func fetchAlbum(_ request: FetchAlbumRequest) async throws -> FetchAlbumResponse {
@@ -184,8 +184,12 @@
     private func albums(_ numbers: ClosedRange<Int>) -> [Album] {
       numbers.map { number in
         Album(
-          id: "fixture-\(number)", title: number == 1 ? "Hyperballad" : "Fixture Album \(number)",
-          albumArtist: "Bjork", year: 1996, trackCount: 3,
+          id: "fixture-\(number)",
+          title: scenario == .longAlbumMetadata && number == 1
+            ? "The Extraordinary Adventures of a Very Long Album Title"
+            : (number == 1 ? "Hyperballad" : "Fixture Album \(number)"),
+          albumArtist: scenario == .longAlbumMetadata
+            ? "The Northern Lights Orchestra with The Evening Choir" : "Bjork", year: 1996, trackCount: 3,
           artworkURL: Bundle.main.url(forResource: "FixtureArtwork", withExtension: "png")
         )
       }
