@@ -45,14 +45,12 @@ final class PlayerStore {
     self.source = source
     self.activateAudio = activateAudio
   }
-
   func pause() {
     playbackChoiceRevision = UUID()
     wantsPlayback = false
     player.pause()
     if currentTrack != nil && state != .failed && state != .ended { state = .paused }
   }
-
   func resume() {
     guard let entry = currentEntry else {
       if let first = queue.first { playQueuedEntry(first.id) }
@@ -74,7 +72,6 @@ final class PlayerStore {
     startTransport()
     updateTransport(generation)
   }
-
   func playQueuedEntry(_ id: UUID) {
     guard let entry = queue.first(where: { $0.id == id }) else { return }
     playbackChoiceRevision = UUID()
@@ -90,9 +87,8 @@ final class PlayerStore {
     guard let index = currentIndex else { return }
     playbackChoiceRevision = UUID()
     let destination = currentTime >= 3 ? index : max(0, index - 1)
-    if destination == index, restoration.position == nil,
-      player.currentItem?.status == .readyToPlay, duration > 0, state != .failed
-    {
+    let ready = player.currentItem?.status == .readyToPlay && duration > 0 && state != .failed
+    if destination == index, restoration.position == nil, ready {
       seek(to: 0, resumeAfterSeeking: wantsPlayback)
     } else {
       start(queue[destination], requestingPlayback: wantsPlayback)
