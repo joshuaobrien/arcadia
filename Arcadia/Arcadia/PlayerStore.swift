@@ -91,7 +91,7 @@ final class PlayerStore {
     playbackChoiceRevision = UUID()
     let destination = currentTime >= 3 ? index : max(0, index - 1)
     if destination == index, restoration.position == nil,
-      player.currentItem?.status == .readyToPlay, state != .failed
+      player.currentItem?.status == .readyToPlay, duration > 0, state != .failed
     {
       seek(to: 0, resumeAfterSeeking: wantsPlayback)
     } else {
