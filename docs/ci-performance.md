@@ -41,7 +41,11 @@ rather than recompressed on every warm job.
 
 ## Ownership, admission and recovery
 
-One lock admits one CI worker. The default total running-guest ceiling is two,
+A short host lock serializes admission and shared-cache publication; up to two CI
+workers can build concurrently. A third worker waits for capacity for at most five
+minutes (`--admission-timeout`); `--max-workers 1` restores serial admission.
+Ownership reserves CPU/memory even while a clone is stopped during startup or
+cleanup. The default total running-guest ceiling is two,
 including separately running task VMs. Admission also sums their configured
 CPU/memory budgets, leaves at least 4 GiB or one quarter of host RAM (whichever
 is larger), and refuses CPU oversubscription. Unknown active-guest budgets fail
@@ -49,7 +53,8 @@ closed. The observed templates each use 4 CPUs and 8 GiB RAM on the 10-CPU,
 24-GiB mini. The disk reserve is 12 GiB, calibrated against a 2.57-GiB observed warm
 write excursion plus artifact/cache/diagnostic headroom and an explicit margin;
 see [measurement results](ci-performance-results-2026-10-24.md).
-`ARCADIA_CI_RESERVE_GIB` can set the operating budget. Remeasure after workload
+Each existing CI worker adds 3 GiB to the free-space admission floor to cover its
+measured warm write burst. `ARCADIA_CI_RESERVE_GIB` can set the operating budget. Remeasure after workload
 or toolchain growth. Admission refuses work instead of deleting unrelated resources.
 
 Ownership is recorded before cloning. Cancellation terminates the owned process

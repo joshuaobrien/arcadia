@@ -60,7 +60,7 @@ def resource_budget(template, root, guests):
             name = guest.get('Name', guest.get('name', ''))
             if not name or Path(name).name != name:
                 raise RuntimeError('Cannot determine active guest resource budget')
-            configurations.append(json.loads((root / name / 'config.json').read_text()))
+            configurations.append(json.loads((root / guest.get('budget_template', name) / 'config.json').read_text()))
     if any(int(c.get('memorySize', 0)) <= 0 or int(c.get('cpuCount', 0)) <= 0 for c in configurations):
         raise RuntimeError('Cannot determine guest CPU/memory budgets')
     requested_memory = sum(int(c['memorySize']) for c in configurations)
@@ -71,6 +71,25 @@ def resource_budget(template, root, guests):
         raise RuntimeError('Guest CPU budgets exceed host CPU capacity')
     return {'host_memory_bytes': memory, 'host_cpus': cpus,
             'admitted_guest_memory_bytes': requested_memory, 'admitted_guest_cpus': requested_cpus}
+
+
+def reserved_guests(state, guests):
+    # A cloned worker can still be stopped while its guest command starts. Reserve
+    # its budget from ownership registration until cleanup, not just while running.
+    reserved = {g.get('Name', g.get('name')): g for g in guests}
+    workers = []
+    for path in (state / 'workers').glob('*.json'):
+        owned = json.loads(path.read_text())
+        if owned.get('worker_removed'):
+            continue
+        try:
+            os.kill(int(owned['pid']), 0)
+        except ProcessLookupError:
+            continue  # Reconciliation handles dead owners before admission.
+        workers.append(owned)
+        vm = owned['vm']
+        reserved[vm] = {'Name': vm, 'State': 'running', 'budget_template': owned['template']}
+    return list(reserved.values()), len(workers)
 
 
 def remove_worker(vm):
@@ -175,7 +194,9 @@ def retain_diagnostics(state, vm, report, artifacts=None):
     retained = sorted((state / 'evidence').glob('arcadia-fast-ci-*'), key=lambda p: p.stat().st_mtime, reverse=True)
     for old in retained[5:]:
         record = state / 'workers' / (old.name + '.json')
-        if old.is_dir() and old.name != vm and record.is_file() and json.loads(record.read_text()).get('vm') == old.name:
+        if (old.is_dir() and old.name != vm and record.is_file()
+                and json.loads(record.read_text()).get('vm') == old.name
+                and json.loads(record.read_text()).get('worker_removed')):
             shutil.rmtree(old)
 
 
@@ -187,6 +208,8 @@ def main(argv=None):
     parser.add_argument('--artifacts', type=Path, required=True)
     parser.add_argument('--reserve-gib', type=float, default=float(os.environ.get('ARCADIA_CI_RESERVE_GIB', '12')))
     parser.add_argument('--max-guests', type=int, default=2)
+    parser.add_argument('--max-workers', type=int, choices=[1, 2], default=2)
+    parser.add_argument('--admission-timeout', type=float, default=300)
     parser.add_argument('--provision', action='store_true')
     parser.add_argument('--reconcile', action='store_true')
     parser.add_argument('--source', type=Path, default=Path.cwd())
@@ -230,17 +253,39 @@ def main(argv=None):
             raise RuntimeError('A worker command is required')
         args.state.mkdir(parents=True, exist_ok=True)
         lock = (args.state / 'worker.lock').open('a')
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            raise RuntimeError('CI worker capacity occupied; retry through the CI queue')
-        report['reconciled'] = reconcile(args.state)
-        if args.reconcile:
-            report.update(passed=True, scope='reconciliation')
-            return 0
-        if shutil.disk_usage(args.template_root).free < args.reserve_gib * 1024 ** 3:
+        for sig in [signal.SIGTERM, signal.SIGINT]:
+            previous[sig] = signal.signal(sig, interrupted)
+        admission_deadline = time.monotonic() + args.admission_timeout
+        waiting = False
+        while True:
+            acquired = False
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                acquired = True
+                report['reconciled'] = reconcile(args.state)
+                if args.reconcile:
+                    report.update(passed=True, scope='reconciliation')
+                    return 0
+                if shutil.disk_usage(args.template_root).free < args.reserve_gib * 1024 ** 3:
+                    raise RuntimeError('Insufficient disk reserve; no worker created')
+                guests, active = reserved_guests(args.state, inventory())
+                if active < args.max_workers:
+                    break
+            except BlockingIOError:
+                pass
+            if acquired:
+                fcntl.flock(lock, fcntl.LOCK_UN)
+            if time.monotonic() >= admission_deadline:
+                raise RuntimeError('CI worker capacity occupied; admission deadline exceeded')
+            if not waiting:
+                phase('waiting for worker capacity')
+                waiting = True
+            time.sleep(.1)
+        # Keep the original free-space floor for each admitted worker; reserve an
+        # additional 3 GiB for every existing worker's measured warm write burst.
+        required_disk = (args.reserve_gib + 3 * active) * 1024 ** 3
+        if shutil.disk_usage(args.template_root).free < required_disk:
             raise RuntimeError('Insufficient disk reserve; no worker created')
-        guests = inventory()
         if sum(str(v.get('State', v.get('state', ''))).lower() in {'running', 'suspended'} for v in guests) >= args.max_guests:
             raise RuntimeError('Guest capacity occupied; no worker created')
         report['resources'] = resource_budget(template, args.template_root, guests)
@@ -250,8 +295,6 @@ def main(argv=None):
         ownership = args.state / 'workers' / (report['vm'] + '.json')
         write_json(ownership, report)
         registered = True
-        for sig in [signal.SIGTERM, signal.SIGINT]:
-            previous[sig] = signal.signal(sig, interrupted)
         phase('local clone')
         subprocess.run(['tart', 'clone', args.template, report['vm'], '--prune-limit', '0'],
                        env=dict(os.environ, TART_NO_AUTO_PRUNE='1'), check=True, timeout=120)
@@ -282,6 +325,7 @@ def main(argv=None):
                     shutil.copy2(seed, cache_private / seed.name)
                     shutil.copy2(receipt, cache_private / receipt.name)
         report['dependency_key'] = key
+        fcntl.flock(lock, fcntl.LOCK_UN)
         phase('worker command')
         args.artifacts.mkdir(parents=True, exist_ok=True)
         child = subprocess.Popen(command, env=dict(os.environ, ARCADIA_CI_VM=report['vm'],
@@ -367,6 +411,7 @@ def main(argv=None):
                     cleanup.append('Private input cleanup: ' + str(error))
                     status = 1
             report['private_removed'] = not private_root or not private_root.exists()
+            fcntl.flock(lock, fcntl.LOCK_EX)
             if status == 0 and not cleanup:
                 try:
                     phase('cache publication')
