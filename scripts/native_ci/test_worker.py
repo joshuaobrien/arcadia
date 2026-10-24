@@ -172,6 +172,7 @@ if sys.argv[1] == 'delete':
             server.shutdown()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(json.loads(owned.read_text())['worker_removed'])
+        self.assertTrue(json.loads((self.root / 'evidence/worker.json').read_text())['passed'])
 
     def test_cancellation_releases_only_owned_worker_and_preserves_evidence(self):
         self.provision()

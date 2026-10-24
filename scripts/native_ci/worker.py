@@ -93,6 +93,34 @@ def remove_worker(vm):
         return False, attempts
 
 
+def owned_group_members(group):
+    output = subprocess.check_output(['ps', '-axo', 'pid=,pgid=,uid=,stat='], text=True, timeout=5)
+    members = []
+    for line in output.splitlines():
+        fields = line.split()
+        if len(fields) >= 4 and int(fields[1]) == group and int(fields[2]) == os.getuid() and not fields[3].startswith('Z'):
+            members.append(int(fields[0]))
+    return members
+
+
+def stop_owned_processes(child):
+    # Tart can put a privileged vmnet helper in this group. Signal only our UID;
+    # stopping the owned VM below releases its system helper through Tart itself.
+    for sig in [signal.SIGTERM, signal.SIGKILL]:
+        for pid in owned_group_members(child.pid):
+            try:
+                os.kill(pid, sig)
+            except ProcessLookupError:
+                pass
+        try:
+            child.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            pass
+    child.wait(timeout=5)
+    if owned_group_members(child.pid):
+        raise RuntimeError('Owned process group has surviving processes')
+
+
 def reconcile(state):
     outcomes = []
     for path in sorted((state / 'workers').glob('*.json')):
@@ -185,6 +213,7 @@ def main(argv=None):
             raise RuntimeError('CI worker capacity occupied; retry through the CI queue')
         report['reconciled'] = reconcile(args.state)
         if args.reconcile:
+            report.update(passed=True, scope='reconciliation')
             return 0
         guests = inventory()
         if sum(str(v.get('State', v.get('state', ''))).lower() in {'running', 'suspended'} for v in guests) >= args.max_guests:
@@ -287,29 +316,19 @@ def main(argv=None):
             for sig in previous:
                 signal.signal(sig, signal.SIG_IGN)
             phase('cleanup')
+            process_errors = []
             if child:
                 try:
-                    os.killpg(child.pid, signal.SIGTERM)
-                except ProcessLookupError:
-                    pass
-            if child:
-                # A process group may outlive its leader. Kill the remaining owned
-                # group before deleting a clone that a descendant could still create.
-                try:
-                    child.wait(timeout=3)
-                except subprocess.TimeoutExpired:
-                    pass
-                try:
-                    os.killpg(child.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                child.wait(timeout=5)
-                if child.stdout:
-                    child.stdout.close()
+                    stop_owned_processes(child)
+                except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+                    process_errors.append(str(error))
+                finally:
+                    if child.stdout:
+                        child.stdout.close()
             absent, attempts = remove_worker(report['vm'])
             report['worker_removed'] = absent
             report['cleanup_attempt_errors'] = attempts
-            cleanup = [] if absent else ['Owned VM still present or absence unverified']
+            cleanup = process_errors + ([] if absent else ['Owned VM still present or absence unverified'])
             report['template_unchanged'] = fingerprint(template) == identity
             if not report['template_unchanged']:
                 cleanup.append('Golden template identity changed')
