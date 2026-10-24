@@ -128,6 +128,34 @@ if sys.argv[1] == 'delete':
                     process.kill()
                 process.communicate()
 
+    def test_cancelled_worker_does_not_wait_for_peer_admission_lock(self):
+        import fcntl
+        self.provision()
+        marker = self.root / 'entered'
+        process = subprocess.Popen([
+            sys.executable, str(CLI), '--template', 'gold',
+            '--template-root', str(self.templates), '--state', str(self.root / 'state'),
+            '--artifacts', str(self.root / 'evidence'), '--reserve-gib', '0', '--',
+            sys.executable, '-c', "from pathlib import Path; import time; Path(" + repr(str(marker)) + ").touch(); time.sleep(30)"],
+            env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            deadline = time.monotonic() + 3
+            while not marker.exists() and time.monotonic() < deadline:
+                time.sleep(.02)
+            self.assertTrue(marker.exists())
+            with (self.root / 'state/worker.lock').open('a') as peer:
+                fcntl.flock(peer, fcntl.LOCK_EX)
+                process.terminate()
+                output, errors = process.communicate(timeout=5)
+                self.assertEqual(process.returncode, 130, output + errors)
+            receipt = json.loads((self.root / 'evidence/worker.json').read_text())
+            self.assertTrue(receipt['worker_removed'])
+            self.assertTrue(receipt['private_removed'])
+        finally:
+            if process.poll() is None:
+                process.kill()
+            process.communicate()
+
     def test_host_diagnostics_rotate_only_owned_history(self):
         self.provision()
         unknown = self.root / 'state/evidence/arcadia-fast-ci-unowned'

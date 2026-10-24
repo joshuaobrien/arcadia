@@ -411,7 +411,20 @@ def main(argv=None):
                     cleanup.append('Private input cleanup: ' + str(error))
                     status = 1
             report['private_removed'] = not private_root or not private_root.exists()
-            fcntl.flock(lock, fcntl.LOCK_EX)
+            # Failed/cancelled jobs never need shared publication. In particular,
+            # do not wait behind an older worker that holds its lock all build.
+            if status == 0 and not cleanup:
+                deadline = time.monotonic() + 15
+                while True:
+                    try:
+                        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        break
+                    except BlockingIOError:
+                        if time.monotonic() >= deadline:
+                            cleanup.append('Cache publication lock deadline exceeded')
+                            status = 1
+                            break
+                        time.sleep(.1)
             if status == 0 and not cleanup:
                 try:
                     phase('cache publication')
