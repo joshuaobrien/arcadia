@@ -18,12 +18,57 @@ final class CurrentTrackIndicatorTests: XCTestCase {
     capture(app, "Song library - current track remains marked while paused")
     app.buttons["track.fixture-1-track-2.actions"].tap()
     app.buttons["Add to Queue"].tap()
+    app.buttons["player.expand"].tap()
+    app.buttons["queue.toggle"].tap()
+    let queue = app.scrollViews["queue.scroll"]
+    XCTAssertTrue(queue.waitForExistence(timeout: 5))
+    let current = queue.staticTexts.matching(NSPredicate(format: "identifier BEGINSWITH %@", "queue.current."))
+    XCTAssertEqual(current.count, 1)
+    let originalCurrentID = current.firstMatch.identifier
+    let upcoming = queue.otherElements.matching(NSPredicate(format: "identifier BEGINSWITH %@", "queue.entry."))
+    XCTAssertEqual(upcoming.count, 1)
+    let originalUpcomingID = upcoming.firstMatch.identifier
+    app.navigationBars.buttons["Now Playing"].tap()
+    app.buttons["player.dismiss"].tap()
     app.buttons["player.next"].tap()
     let second = app.descendants(matching: .any).matching(identifier: "track.fixture-1-track-2.playback").firstMatch
     XCTAssertTrue(second.waitForExistence(timeout: 10))
     XCTAssertFalse(first.exists)
     XCTAssertTrue(waitForState("Playing", marker: second))
     capture(app, "Song library - next track replaces the old current marker")
+    app.buttons["player.pause"].tap()
+    XCTAssertTrue(waitForState("Paused", marker: second))
+    app.buttons["player.expand"].tap()
+    let seek = app.sliders["player.seek"]
+    XCTAssertTrue(seek.waitForExistence(timeout: 5))
+    XCTAssertTrue(seek.isEnabled)
+    seek.adjust(toNormalizedSliderPosition: 0)
+    let elapsed = app.staticTexts["player.elapsed"]
+    XCTAssertTrue(
+      XCTWaiter.wait(
+        for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "0:00"), object: elapsed)],
+        timeout: 5) == .completed)
+    let previous = app.buttons["player.previous"]
+    XCTAssertTrue(previous.waitForExistence(timeout: 5))
+    XCTAssertTrue(previous.isEnabled)
+    previous.tap()
+    app.buttons["queue.toggle"].tap()
+    XCTAssertTrue(queue.waitForExistence(timeout: 5))
+    XCTAssertEqual(current.count, 1)
+    XCTAssertEqual(current.firstMatch.identifier, originalCurrentID)
+    XCTAssertEqual(upcoming.count, 1)
+    XCTAssertEqual(upcoming.firstMatch.identifier, originalUpcomingID)
+    let activeMarker = queue.descendants(matching: .any).matching(
+      NSPredicate(format: "identifier BEGINSWITH %@", "queue.playback."))
+    XCTAssertEqual(activeMarker.count, 1)
+    XCTAssertTrue(waitForState("Paused", marker: activeMarker.firstMatch))
+    app.navigationBars.buttons["Now Playing"].tap()
+    app.buttons["player.dismiss"].tap()
+    XCTAssertTrue(first.waitForExistence(timeout: 5))
+    XCTAssertTrue(waitForState("Paused", marker: first))
+    XCTAssertFalse(second.exists)
+    XCTAssertTrue(app.buttons["player.resume"].exists)
+    capture(app, "Song library - Previous restores the original paused track and occurrence")
   }
 
   @MainActor
