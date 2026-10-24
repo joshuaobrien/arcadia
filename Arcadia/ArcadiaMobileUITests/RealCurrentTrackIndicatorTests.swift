@@ -48,28 +48,37 @@ final class RealCurrentTrackIndicatorTests: XCTestCase {
     if system.buttons["Not Now"].waitForExistence(timeout: 3) {
       system.buttons["Not Now"].tap()
     }
-    XCTAssertTrue(app.staticTexts["songs.count"].waitForExistence(timeout: 20))
-    let play = app.buttons["track.\(configuration.firstSongID).play"]
-    let songs = app.scrollViews["songs.scroll"]
-    XCTAssertTrue(songs.waitForExistence(timeout: 10))
-    // The configured occurrence can be beyond the first source page. Scroll
-    // through the public library so its normal page loading discovers that ID.
-    for _ in 0..<40 {
-      if play.exists && play.isHittable && songs.frame.contains(play.frame) { break }
-      songs.swipeUp()
+    app.segmentedControls.buttons["Albums"].tap()
+    let album = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Orb Sessions'")).firstMatch
+    let albums = app.scrollViews["albums.scroll"]
+    XCTAssertTrue(albums.waitForExistence(timeout: 10))
+    for _ in 0..<12 {
+      if album.exists && album.isHittable { break }
+      albums.swipeUp()
     }
-    XCTAssertTrue(play.exists && play.isHittable && songs.frame.contains(play.frame))
+    XCTAssertTrue(album.exists && album.isHittable)
+    album.tap()
+    let play = app.buttons["track.\(configuration.firstSongID).play"]
+    XCTAssertTrue(play.waitForExistence(timeout: 15))
+    let detail = app.scrollViews["album.detail.scroll"]
+    for _ in 0..<6 {
+      if play.isHittable && app.windows.firstMatch.frame.contains(play.frame) { break }
+      detail.swipeUp()
+    }
+    XCTAssertTrue(play.isHittable && app.windows.firstMatch.frame.contains(play.frame))
     play.tap()
     XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 15))
-    let marker = app.descendants(matching: .any).matching(
-      identifier: "track.\(configuration.firstSongID).playback"
-    ).firstMatch
+    let marker = app.buttons["track.\(configuration.firstSongID).play"]
     XCTAssertTrue(marker.waitForExistence(timeout: 10))
     XCTAssertTrue(waitForState("Playing", marker: marker))
-    capture(app, "Real Jellyfin song library - currently playing song")
-    app.buttons["player.pause"].tap()
+    capture(app, "Real Jellyfin album tracks - currently playing song")
+    marker.tap()
     XCTAssertTrue(waitForState("Paused", marker: marker))
-    capture(app, "Real Jellyfin song library - paused song remains identified")
+    capture(app, "Real Jellyfin album tracks - paused song remains identified")
+    marker.tap()
+    XCTAssertTrue(waitForState("Playing", marker: marker))
+    XCTAssertEqual(marker.label, "Pause First Contact")
+    capture(app, "Real Jellyfin album tracks - inline Resume continues the current song")
   }
 
   @MainActor

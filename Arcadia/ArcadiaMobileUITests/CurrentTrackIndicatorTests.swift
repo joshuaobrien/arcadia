@@ -9,13 +9,26 @@ final class CurrentTrackIndicatorTests: XCTestCase {
     XCTAssertTrue(app.buttons["track.fixture-1-track-1.play"].waitForExistence(timeout: 10))
     app.buttons["track.fixture-1-track-1.play"].tap()
     XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 10))
+    app.buttons["player.expand"].tap()
+    XCTAssertEqual(
+      XCTWaiter.wait(
+        for: [
+          XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "Playing"), object: app.staticTexts["player.state"])
+        ],
+        timeout: 10), .completed)
+    app.buttons["player.dismiss"].tap()
     capture(app, "Song library - currently playing track")
-    let first = app.descendants(matching: .any).matching(identifier: "track.fixture-1-track-1.playback").firstMatch
-    XCTAssertTrue(first.waitForExistence(timeout: 5))
-    XCTAssertTrue(waitForState("Playing", marker: first))
     app.buttons["player.pause"].tap()
-    XCTAssertTrue(waitForState("Paused", marker: first))
     capture(app, "Song library - current track remains marked while paused")
+    let first = app.buttons["track.fixture-1-track-1.play"]
+    XCTAssertTrue(first.waitForExistence(timeout: 5))
+    XCTAssertTrue(waitForState("Paused", marker: first))
+    XCTAssertEqual(first.label, "Resume The First Song")
+    first.tap()
+    XCTAssertTrue(waitForState("Playing", marker: first))
+    first.tap()
+    XCTAssertTrue(waitForState("Paused", marker: first))
     app.buttons["track.fixture-1-track-2.actions"].tap()
     app.buttons["Add to Queue"].tap()
     app.buttons["player.expand"].tap()
@@ -31,9 +44,9 @@ final class CurrentTrackIndicatorTests: XCTestCase {
     app.navigationBars.buttons["Now Playing"].tap()
     app.buttons["player.dismiss"].tap()
     app.buttons["player.next"].tap()
-    let second = app.descendants(matching: .any).matching(identifier: "track.fixture-1-track-2.playback").firstMatch
+    let second = app.buttons["track.fixture-1-track-2.play"]
     XCTAssertTrue(second.waitForExistence(timeout: 10))
-    XCTAssertFalse(first.exists)
+    XCTAssertEqual(first.value as? String, "")
     XCTAssertTrue(waitForState("Playing", marker: second))
     capture(app, "Song library - next track replaces the old current marker")
     app.buttons["player.pause"].tap()
@@ -66,7 +79,7 @@ final class CurrentTrackIndicatorTests: XCTestCase {
     app.buttons["player.dismiss"].tap()
     XCTAssertTrue(first.waitForExistence(timeout: 5))
     XCTAssertTrue(waitForState("Paused", marker: first))
-    XCTAssertFalse(second.exists)
+    XCTAssertEqual(second.value as? String, "")
     XCTAssertTrue(app.buttons["player.resume"].exists)
     capture(app, "Song library - Previous restores the original paused track and occurrence")
   }
@@ -137,8 +150,89 @@ final class CurrentTrackIndicatorTests: XCTestCase {
   }
 
   @MainActor
+  func testPhoneInlineTransportPreservesPausedPositionAndQueue() {
+    let app = launchFixture()
+    let first = app.buttons["track.fixture-1-track-1.play"]
+    let second = app.buttons["track.fixture-1-track-2.play"]
+    XCTAssertTrue(first.waitForExistence(timeout: 10))
+    first.tap()
+    XCTAssertTrue(waitForState("Playing", marker: first))
+    XCTAssertEqual(first.label, "Pause The First Song")
+    first.tap()
+    XCTAssertTrue(waitForState("Paused", marker: first))
+    XCTAssertEqual(first.label, "Resume The First Song")
+    app.buttons["track.fixture-1-track-2.actions"].tap()
+    app.buttons["Add to Queue"].tap()
+    app.buttons["player.expand"].tap()
+    let seek = app.sliders["player.seek"]
+    XCTAssertTrue(seek.waitForExistence(timeout: 5))
+    seek.adjust(toNormalizedSliderPosition: 0.5)
+    let elapsed = app.staticTexts["player.elapsed"]
+    XCTAssertEqual(
+      XCTWaiter.wait(
+        for: [
+          XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "NOT (label IN %@)", ["0:00", "0:01", "0:02"]), object: elapsed)
+        ],
+        timeout: 5), .completed)
+    let position = phoneElapsedSeconds(elapsed)
+    let original = phoneQueueSnapshot(app)
+    app.buttons["player.dismiss"].tap()
+    first.tap()
+    XCTAssertTrue(waitForState("Playing", marker: first))
+    first.tap()
+    XCTAssertTrue(waitForState("Paused", marker: first))
+    capture(app, "Phone inline Resume - paused song retained")
+    app.buttons["player.expand"].tap()
+    XCTAssertTrue(elapsed.waitForExistence(timeout: 5))
+    XCTAssertGreaterThanOrEqual(phoneElapsedSeconds(elapsed), 3)
+    XCTAssertLessThanOrEqual(abs(phoneElapsedSeconds(elapsed) - position), 3)
+    let retained = phoneQueueSnapshot(app)
+    XCTAssertEqual(retained.current, original.current)
+    XCTAssertEqual(retained.upcoming, original.upcoming)
+    app.buttons["player.dismiss"].tap()
+    second.tap()
+    let replacement = app.alerts["Replace your queue?"]
+    let confirm = replacement.buttons.matching(identifier: "queue.replace.confirm").firstMatch
+    let cancel = replacement.buttons.matching(identifier: "queue.replace.cancel").firstMatch
+    XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+    cancel.tap()
+    XCTAssertTrue(waitForState("Paused", marker: first))
+    second.tap()
+    confirm.tap()
+    XCTAssertTrue(waitForState("Playing", marker: second))
+    XCTAssertEqual(first.label, "Play The First Song")
+    XCTAssertEqual(second.label, "Pause The Second Song")
+    capture(app, "Phone inline transport - another song uses explicit queue replacement")
+  }
+
+  @MainActor
+  private func phoneQueueSnapshot(_ app: XCUIApplication) -> (current: String, upcoming: [String]) {
+    app.buttons["queue.toggle"].tap()
+    let queue = app.scrollViews["queue.scroll"]
+    XCTAssertTrue(queue.waitForExistence(timeout: 5))
+    let current = queue.staticTexts.matching(NSPredicate(format: "identifier BEGINSWITH 'queue.current.'"))
+    let upcoming = queue.otherElements.matching(NSPredicate(format: "identifier BEGINSWITH 'queue.entry.'"))
+    XCTAssertEqual(current.count, 1)
+    XCTAssertEqual(upcoming.count, 1)
+    let result = (current.firstMatch.identifier, upcoming.allElementsBoundByIndex.map(\.identifier))
+    app.navigationBars.buttons["Now Playing"].tap()
+    return result
+  }
+
+  @MainActor
+  private func phoneElapsedSeconds(_ elapsed: XCUIElement) -> Int {
+    let parts = elapsed.label.split(separator: ":")
+    guard parts.count == 2, let minutes = Int(parts[0]), let seconds = Int(parts[1]) else {
+      XCTFail("Expected public elapsed time")
+      return -1
+    }
+    return minutes * 60 + seconds
+  }
+
+  @MainActor
   private func assertPausedMarker(_ app: XCUIApplication) {
-    let marker = app.descendants(matching: .any).matching(identifier: "track.fixture-1-track-1.playback").firstMatch
+    let marker = app.buttons["track.fixture-1-track-1.play"]
     XCTAssertTrue(marker.waitForExistence(timeout: 10))
     XCTAssertTrue(waitForState("Paused", marker: marker))
   }

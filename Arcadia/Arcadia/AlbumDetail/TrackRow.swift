@@ -75,13 +75,34 @@ struct TrackRow: View {
 
   private var playButton: some View {
     Button {
-      playerStore.play([track])
+      if isCurrentTrack { playerStore.togglePlayback() } else { playerStore.play([track]) }
     } label: {
-      Image(systemName: "play.fill").frame(minWidth: 44, minHeight: 44)
+      Image(systemName: isPauseAction ? "pause.fill" : "play.fill")
+        .frame(minWidth: 44, minHeight: 44)
+        .overlay {
+          if isCurrentTrack {
+            RoundedRectangle(cornerRadius: DesignTokens.Radius.m)
+              .strokeBorder(.secondary, lineWidth: 1)
+              .accessibilityHidden(true)
+          }
+        }
     }
     .buttonStyle(.borderless)
-    .accessibilityLabel("Play \(track.title ?? "Untitled track")")
+    .accessibilityLabel("\(playbackAction) \(track.title ?? "Untitled track")")
+    .accessibilityValue(isCurrentTrack ? playerStore.state.rawValue.capitalized : "")
     .accessibilityIdentifier("track.\(track.id).play")
+  }
+
+  private var isCurrentTrack: Bool { playerStore.currentTrack?.stableID == track.stableID }
+  private var isPauseAction: Bool { isCurrentTrack && playerStore.isPlaybackRequested }
+  private var playbackAction: String {
+    guard isCurrentTrack else { return "Play" }
+    if isPauseAction { return "Pause" }
+    switch playerStore.state {
+    case .failed: return "Retry"
+    case .ended: return "Play"
+    default: return "Resume"
+    }
   }
 
   @ViewBuilder
@@ -103,9 +124,6 @@ struct TrackRow: View {
       Text(track.title ?? "Untitled track")
         .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : (isCompact ? 2 : 1))
         .accessibilityIdentifier("track.\(track.id).title")
-      if playerStore.currentTrack?.stableID == track.stableID {
-        CurrentPlaybackIndicator(state: playerStore.state, identifier: "track.\(track.id).playback")
-      }
       if let references = track.artistReferences, !references.isEmpty {
         let artistLayout =
           dynamicTypeSize.isAccessibilitySize
