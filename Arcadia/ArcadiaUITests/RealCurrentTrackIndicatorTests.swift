@@ -24,6 +24,7 @@ final class RealCurrentTrackIndicatorTests: XCTestCase {
     app.textFields["source.username"].click()
     app.textFields["source.username"].typeText(config.username)
     app.secureTextFields["source.password"].click()
+    NSPasteboard.general.clearContents()
     XCTAssertTrue(NSPasteboard.general.setString(config.password, forType: .string))
     app.secureTextFields["source.password"].typeKey("v", modifierFlags: .command)
     app.buttons["source.connect"].click()
