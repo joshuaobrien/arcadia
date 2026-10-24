@@ -45,7 +45,7 @@ elif args[0] == 'exec' and '--archive' in args:
             template = root / 'templates/gold'
             template.mkdir(parents=True)
             for name in ['config.json', 'disk.img', 'nvram.bin']:
-                (template / name).write_text('{}')
+                (template / name).write_text(json.dumps({'memorySize': 1, 'cpuCount': 1}) if name == 'config.json' else '{}')
             env.update(ARCADIA_CI_TEMPLATE_ROOT=str(root / 'templates'), ARCADIA_CI_STATE=str(root / 'state'),
                        NATIVE_IOS_TEMPLATE='gold')
             subprocess.run([sys.executable, str(ROOT / 'scripts/ci-worker'), '--template', 'gold',

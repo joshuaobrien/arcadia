@@ -42,7 +42,7 @@ if [[ -n "$ARTIFACT_DIR" ]]; then
 fi
 
 echo "==> Booting"
-TART_RUN_ARGS=(--no-graphics --no-audio --no-clipboard "--dir=mint:$MINT_CACHE" "--dir=dependencies:$ARCADIA_CI_CACHE_DIR")
+TART_RUN_ARGS=(--no-graphics --no-audio --no-clipboard "--dir=mint:$MINT_CACHE" "--dir=dependencies:$ARCADIA_CI_CACHE_DIR" "--dir=evidence:$ARCADIA_CI_EVIDENCE_DIR")
 if [[ -n "$ARTIFACT_DIR" ]]; then
   TART_RUN_ARGS+=("--dir=artifacts:$ARTIFACT_DIR")
 fi
@@ -121,7 +121,10 @@ echo "==> Building"
 vm_run "cd /tmp/build/Arcadia && xcodebuild -project Arcadia.xcodeproj -scheme Arcadia -configuration Debug -destination 'platform=macOS' -derivedDataPath /tmp/arcadia-debug -skipMacroValidation build CODE_SIGNING_ALLOWED=NO"
 
 echo "==> Testing"
-vm_run "cd /tmp/build/Arcadia && xcodebuild -project Arcadia.xcodeproj -scheme Arcadia -configuration Debug -destination 'platform=macOS' -derivedDataPath /tmp/arcadia-debug -skipMacroValidation -only-testing:ArcadiaTests test CODE_SIGNING_ALLOWED=NO"
+TEST_STATUS=0
+vm_run "cd /tmp/build/Arcadia && xcodebuild -project Arcadia.xcodeproj -scheme Arcadia -configuration Debug -destination 'platform=macOS' -derivedDataPath /tmp/arcadia-debug -resultBundlePath /tmp/arcadia-ci-tests.xcresult -skipMacroValidation -only-testing:ArcadiaTests test CODE_SIGNING_ALLOWED=NO" || TEST_STATUS=$?
+vm_run "xcrun xcresulttool get test-results summary --path /tmp/arcadia-ci-tests.xcresult > '/Volumes/My Shared Files/evidence/tests-summary.json'" || true
+[[ "$TEST_STATUS" == 0 ]] || exit "$TEST_STATUS"
 
 if [[ -n "$ARTIFACT_DIR" ]]; then
   printf -v ESCAPED_BASE_URL '%q' "$ARCADIA_BASE_URL"

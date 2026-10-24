@@ -42,7 +42,11 @@ rather than recompressed on every warm job.
 ## Ownership, admission and recovery
 
 One lock admits one CI worker. The default total running-guest ceiling is two,
-including separately running task VMs. The initial disk reserve is 12 GiB;
+including separately running task VMs. Admission also sums their configured
+CPU/memory budgets, leaves at least 4 GiB or one quarter of host RAM (whichever
+is larger), and refuses CPU oversubscription. Unknown active-guest budgets fail
+closed. The observed templates each use 4 CPUs and 8 GiB RAM on the 10-CPU,
+24-GiB mini. The initial disk reserve is 12 GiB;
 `ARCADIA_CI_RESERVE_GIB` can set the measured operating budget. This initial value
 must be checked against observed peak writes and Release/artifact headroom before
 rollout. Admission refuses work instead of deleting unrelated resources.
@@ -57,8 +61,8 @@ as an attempt warning rather than permanently poisoning admission. CI supplies
 `ARCADIA_CI_TOKEN` for this read; the credential is never written to receipts or
 passed as a guest build argument. `--reconcile` runs the same recovery check alone.
 
-Artifacts include `worker.json` and a bounded local `worker.log`. Existing iOS
-compile logs, source guards and the main Release zip remain. Upload steps have a
+Artifacts include `worker.json` and a bounded local `worker.log`. Compact Mac XCTest failure summaries are exported before a failed worker is
+removed. Existing iOS compile logs, source guards and the main Release zip remain. Upload steps have a
 two-minute deadline and skip obsolete cancelled jobs. Required upload failures
 remain failures; local evidence survives upload failure.
 

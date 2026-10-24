@@ -54,5 +54,5 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: native-mac-ci-${{ github.sha }}
-          path: artifacts/**/worker.json
+          path: artifacts/**/*.json
           retention-days: 14

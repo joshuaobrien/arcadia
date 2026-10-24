@@ -70,7 +70,7 @@ if sys.argv[1] == 'delete':
         template = self.templates / 'gold'
         template.mkdir()
         for name in ['config.json', 'disk.img', 'nvram.bin']:
-            (template / name).write_text('{}')
+            (template / name).write_text(json.dumps({'memorySize': 1, 'cpuCount': 1}) if name == 'config.json' else '{}')
         result = self.invoke('--provision')
         self.assertEqual(result.returncode, 0, result.stderr)
         return template
@@ -105,6 +105,15 @@ if sys.argv[1] == 'delete':
         result = self.invoke('--reserve-gib', '0')
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('identity', result.stderr)
+
+    def test_template_exceeding_host_memory_is_refused_before_clone(self):
+        template = self.provision()
+        (template / 'config.json').write_text(json.dumps({'memorySize': 10 ** 18, 'cpuCount': 4}))
+        self.assertEqual(self.invoke('--provision').returncode, 0)
+        result = self.invoke('--reserve-gib', '0')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('memory', result.stderr.lower())
+        self.assertFalse(self.calls.exists() and 'clone' in self.calls.read_text())
 
     def test_cleanup_failure_cannot_be_reported_as_success(self):
         self.provision()

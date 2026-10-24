@@ -49,6 +49,31 @@ def inventory():
     return json.loads(subprocess.check_output(['tart', 'list', '--format', 'json'], text=True, timeout=15))
 
 
+def resource_budget(template, root, guests):
+    if sys.platform == 'darwin':
+        memory = int(subprocess.check_output(['/usr/sbin/sysctl', '-n', 'hw.memsize'], text=True, timeout=5))
+    else:
+        memory = os.sysconf('SC_PHYS_PAGES') * os.sysconf('SC_PAGE_SIZE')
+    cpus = os.cpu_count() or 1
+    configurations = [json.loads((template / 'config.json').read_text())]
+    for guest in guests:
+        if str(guest.get('State', guest.get('state', ''))).lower() in {'running', 'suspended'}:
+            name = guest.get('Name', guest.get('name', ''))
+            if not name or Path(name).name != name:
+                raise RuntimeError('Cannot determine active guest resource budget')
+            configurations.append(json.loads((root / name / 'config.json').read_text()))
+    if any(int(c.get('memorySize', 0)) <= 0 or int(c.get('cpuCount', 0)) <= 0 for c in configurations):
+        raise RuntimeError('Cannot determine guest CPU/memory budgets')
+    requested_memory = sum(int(c['memorySize']) for c in configurations)
+    requested_cpus = sum(int(c['cpuCount']) for c in configurations)
+    if requested_memory + max(4 * 1024 ** 3, memory // 4) > memory:
+        raise RuntimeError('Insufficient host memory headroom for guest budgets')
+    if requested_cpus > cpus:
+        raise RuntimeError('Guest CPU budgets exceed host CPU capacity')
+    return {'host_memory_bytes': memory, 'host_cpus': cpus,
+            'admitted_guest_memory_bytes': requested_memory, 'admitted_guest_cpus': requested_cpus}
+
+
 def remove_worker(vm):
     attempts = []
     try:
@@ -164,6 +189,7 @@ def main(argv=None):
         guests = inventory()
         if sum(str(v.get('State', v.get('state', ''))).lower() in {'running', 'suspended'} for v in guests) >= args.max_guests:
             raise RuntimeError('Guest capacity occupied; no worker created')
+        report['resources'] = resource_budget(template, args.template_root, guests)
         report.update({'vm': 'arcadia-fast-ci-' + uuid.uuid4().hex[:12], 'pid': os.getpid(),
                        'run_id': os.environ.get('GITHUB_RUN_ID'), 'repository': os.environ.get('GITHUB_REPOSITORY'), 'identity': identity,
                        'free_before': shutil.disk_usage(args.template_root).free})
@@ -200,7 +226,8 @@ def main(argv=None):
         report['dependency_key'] = key
         phase('worker command')
         child = subprocess.Popen(command, env=dict(os.environ, ARCADIA_CI_VM=report['vm'],
-                                                  ARCADIA_CI_MANAGED='1', ARCADIA_CI_CACHE_DIR=str(cache_private)), start_new_session=True,
+                                                  ARCADIA_CI_MANAGED='1', ARCADIA_CI_EVIDENCE_DIR=str(args.artifacts.resolve()),
+                                                  ARCADIA_CI_CACHE_DIR=str(cache_private)), start_new_session=True,
                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         deadline = time.monotonic() + args.command_timeout
         last_progress = time.monotonic()
