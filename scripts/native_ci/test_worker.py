@@ -7,6 +7,8 @@ import sys
 import tempfile
 import time
 import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import threading
 
 CLI = Path(__file__).resolve().parents[1] / 'ci-worker'
 
@@ -97,6 +99,45 @@ if sys.argv[1] == 'delete' and os.environ.get('FAIL_DELETE'): sys.exit(9)
         receipt = json.loads((self.root / 'evidence/worker.json').read_text())
         self.assertFalse(receipt['passed'])
         self.assertTrue(receipt['cleanup_errors'])
+
+    def test_corrupt_dependency_metadata_falls_back_to_current_build(self):
+        self.provision()
+        self.assertEqual(self.invoke('--reserve-gib', '0').returncode, 0)
+        receipt = json.loads((self.root / 'evidence/worker.json').read_text())
+        entry = self.root / 'state/dependencies' / receipt['dependency_key']
+        entry.mkdir(exist_ok=True)
+        (entry / 'debug.tgz').write_bytes(b'broken')
+        (entry / 'debug.json').write_text('invalid json')
+        result = self.invoke('--reserve-gib', '0')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('built current source', result.stdout)
+
+    def test_restart_reclaims_orphan_only_after_server_confirms_run_completed(self):
+        self.provision()
+        self.assertEqual(self.invoke('--reserve-gib', '0').returncode, 0)
+        receipt = json.loads((self.root / 'evidence/worker.json').read_text())
+        receipt.update(pid=99999999, run_id='7', repository='jj/arcadia', worker_removed=False)
+        owned = self.root / 'state/workers' / (receipt['vm'] + '.json')
+        owned.write_text(json.dumps(receipt))
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b'{"id":7,"status":"completed"}')
+
+            def log_message(self, *args):
+                pass
+
+        with ThreadingHTTPServer(('127.0.0.1', 0), Handler) as server:
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            self.env.update(GITHUB_API_URL='http://127.0.0.1:' + str(server.server_port),
+                            GITHUB_REPOSITORY='jj/arcadia', ARCADIA_CI_TOKEN='test')
+            result = self.invoke('--reserve-gib', '0', '--reconcile')
+            server.shutdown()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(json.loads(owned.read_text())['worker_removed'])
 
     def test_cancellation_releases_only_owned_worker_and_preserves_evidence(self):
         self.provision()

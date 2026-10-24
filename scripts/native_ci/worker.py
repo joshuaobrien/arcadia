@@ -7,11 +7,13 @@ import os
 from pathlib import Path
 import shutil
 import signal
+import selectors
 import subprocess
 import sys
 import time
 import tempfile
 import uuid
+import urllib.request
 
 
 def write_json(path, value):
@@ -29,6 +31,53 @@ def fingerprint(template):
             for name in ['config.json', 'manifest.json'] if (template / name).exists()}
 
 
+def valid_seed(seed):
+    receipt = seed.with_suffix('.json')
+    try:
+        return (seed.stat().st_size <= 512 * 1024 ** 2 and
+                json.loads(receipt.read_text()).get('sha256') == hashlib.sha256(seed.read_bytes()).hexdigest())
+    except (OSError, ValueError):
+        return False
+
+
+def reconcile(state):
+    outcomes = []
+    for path in sorted((state / 'workers').glob('*.json')):
+        owned = json.loads(path.read_text())
+        if owned.get('worker_removed'):
+            continue
+        vm = owned.get('vm', '')
+        if not vm.startswith('arcadia-fast-ci-') or path.name != vm + '.json':
+            raise RuntimeError('Invalid worker ownership record')
+        try:
+            os.kill(int(owned['pid']), 0)
+            continue
+        except ProcessLookupError:
+            pass
+        token = os.environ.get('ARCADIA_CI_TOKEN')
+        repository = os.environ.get('GITHUB_REPOSITORY')
+        api_url = os.environ.get('GITHUB_API_URL')
+        if not (token and repository and api_url and owned.get('run_id') and owned.get('repository') == repository):
+            raise RuntimeError('Orphan needs authoritative CI run verification before cleanup: ' + vm)
+        url = api_url.rstrip('/') + '/repos/' + repository + '/actions/runs/' + str(owned['run_id'])
+        request = urllib.request.Request(url, headers={'Authorization': 'token ' + token})
+        with urllib.request.urlopen(request, timeout=10) as response:
+            run = json.load(response)
+        if run.get('status') != 'completed':
+            raise RuntimeError('Recorded worker still belongs to an active CI run: ' + vm)
+        errors = []
+        for operation in ['stop', 'delete']:
+            result = subprocess.run(['tart', operation, vm], capture_output=True, text=True, timeout=25)
+            if result.returncode:
+                errors.append(operation + ' failed')
+        owned.update(worker_removed=not errors, reconciliation_errors=errors)
+        write_json(path, owned)
+        outcomes.append({'vm': vm, 'removed': not errors})
+        if errors:
+            raise RuntimeError('Orphan cleanup failed: ' + vm)
+    return outcomes
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--template', required=True)
@@ -38,6 +87,7 @@ def main(argv=None):
     parser.add_argument('--reserve-gib', type=float, default=float(os.environ.get('ARCADIA_CI_RESERVE_GIB', '12')))
     parser.add_argument('--max-guests', type=int, default=2)
     parser.add_argument('--provision', action='store_true')
+    parser.add_argument('--reconcile', action='store_true')
     parser.add_argument('--source', type=Path, default=Path.cwd())
     parser.add_argument('--command-timeout', type=float, default=2400)
     args, command = parser.parse_known_args(argv)
@@ -76,7 +126,7 @@ def main(argv=None):
             return 0
         if not record.exists() or json.loads(record.read_text()).get('identity') != identity:
             raise RuntimeError('Provision/validate template identity before running: ' + args.template)
-        if not command:
+        if not command and not args.reconcile:
             raise RuntimeError('A worker command is required')
         args.state.mkdir(parents=True, exist_ok=True)
         lock = (args.state / 'worker.lock').open('a')
@@ -84,11 +134,14 @@ def main(argv=None):
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise RuntimeError('CI worker capacity occupied; retry through the CI queue')
+        report['reconciled'] = reconcile(args.state)
+        if args.reconcile:
+            return 0
         inventory = json.loads(subprocess.check_output(['tart', 'list', '--format', 'json'], text=True, timeout=15))
         if sum(str(v.get('State', v.get('state', ''))).lower() in {'running', 'suspended'} for v in inventory) >= args.max_guests:
             raise RuntimeError('Guest capacity occupied; no worker created')
         report.update({'vm': 'arcadia-fast-ci-' + uuid.uuid4().hex[:12], 'pid': os.getpid(),
-                       'run_id': os.environ.get('GITHUB_RUN_ID'), 'identity': identity,
+                       'run_id': os.environ.get('GITHUB_RUN_ID'), 'repository': os.environ.get('GITHUB_REPOSITORY'), 'identity': identity,
                        'free_before': shutil.disk_usage(args.template_root).free})
         ownership = args.state / 'workers' / (report['vm'] + '.json')
         write_json(ownership, report)
@@ -105,48 +158,69 @@ def main(argv=None):
         project = args.source / 'Arcadia/Arcadia.xcodeproj/project.pbxproj'
         if project.is_file():
             inputs.append(project.read_bytes())
+        for relative in ['scripts/native_ci/build_cache.py', 'scripts/native_loop/dependencies.py']:
+            helper = args.source / relative
+            if helper.is_file():
+                inputs.append(helper.read_bytes())
         key = hashlib.sha256(b'\0'.join(inputs)).hexdigest()
         cache_entry = args.state / 'dependencies' / key
         cache_private = Path(tempfile.mkdtemp(prefix='dependencies-', dir=args.state))
         if cache_entry.is_dir():
             for seed in cache_entry.glob('*.tgz'):
                 receipt = seed.with_suffix('.json')
-                if receipt.is_file() and seed.stat().st_size <= 512 * 1024 ** 2:
-                    facts = json.loads(receipt.read_text())
-                    if facts.get('sha256') == hashlib.sha256(seed.read_bytes()).hexdigest():
-                        shutil.copy2(seed, cache_private / seed.name)
-                        shutil.copy2(receipt, cache_private / receipt.name)
+                if valid_seed(seed):
+                    shutil.copy2(seed, cache_private / seed.name)
+                    shutil.copy2(receipt, cache_private / receipt.name)
         report['dependency_key'] = key
         phase('worker command')
         child = subprocess.Popen(command, env=dict(os.environ, ARCADIA_CI_VM=report['vm'],
-                                                  ARCADIA_CI_MANAGED='1', ARCADIA_CI_CACHE_DIR=str(cache_private)), start_new_session=True)
+                                                  ARCADIA_CI_MANAGED='1', ARCADIA_CI_CACHE_DIR=str(cache_private)), start_new_session=True,
+                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         deadline = time.monotonic() + args.command_timeout
-        while True:
-            try:
-                status = child.wait(timeout=15)
-                break
-            except subprocess.TimeoutExpired:
-                print('[ci] worker command still running', flush=True)
+        last_progress = time.monotonic()
+        args.artifacts.mkdir(parents=True, exist_ok=True)
+        with selectors.DefaultSelector() as reader, (args.artifacts / 'worker.log').open('wb') as log:
+            reader.register(child.stdout, selectors.EVENT_READ)
+            pending = b''
+            logged = 0
+            while reader.get_map() or child.poll() is None:
                 if time.monotonic() >= deadline:
                     raise RuntimeError('Worker command deadline exceeded')
+                for key_event, _ in reader.select(timeout=min(1, max(.01, deadline - time.monotonic()))):
+                    chunk = os.read(key_event.fd, 65536)
+                    if not chunk:
+                        reader.unregister(child.stdout)
+                        continue
+                    sys.stdout.buffer.write(chunk)
+                    sys.stdout.buffer.flush()
+                    if logged < 64 * 1024 ** 2:
+                        log.write(chunk[:64 * 1024 ** 2 - logged])
+                        logged += len(chunk)
+                    pending += chunk
+                    lines = pending.split(b'\n')
+                    pending = lines.pop()[-65536:]
+                    for line in lines:
+                        text = line.decode(errors='replace').strip()
+                        if text.startswith('==>'):
+                            phase(text.removeprefix('==>').strip())
+                if time.monotonic() - last_progress >= 15:
+                    print('[ci] worker command still running', flush=True)
+                    last_progress = time.monotonic()
+        status = child.wait(timeout=5)
         if status:
             raise RuntimeError('Worker command failed: ' + str(status))
         phase('cache publication')
         cache_entry.mkdir(parents=True, exist_ok=True)
         for seed in cache_private.glob('*.tgz'):
             receipt = seed.with_suffix('.json')
-            if receipt.is_file() and seed.stat().st_size <= 512 * 1024 ** 2:
-                facts = json.loads(receipt.read_text())
-                if facts.get('sha256') == hashlib.sha256(seed.read_bytes()).hexdigest():
-                    # Publish the pair in a generation directory before atomic replacement.
-                    generation = cache_entry / ('.' + seed.stem + '-' + uuid.uuid4().hex)
-                    generation.mkdir()
-                    shutil.copy2(seed, generation / seed.name)
-                    shutil.copy2(receipt, generation / receipt.name)
-                    os.replace(generation / seed.name, cache_entry / seed.name)
-                    os.replace(generation / receipt.name, cache_entry / receipt.name)
-                    generation.rmdir()
-
+            if valid_seed(seed):
+                generation = cache_entry / ('.' + seed.stem + '-' + uuid.uuid4().hex)
+                generation.mkdir()
+                shutil.copy2(seed, generation / seed.name)
+                shutil.copy2(receipt, generation / receipt.name)
+                os.replace(generation / seed.name, cache_entry / seed.name)
+                os.replace(generation / receipt.name, cache_entry / receipt.name)
+                generation.rmdir()
     except KeyboardInterrupt:
         report['error'] = 'Cancelled'
         status = 130
@@ -183,6 +257,9 @@ def main(argv=None):
                 except subprocess.TimeoutExpired:
                     os.killpg(child.pid, signal.SIGKILL)
                     child.wait(timeout=5)
+            report['template_unchanged'] = fingerprint(template) == identity
+            if not report['template_unchanged']:
+                cleanup.append('Golden template identity changed')
             report['cleanup_errors'] = cleanup
             if cleanup:
                 status = 1

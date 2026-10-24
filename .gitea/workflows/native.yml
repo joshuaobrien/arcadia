@@ -24,6 +24,7 @@ jobs:
 
       - name: Lint, build and test in an ephemeral VM
         env:
+          ARCADIA_CI_TOKEN: ${{ github.token }}
           ARCADIA_BASE_URL: ${{ vars.ARCADIA_BASE_URL }}
         run: |
           if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF" = "refs/heads/main" ]; then
