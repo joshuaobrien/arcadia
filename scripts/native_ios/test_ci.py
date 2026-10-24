@@ -21,6 +21,11 @@ args = sys.argv[1:]
 root = pathlib.Path(os.environ['FAKE_ROOT'])
 with (root / 'calls').open('a') as log:
     log.write(json.dumps(args) + '\\n')
+store = root / 'vms.json'
+vms = json.loads(store.read_text()) if store.exists() else []
+if args[0] == 'list': print(json.dumps(vms))
+if args[0] == 'clone': store.write_text(json.dumps([{'Name': args[2], 'State': 'stopped'}]))
+if args[0] == 'delete': store.write_text('[]')
 if args[0] == 'run':
     shared = next(arg for arg in args if arg.startswith('--dir=artifacts:'))
     (root / 'artifacts').write_text(shared.split(':', 1)[1])
@@ -37,10 +42,21 @@ elif args[0] == 'exec' and '--archive' in args:
             provider.chmod(0o755)
             env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ['PATH'],
                        FAKE_ROOT=str(root), FAIL_GUEST=str(int(fail)), FAIL_STOP=str(int(stop_failure)))
+            template = root / 'templates/gold'
+            template.mkdir(parents=True)
+            for name in ['config.json', 'disk.img', 'nvram.bin']:
+                (template / name).write_text(json.dumps({'memorySize': 1, 'cpuCount': 1}) if name == 'config.json' else '{}')
+            env.update(ARCADIA_CI_TEMPLATE_ROOT=str(root / 'templates'), ARCADIA_CI_STATE=str(root / 'state'),
+                       NATIVE_IOS_TEMPLATE='gold')
+            subprocess.run([sys.executable, str(ROOT / 'scripts/ci-worker'), '--template', 'gold',
+                            '--artifacts', str(root / 'evidence'), '--provision'], env=env, check=True,
+                           capture_output=True)
             result = subprocess.run([sys.executable, str(ROOT / 'scripts/ci-native-ios'), '--artifacts', str(root / 'evidence')],
                                     env=env, capture_output=True, text=True, timeout=40)
             report = json.loads((root / 'evidence/manifest.json').read_text())
             calls = [json.loads(line) for line in (root / 'calls').read_text().splitlines()]
+            self.assertIn('vm_removed', report, result.stdout + result.stderr + '\n' +
+                          (root / 'evidence/worker.json').read_text())
             self.assertTrue(report['vm_removed'])
             self.assertEqual([call[0] for call in calls if call[0] in {'clone', 'stop', 'delete'}],
                              ['clone', 'stop', 'delete'])
@@ -53,11 +69,11 @@ elif args[0] == 'exec' and '--archive' in args:
         self.assertTrue(report['passed'])
         self.assertEqual(len(report['source_sha256']), 64)
 
-    def test_stop_failure_still_attempts_delete_and_retains_error(self):
+    def test_stop_failure_still_deletes_and_verifies_absence(self):
         result, report = self.run_lane(False, stop_failure=True)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertTrue(report['cleanup_errors'])
-        self.assertFalse(report['passed'])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(report['vm_removed'])
+        self.assertTrue(report['passed'])
 
     def test_guest_failure_still_removes_owned_vm_and_retains_manifest(self):
         result, report = self.run_lane(True)

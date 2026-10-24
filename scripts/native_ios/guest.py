@@ -15,7 +15,7 @@ def main():
     parser.add_argument('--run', required=True)
     args = parser.parse_args()
     artifacts = args.artifacts
-    source = Path.home() / ('arcadia-ios-ci-' + args.run)
+    source = Path.home() / 'arcadia-ci-ios'
     report = {'scope': 'iOS app and UI-test bundle compilation; no UI tests executed',
               'source_sha256': args.sha, 'passed': False}
     try:
@@ -35,21 +35,30 @@ def main():
         from source_archive import guard_source
         facts, env = toolchain()
         (artifacts / 'toolchain.json').write_text(json.dumps(facts, indent=2) + '\n')
+        from native_ci.build_cache import main as cache
+        derived = Path.home() / 'arcadia-ci-derived/ios'
+        shared = '/Volumes/My Shared Files/dependencies'
+        print('==> Dependency cache restore', flush=True)
+        cache(['restore', '--derived', str(derived), '--shared', shared, '--name', 'ios'])
         guard_source(source, args.archive, artifacts / 'source-before.json')
         command = ['/usr/bin/env', 'DEVELOPER_DIR=' + env['DEVELOPER_DIR'], 'xcodebuild',
                    '-project', str(source / 'Arcadia/Arcadia.xcodeproj'), '-scheme', 'ArcadiaMobile',
                    '-configuration', 'Debug', '-destination', 'generic/platform=iOS Simulator',
-                   '-derivedDataPath', str(source / 'derived'), '-skipMacroValidation',
+                   '-derivedDataPath', str(derived), '-skipMacroValidation',
                    '-onlyUsePackageVersionsFromResolvedFile', 'CODE_SIGN_IDENTITY=-',
                    'CODE_SIGN_STYLE=Manual', 'DEVELOPMENT_TEAM=', 'build-for-testing']
+        print('==> iOS app and UI-test bundle compilation', flush=True)
         status = execute(str(artifacts / 'build.log'), command)
+        print('==> Final source integrity verification', flush=True)
         guard_source(source, args.archive, artifacts / 'source-after.json')
-        products = source / 'derived/Build/Products/Debug-iphonesimulator'
+        products = derived / 'Build/Products/Debug-iphonesimulator'
         expected = [products / 'Arcadia.app', products / 'ArcadiaMobileUITests-Runner.app']
         report.update({'exit_code': status, 'products': [str(path) for path in expected],
                        'passed': status == 0 and all(path.is_dir() for path in expected)})
         if not report['passed']:
             raise RuntimeError('iOS compile check failed; see build.log')
+        print('==> Dependency cache publication', flush=True)
+        cache(['publish', '--derived', str(derived), '--shared', shared, '--name', 'ios'])
         print('PASS: iOS app and UI-test bundle compiled. No UI tests executed.', flush=True)
         return 0
     except Exception as error:

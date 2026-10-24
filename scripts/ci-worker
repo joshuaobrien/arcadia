@@ -1,0 +1,5 @@
+#!/usr/bin/env python3
+"""Own one disposable CI worker; templates are provisioned separately."""
+from native_ci.worker import main
+
+raise SystemExit(main())

@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: native-ios-${{ github.ref }}
@@ -21,12 +22,18 @@ jobs:
         run: |
           python3 -m unittest discover -s scripts/native_preview -p 'test_*.py'
           python3 -m unittest discover -s scripts/native_ios -p 'test_*.py'
+          python3 -m unittest discover -s scripts/native_loop -p 'test_*.py'
+          python3 -m unittest discover -s scripts/native_ci -p 'test_*.py'
       - name: Compile in an ephemeral background VM
+        env:
+          ARCADIA_CI_TOKEN: ${{ github.token }}
         run: ./scripts/ci-native-ios --artifacts "$PWD/artifacts/native-ios"
       - name: Upload compile evidence (not behavioral UI results)
-        if: always()
+        if: always() && !cancelled()
+        timeout-minutes: 2
         uses: actions/upload-artifact@v3
         with:
           name: native-ios-${{ github.sha }}
           path: artifacts/native-ios/
+          if-no-files-found: error
           retention-days: 14

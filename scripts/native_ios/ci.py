@@ -30,18 +30,20 @@ def main(argv=None):
     source, artifacts = args.source.resolve(), args.artifacts.resolve()
     artifacts.mkdir(parents=True, exist_ok=True)
     token = uuid.uuid4().hex
-    vm = 'arcadia-ios-ci-' + token[:12]
+    managed = os.environ.get('ARCADIA_CI_MANAGED') == '1'
+    vm = os.environ['ARCADIA_CI_VM'] if managed else 'arcadia-ios-ci-' + token[:12]
     report = {'vm': vm, 'template': args.template, 'scope': 'iOS compilation only', 'passed': False}
     created = False
     process = None
     status = 1
-    inputs_directory = tempfile.TemporaryDirectory(prefix='arcadia-ios-ci-')
+    inputs_directory = tempfile.TemporaryDirectory(prefix='inputs-', dir=os.environ.get('ARCADIA_CI_PRIVATE_DIR'))
     previous = signal.signal(signal.SIGTERM, interrupted)
     try:
         inputs = Path(inputs_directory.name)
         archive = inputs / 'source.tgz'
         names = ['Arcadia', 'scripts/native_ios/guest.py', 'scripts/native_preview/environment.py',
-                 'scripts/native_loop/progress.py', 'test-environment/native/source_archive.py']
+                 'scripts/native_loop/progress.py', 'scripts/native_loop/dependencies.py',
+                 'scripts/native_ci/build_cache.py', 'test-environment/native/source_archive.py']
         def include(member):
             if any(part in {'xcuserdata', 'DerivedData', '.build', '.DS_Store', '__pycache__'}
                    for part in Path(member.name).parts):
@@ -56,12 +58,15 @@ def main(argv=None):
         report['source_sha256'] = sha
         shutil.copyfile(source / 'scripts/native_ios/guest.py', inputs / 'guest.py')
         print('Cloning prepared iOS template → ' + vm, flush=True)
-        run('tart', 'clone', args.template, vm, timeout=300)
-        created = True
+        if not managed:
+            run('tart', 'clone', args.template, vm, timeout=300)
+            created = True
+        print('==> Booting isolated iOS worker', flush=True)
         with (artifacts / 'vm.log').open('w') as log:
             process = subprocess.Popen(['tart', 'run', '--no-graphics', '--no-audio', '--no-clipboard',
                                         '--dir=input:' + str(inputs) + ':ro',
-                                        '--dir=artifacts:' + str(artifacts), vm],
+                                        '--dir=artifacts:' + str(artifacts),
+                                        '--dir=dependencies:' + os.environ.get('ARCADIA_CI_CACHE_DIR', str(inputs / 'dependencies')), vm],
                                        stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
         print('Waiting for guest agent (maximum120s)…', flush=True)
         deadline = time.monotonic() + 120
@@ -78,6 +83,7 @@ def main(argv=None):
             time.sleep(2)
         else:
             raise RuntimeError('Guest agent readiness timed out')
+        print('==> Source verification and iOS compilation', flush=True)
         run('tart', 'exec', vm, '/usr/bin/python3', '/Volumes/My Shared Files/input/guest.py',
             '--archive', '/Volumes/My Shared Files/input/source.tgz', '--sha', sha,
             '--artifacts', '/Volumes/My Shared Files/artifacts', '--run', token, timeout=1200)
@@ -125,3 +131,7 @@ def main(argv=None):
         (artifacts / 'manifest.json').write_text(json.dumps(report, indent=2) + '\n')
         signal.signal(signal.SIGTERM, previous)
     return status
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

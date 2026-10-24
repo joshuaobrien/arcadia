@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: Include the normal main Release artifact for a matched benchmark
+        type: boolean
+        default: false
 
 concurrency:
   group: native-${{ github.ref }}
@@ -19,20 +25,36 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Check CI worker command behavior
+        run: python3 -m unittest discover -s scripts/native_ci -p 'test_*.py'
+
       - name: Lint, build and test in an ephemeral VM
         env:
+          ARCADIA_CI_TOKEN: ${{ github.token }}
           ARCADIA_BASE_URL: ${{ vars.ARCADIA_BASE_URL }}
         run: |
-          if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF" = "refs/heads/main" ]; then
+          if { [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF" = "refs/heads/main" ]; } || [ "${{ inputs.release }}" = "true" ]; then
             ARTIFACT_DIR="$PWD/artifacts" ./scripts/ci-native.sh "$PWD"
           else
             ./scripts/ci-native.sh "$PWD"
           fi
 
       - name: Upload unsigned app
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        timeout-minutes: 2
+        if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || inputs.release == true
         uses: actions/upload-artifact@v3
         with:
           name: Arcadia-${{ github.sha }}
           path: artifacts/Arcadia.zip
+          if-no-files-found: error
           retention-days: 30
+
+      - name: Upload CI lifecycle evidence
+        if: always() && !cancelled()
+        timeout-minutes: 2
+        uses: actions/upload-artifact@v3
+        with:
+          name: native-mac-ci-${{ github.sha }}
+          path: artifacts/**/*.json
+          if-no-files-found: error
+          retention-days: 14
