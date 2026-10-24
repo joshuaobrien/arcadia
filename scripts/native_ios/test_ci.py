@@ -55,6 +55,8 @@ elif args[0] == 'exec' and '--archive' in args:
                                     env=env, capture_output=True, text=True, timeout=40)
             report = json.loads((root / 'evidence/manifest.json').read_text())
             calls = [json.loads(line) for line in (root / 'calls').read_text().splitlines()]
+            self.assertIn('vm_removed', report, result.stdout + result.stderr + '\n' +
+                          (root / 'evidence/worker.json').read_text())
             self.assertTrue(report['vm_removed'])
             self.assertEqual([call[0] for call in calls if call[0] in {'clone', 'stop', 'delete'}],
                              ['clone', 'stop', 'delete'])

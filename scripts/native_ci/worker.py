@@ -225,13 +225,13 @@ def main(argv=None):
                     shutil.copy2(receipt, cache_private / receipt.name)
         report['dependency_key'] = key
         phase('worker command')
+        args.artifacts.mkdir(parents=True, exist_ok=True)
         child = subprocess.Popen(command, env=dict(os.environ, ARCADIA_CI_VM=report['vm'],
                                                   ARCADIA_CI_MANAGED='1', ARCADIA_CI_EVIDENCE_DIR=str(args.artifacts.resolve()),
                                                   ARCADIA_CI_CACHE_DIR=str(cache_private)), start_new_session=True,
                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         deadline = time.monotonic() + args.command_timeout
         last_progress = time.monotonic()
-        args.artifacts.mkdir(parents=True, exist_ok=True)
         with selectors.DefaultSelector() as reader, (args.artifacts / 'worker.log').open('wb') as log:
             reader.register(child.stdout, selectors.EVENT_READ)
             pending = b''
