@@ -89,7 +89,24 @@ if sys.argv[1] == 'delete':
         receipt = json.loads((self.root / 'evidence/worker.json').read_text())
         self.assertTrue(receipt['passed'])
         self.assertTrue(receipt['worker_removed'])
+        durable = self.root / 'state/evidence' / receipt['vm']
+        __import__('shutil').rmtree(self.root / 'evidence')
+        self.assertIn('built current source', (durable / 'worker.log').read_text())
+        self.assertTrue(json.loads((durable / 'worker.json').read_text())['passed'])
+        self.assertFalse((self.root / 'state/private' / receipt['vm']).exists())
         self.assertEqual([c[1] for c in calls if c[0] == 'delete'], [receipt['vm']])
+
+    def test_host_diagnostics_rotate_only_owned_history(self):
+        self.provision()
+        unknown = self.root / 'state/evidence/arcadia-fast-ci-unowned'
+        unknown.mkdir(parents=True)
+        (unknown / 'keep').write_text('unrelated evidence')
+        for _ in range(6):
+            result = self.invoke('--reserve-gib', '0')
+            self.assertEqual(result.returncode, 0, result.stderr)
+        history = list((self.root / 'state/evidence').glob('*/worker.json'))
+        self.assertLessEqual(len(history), 5)
+        self.assertEqual((unknown / 'keep').read_text(), 'unrelated evidence')
 
     def test_changed_template_requires_explicit_reprovisioning(self):
         template = self.provision()
@@ -123,6 +140,7 @@ if sys.argv[1] == 'delete':
         receipt = json.loads((self.root / 'evidence/worker.json').read_text())
         self.assertFalse(receipt['passed'])
         self.assertTrue(receipt['cleanup_errors'])
+        self.assertTrue((self.root / 'state/private' / receipt['vm']).exists())
 
     def test_failed_cleanup_does_not_publish_dependency_seed(self):
         self.provision()
@@ -135,6 +153,27 @@ seed.with_suffix('.json').write_text(json.dumps({'sha256': hashlib.sha256(seed.r
 """
         result = self.invoke('--reserve-gib', '0', command=command)
         self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(list((self.root / 'state/dependencies').glob('**/*.tgz')))
+
+    def test_private_cleanup_failure_cannot_publish_seed_or_claim_success(self):
+        self.provision()
+        command = """import hashlib, json, os
+from pathlib import Path
+private = Path(os.environ['ARCADIA_CI_PRIVATE_DIR'])
+seed = Path(os.environ['ARCADIA_CI_CACHE_DIR']) / 'debug.tgz'
+seed.write_bytes(b'new dependency seed')
+seed.with_suffix('.json').write_text(json.dumps({'sha256': hashlib.sha256(seed.read_bytes()).hexdigest()}))
+held = private.with_name(private.name + '-held')
+private.rename(held)
+private.symlink_to(held, target_is_directory=True)
+"""
+        result = self.invoke('--reserve-gib', '0', command=command)
+        self.assertNotEqual(result.returncode, 0)
+        receipt = json.loads((self.root / 'evidence/worker.json').read_text())
+        self.assertTrue(receipt['worker_removed'])
+        self.assertFalse(receipt['private_removed'])
+        self.assertFalse(receipt['passed'])
+        self.assertIn('Private input cleanup', str(receipt['cleanup_errors']))
         self.assertFalse(list((self.root / 'state/dependencies').glob('**/*.tgz')))
 
     def test_successful_delete_recovers_from_stop_error_without_poisoning_next_job(self):
@@ -183,9 +222,12 @@ seed.with_suffix('.json').write_text(json.dumps({'sha256': hashlib.sha256(seed.r
         self.provision()
         self.assertEqual(self.invoke('--reserve-gib', '0').returncode, 0)
         receipt = json.loads((self.root / 'evidence/worker.json').read_text())
-        receipt.update(pid=99999999, run_id='7', repository='jj/arcadia', worker_removed=False)
+        receipt.update(pid=99999999, run_id='7', repository='jj/arcadia', worker_removed=True)
         owned = self.root / 'state/workers' / (receipt['vm'] + '.json')
         owned.write_text(json.dumps(receipt))
+        private = self.root / 'state/private' / receipt['vm']
+        private.mkdir(parents=True)
+        (private / 'source-fixture').write_text('private input')
 
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self):
@@ -206,6 +248,7 @@ seed.with_suffix('.json').write_text(json.dumps({'sha256': hashlib.sha256(seed.r
             server.shutdown()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(json.loads(owned.read_text())['worker_removed'])
+        self.assertFalse(private.exists())
         self.assertTrue(json.loads((self.root / 'evidence/worker.json').read_text())['passed'])
 
     def test_cancellation_releases_only_owned_worker_and_preserves_evidence(self):

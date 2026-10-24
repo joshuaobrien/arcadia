@@ -33,7 +33,7 @@ existing native-loop dependency filter. They exclude Arcadia app/test products,
 runtime state and credentials. Every guest receives a private copy. A seed key
 includes template identity, resolved packages, project settings and cache/filter
 implementation. Bad checksums fall back to a cold build. Only successful jobs
-publish seeds. Stable guest source and DerivedData paths preserve signatures.
+publish seeds after VM and private-input cleanup. Stable guest source and DerivedData paths preserve signatures.
 
 The cache is an optimization: current source still builds and current tests run.
 The first successful job for a new key is cold. Compatible seeds are retained
@@ -52,7 +52,7 @@ must be checked against observed peak writes and Release/artifact headroom befor
 rollout. Admission refuses work instead of deleting unrelated resources.
 
 Ownership is recorded before cloning. Cancellation terminates the owned process
-group and stops/deletes only the recorded clone with bounded waits. Cleanup errors
+group within its own UID and stops/deletes only the recorded clone with bounded waits. Cleanup errors
 are visible failures. After a crash, reconciliation requires both a dead owner PID
 and authoritative confirmation that the corresponding Gitea run completed.
 Missing credentials or an active run prevent automatic reclamation. Reconciliation verifies actual VM
@@ -61,7 +61,16 @@ as an attempt warning rather than permanently poisoning admission. CI supplies
 `ARCADIA_CI_TOKEN` for this read; the credential is never written to receipts or
 passed as a guest build argument. `--reconcile` runs the same recovery check alone.
 
-Artifacts include `worker.json` and a bounded local `worker.log`. Compact Mac XCTest failure summaries are exported before a failed worker is
+Artifacts include `worker.json` and a bounded local `worker.log`.
+The host keeps the five most recent owned histories under
+`~/.cache/arcadia-ci/evidence/<vm>/`, independently of the runner workspace:
+up to 64 MiB of streamed log per run plus compact JSON (at most 1 MiB per
+supplemental summary). This survives workspace deletion and failed uploads.
+Unknown evidence directories are not pruned. Per-worker dependencies and iOS
+source inputs live under `state/private/<vm>`; authoritative restart recovery
+also retries these after the VM has already been removed.
+Cache publication buffers at most three validated 512-MiB seeds after the VM
+is gone, removes private storage, then commits the dependency-only seeds. Compact Mac XCTest failure summaries are exported before a failed worker is
 removed. Existing iOS compile logs, source guards and the main Release zip remain. Upload steps have a
 two-minute deadline and skip obsolete cancelled jobs. Required upload failures
 remain failures; local evidence survives upload failure.

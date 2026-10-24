@@ -36,7 +36,7 @@ def main(argv=None):
     created = False
     process = None
     status = 1
-    inputs_directory = tempfile.TemporaryDirectory(prefix='arcadia-ios-ci-')
+    inputs_directory = tempfile.TemporaryDirectory(prefix='inputs-', dir=os.environ.get('ARCADIA_CI_PRIVATE_DIR'))
     previous = signal.signal(signal.SIGTERM, interrupted)
     try:
         inputs = Path(inputs_directory.name)

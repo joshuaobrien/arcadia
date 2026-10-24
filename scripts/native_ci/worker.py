@@ -11,7 +11,6 @@ import selectors
 import subprocess
 import sys
 import time
-import tempfile
 import uuid
 import urllib.request
 
@@ -128,9 +127,10 @@ def reconcile(state):
     outcomes = []
     for path in sorted((state / 'workers').glob('*.json')):
         owned = json.loads(path.read_text())
-        if owned.get('worker_removed'):
-            continue
         vm = owned.get('vm', '')
+        private = state / 'private' / vm
+        if owned.get('worker_removed') and not private.exists():
+            continue
         if not vm.startswith('arcadia-fast-ci-') or path.name != vm + '.json':
             raise RuntimeError('Invalid worker ownership record')
         try:
@@ -150,12 +150,33 @@ def reconcile(state):
         if run.get('status') != 'completed':
             raise RuntimeError('Recorded worker still belongs to an active CI run: ' + vm)
         absent, attempts = remove_worker(vm)
-        owned.update(worker_removed=absent, reconciliation_attempt_errors=attempts)
+        if absent and private.exists():
+            shutil.rmtree(private)
+        owned.update(worker_removed=absent, private_removed=not private.exists(), reconciliation_attempt_errors=attempts)
         write_json(path, owned)
+        retain_diagnostics(state, vm, owned)
         outcomes.append({'vm': vm, 'removed': absent})
         if not absent:
             raise RuntimeError('Orphan cleanup failed: ' + vm)
     return outcomes
+
+
+def retain_diagnostics(state, vm, report, artifacts=None):
+    destination = state / 'evidence' / vm
+    destination.mkdir(parents=True, exist_ok=True)
+    write_json(destination / 'worker.json', report)
+    if artifacts:
+        for name in ['manifest.json', 'tests-summary.json', 'verification.json']:
+            source = artifacts / name
+            if source.is_file() and source.stat().st_size <= 1024 ** 2:
+                shutil.copy2(source, destination / name)
+        if (destination / 'worker.log').exists():
+            shutil.copy2(destination / 'worker.log', artifacts / 'worker.log')
+    retained = sorted((state / 'evidence').glob('arcadia-fast-ci-*'), key=lambda p: p.stat().st_mtime, reverse=True)
+    for old in retained[5:]:
+        record = state / 'workers' / (old.name + '.json')
+        if old.is_dir() and old.name != vm and record.is_file() and json.loads(record.read_text()).get('vm') == old.name:
+            shutil.rmtree(old)
 
 
 def main(argv=None):
@@ -184,6 +205,7 @@ def main(argv=None):
     lock = None
     status = 1
     previous = {}
+    private_root = None
     cache_private = None
     cache_entry = None
 
@@ -248,7 +270,11 @@ def main(argv=None):
                 inputs.append(helper.read_bytes())
         key = hashlib.sha256(b'\0'.join(inputs)).hexdigest()
         cache_entry = args.state / 'dependencies' / key
-        cache_private = Path(tempfile.mkdtemp(prefix='dependencies-', dir=args.state))
+        private_root = args.state / 'private' / report['vm']
+        cache_private = private_root / 'dependencies'
+        cache_private.mkdir(parents=True)
+        durable = args.state / 'evidence' / report['vm']
+        durable.mkdir(parents=True)
         if cache_entry.is_dir():
             for seed in cache_entry.glob('*.tgz'):
                 receipt = seed.with_suffix('.json')
@@ -260,11 +286,11 @@ def main(argv=None):
         args.artifacts.mkdir(parents=True, exist_ok=True)
         child = subprocess.Popen(command, env=dict(os.environ, ARCADIA_CI_VM=report['vm'],
                                                   ARCADIA_CI_MANAGED='1', ARCADIA_CI_EVIDENCE_DIR=str(args.artifacts.resolve()),
-                                                  ARCADIA_CI_CACHE_DIR=str(cache_private)), start_new_session=True,
+                                                  ARCADIA_CI_CACHE_DIR=str(cache_private), ARCADIA_CI_PRIVATE_DIR=str(private_root)), start_new_session=True,
                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         deadline = time.monotonic() + args.command_timeout
         last_progress = time.monotonic()
-        with selectors.DefaultSelector() as reader, (args.artifacts / 'worker.log').open('wb') as log:
+        with selectors.DefaultSelector() as reader, (durable / 'worker.log').open('wb') as log:
             reader.register(child.stdout, selectors.EVENT_READ)
             pending = b''
             logged = 0
@@ -326,20 +352,34 @@ def main(argv=None):
             report['cleanup_errors'] = cleanup
             if cleanup:
                 status = 1
+            # Bound staging to the three supported dependency seeds. Read after the VM
+            # is gone, then remove private inputs before making any shared publication.
+            publications = []
+            if status == 0 and not cleanup:
+                for name in ['debug', 'release', 'ios']:
+                    seed = cache_private / (name + '.tgz')
+                    if valid_seed(seed):
+                        publications.append((seed.name, seed.read_bytes(), seed.with_suffix('.json').read_bytes()))
+            if private_root and absent:
+                try:
+                    shutil.rmtree(private_root)
+                except OSError as error:
+                    cleanup.append('Private input cleanup: ' + str(error))
+                    status = 1
+            report['private_removed'] = not private_root or not private_root.exists()
             if status == 0 and not cleanup:
                 try:
                     phase('cache publication')
                     cache_entry.mkdir(parents=True, exist_ok=True)
-                    for seed in cache_private.glob('*.tgz'):
-                        receipt = seed.with_suffix('.json')
-                        if valid_seed(seed):
-                            generation = cache_entry / ('.' + seed.stem + '-' + uuid.uuid4().hex)
-                            generation.mkdir()
-                            shutil.copy2(seed, generation / seed.name)
-                            shutil.copy2(receipt, generation / receipt.name)
-                            os.replace(generation / seed.name, cache_entry / seed.name)
-                            os.replace(generation / receipt.name, cache_entry / receipt.name)
-                            generation.rmdir()
+                    for name, payload, metadata in publications:
+                        generation = cache_entry / ('.' + report['vm'])
+                        generation.mkdir()
+                        (generation / name).write_bytes(payload)
+                        receipt_name = Path(name).with_suffix('.json').name
+                        (generation / receipt_name).write_bytes(metadata)
+                        os.replace(generation / name, cache_entry / name)
+                        os.replace(generation / receipt_name, cache_entry / receipt_name)
+                        generation.rmdir()
                 except (OSError, ValueError) as error:
                     report['error'] = 'Cache publication failed: ' + str(error)
                     status = 1
@@ -353,10 +393,9 @@ def main(argv=None):
                 inner.update(vm_removed=report['worker_removed'], cleanup_errors=cleanup,
                              passed=inner.get('passed', False) and report['passed'])
                 write_json(manifest, inner)
+            retain_diagnostics(args.state, report['vm'], report, args.artifacts)
         if not args.provision:
             write_json(args.artifacts / 'worker.json', report)
-        if cache_private:
-            shutil.rmtree(cache_private)
         if lock:
             lock.close()
         for sig, handler in previous.items():
