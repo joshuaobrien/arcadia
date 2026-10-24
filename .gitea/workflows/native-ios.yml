@@ -35,4 +35,5 @@ jobs:
         with:
           name: native-ios-${{ github.sha }}
           path: artifacts/native-ios/
+          if-no-files-found: error
           retention-days: 14
