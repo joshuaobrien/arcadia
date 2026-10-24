@@ -92,8 +92,13 @@ final class ExpandedPlayerRealTests: XCTestCase {
     XCTAssertEqual(XCTWaiter.wait(for: [playing], timeout: 15), .completed)
     app.buttons["player.pause"].tap()
     XCTAssertTrue(resume.waitForExistence(timeout: 5))
+    seek.adjust(toNormalizedSliderPosition: 0)
+    XCTAssertTrue(waitForElapsed(seconds: 0...1, app: app), "Start the seek check near zero so a no-op cannot pass")
+    XCTAssertTrue(resume.exists, "Preparing the seek check must preserve paused intent")
     seek.adjust(toNormalizedSliderPosition: 0.5)
-    XCTAssertTrue(waitForElapsed(seconds: 14...16, app: app), "Real audio must seek near its 15-second midpoint")
+    // Native slider adjustment is approximate: the prior genuine 50% capture reached 17/30 seconds.
+    // Starting near zero and requiring 12...18 also proves a meaningful position change.
+    XCTAssertTrue(waitForElapsed(seconds: 12...18, app: app), "Real audio must seek near its 15-second midpoint")
     XCTAssertTrue(resume.exists, "Seeking must preserve paused intent")
     seek.adjust(toNormalizedSliderPosition: 0)
     XCTAssertTrue(waitForElapsed(seconds: 0...1, app: app), "Real audio must rewind to the beginning")
