@@ -62,7 +62,7 @@ final class RealCurrentTrackIndicatorTests: XCTestCase {
     play.tap()
     XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 15))
     let marker = app.descendants(matching: .any).matching(
-      identifier: "track.\(configuration.firstSongID).playback"
+      identifier: "track.\(configuration.firstSongID).play"
     ).firstMatch
     XCTAssertTrue(marker.waitForExistence(timeout: 10))
     XCTAssertTrue(waitForState("Playing", marker: marker))
