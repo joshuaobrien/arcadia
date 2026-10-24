@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: Include the normal main Release artifact for a matched benchmark
+        type: boolean
+        default: false
 
 concurrency:
   group: native-${{ github.ref }}
@@ -27,7 +33,7 @@ jobs:
           ARCADIA_CI_TOKEN: ${{ github.token }}
           ARCADIA_BASE_URL: ${{ vars.ARCADIA_BASE_URL }}
         run: |
-          if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF" = "refs/heads/main" ]; then
+          if { [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF" = "refs/heads/main" ]; } || [ "${{ inputs.release }}" = "true" ]; then
             ARTIFACT_DIR="$PWD/artifacts" ./scripts/ci-native.sh "$PWD"
           else
             ./scripts/ci-native.sh "$PWD"
@@ -35,7 +41,7 @@ jobs:
 
       - name: Upload unsigned app
         timeout-minutes: 2
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || inputs.release == true
         uses: actions/upload-artifact@v3
         with:
           name: Arcadia-${{ github.sha }}
