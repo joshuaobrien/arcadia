@@ -90,7 +90,13 @@ final class PlayerStore {
     guard let index = currentIndex else { return }
     playbackChoiceRevision = UUID()
     let destination = currentTime >= 3 ? index : max(0, index - 1)
-    start(queue[destination], requestingPlayback: wantsPlayback)
+    if destination == index, restoration.position == nil,
+      player.currentItem?.status == .readyToPlay, state != .failed
+    {
+      seek(to: 0, resumeAfterSeeking: wantsPlayback)
+    } else {
+      start(queue[destination], requestingPlayback: wantsPlayback)
+    }
   }
   private func advanceToNext() {
     guard let index = currentIndex, queue.indices.contains(index + 1) else { return }
