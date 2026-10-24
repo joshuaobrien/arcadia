@@ -42,11 +42,11 @@ if sys.argv[1] == 'delete':
         tart.chmod(0o755)
         self.env = dict(os.environ, PATH=str(self.bin) + os.pathsep + os.environ['PATH'], CALLS=str(self.calls))
 
-    def invoke(self, *arguments):
+    def invoke(self, *arguments, command=None):
         return subprocess.run([sys.executable, str(CLI), '--template', 'gold',
                                '--template-root', str(self.templates), '--state', str(self.root / 'state'),
                                '--artifacts', str(self.root / 'evidence'), *arguments,
-                               '--', sys.executable, '-c', 'print("built current source")'],
+                               '--', sys.executable, '-c', command or 'print("built current source")'],
                               env=self.env, capture_output=True, text=True, timeout=10)
 
     def test_missing_local_template_fails_without_cloning_or_downloading(self):
@@ -123,6 +123,19 @@ if sys.argv[1] == 'delete':
         receipt = json.loads((self.root / 'evidence/worker.json').read_text())
         self.assertFalse(receipt['passed'])
         self.assertTrue(receipt['cleanup_errors'])
+
+    def test_failed_cleanup_does_not_publish_dependency_seed(self):
+        self.provision()
+        self.env['FAIL_DELETE'] = '1'
+        command = """import hashlib, json, os
+from pathlib import Path
+seed = Path(os.environ['ARCADIA_CI_CACHE_DIR']) / 'debug.tgz'
+seed.write_bytes(b'new dependency seed')
+seed.with_suffix('.json').write_text(json.dumps({'sha256': hashlib.sha256(seed.read_bytes()).hexdigest()}))
+"""
+        result = self.invoke('--reserve-gib', '0', command=command)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(list((self.root / 'state/dependencies').glob('**/*.tgz')))
 
     def test_successful_delete_recovers_from_stop_error_without_poisoning_next_job(self):
         self.provision()

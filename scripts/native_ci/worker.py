@@ -117,8 +117,11 @@ def stop_owned_processes(child):
         except subprocess.TimeoutExpired:
             pass
     child.wait(timeout=5)
-    if owned_group_members(child.pid):
-        raise RuntimeError('Owned process group has surviving processes')
+    deadline = time.monotonic() + 3
+    while owned_group_members(child.pid):
+        if time.monotonic() >= deadline:
+            raise RuntimeError('Owned process group has surviving processes')
+        time.sleep(.05)
 
 
 def reconcile(state):
@@ -291,18 +294,6 @@ def main(argv=None):
         status = child.wait(timeout=5)
         if status:
             raise RuntimeError('Worker command failed: ' + str(status))
-        phase('cache publication')
-        cache_entry.mkdir(parents=True, exist_ok=True)
-        for seed in cache_private.glob('*.tgz'):
-            receipt = seed.with_suffix('.json')
-            if valid_seed(seed):
-                generation = cache_entry / ('.' + seed.stem + '-' + uuid.uuid4().hex)
-                generation.mkdir()
-                shutil.copy2(seed, generation / seed.name)
-                shutil.copy2(receipt, generation / receipt.name)
-                os.replace(generation / seed.name, cache_entry / seed.name)
-                os.replace(generation / receipt.name, cache_entry / receipt.name)
-                generation.rmdir()
     except KeyboardInterrupt:
         report['error'] = 'Cancelled'
         status = 130
@@ -335,6 +326,23 @@ def main(argv=None):
             report['cleanup_errors'] = cleanup
             if cleanup:
                 status = 1
+            if status == 0 and not cleanup:
+                try:
+                    phase('cache publication')
+                    cache_entry.mkdir(parents=True, exist_ok=True)
+                    for seed in cache_private.glob('*.tgz'):
+                        receipt = seed.with_suffix('.json')
+                        if valid_seed(seed):
+                            generation = cache_entry / ('.' + seed.stem + '-' + uuid.uuid4().hex)
+                            generation.mkdir()
+                            shutil.copy2(seed, generation / seed.name)
+                            shutil.copy2(receipt, generation / receipt.name)
+                            os.replace(generation / seed.name, cache_entry / seed.name)
+                            os.replace(generation / receipt.name, cache_entry / receipt.name)
+                            generation.rmdir()
+                except (OSError, ValueError) as error:
+                    report['error'] = 'Cache publication failed: ' + str(error)
+                    status = 1
             report['passed'] = status == 0 and report['worker_removed']
             report['seconds'] = round(time.monotonic() - started, 3)
             report['free_after'] = shutil.disk_usage(args.template_root).free
