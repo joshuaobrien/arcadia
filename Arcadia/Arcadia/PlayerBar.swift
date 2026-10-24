@@ -10,6 +10,7 @@ struct PlayerBar: View {
     if let track = playerStore.currentTrack {
       VStack(spacing: DesignTokens.Spacing.s) {
         HStack(spacing: DesignTokens.Spacing.m) {
+          PreviousSongButton()
           PlaybackToggleButton()
           NextSongButton()
           VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
@@ -121,5 +122,23 @@ struct NextSongButton: View {
     .disabled(!playerStore.canAdvance)
     .accessibilityLabel("Next song")
     .accessibilityIdentifier("player.next")
+  }
+}
+
+struct PreviousSongButton: View {
+  @Environment(PlayerStore.self) private var playerStore
+  var body: some View {
+    Button {
+      playerStore.playPrevious()
+    } label: {
+      Image(systemName: "backward.end.fill")
+        .font(.system(size: 20))
+        .frame(minWidth: 44, minHeight: 44)
+    }
+    .buttonStyle(.borderless)
+    .disabled(playerStore.currentEntryID == nil)
+    .accessibilityLabel("Previous song or restart")
+    .help("Restart this song, or return to the previous song near the beginning")
+    .accessibilityIdentifier("player.previous")
   }
 }

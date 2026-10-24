@@ -28,6 +28,16 @@ final class SystemTransportTests: XCTestCase {
     app.typeKey(.rightArrow, modifierFlags: [.command, .option])
     expectation(for: NSPredicate(format: "value != %@", title ?? ""), evaluatedWith: app.staticTexts["player.title"])
     waitForExpectations(timeout: 5)
+    app.typeKey("p", modifierFlags: [.command, .option])
+    XCTAssertTrue(app.buttons["player.resume"].waitForExistence(timeout: 5))
+    app.sliders["player.seek"].adjust(toNormalizedSliderPosition: 0)
+    expectation(for: NSPredicate(format: "value == %@", "0:00"), evaluatedWith: app.staticTexts["player.elapsed"])
+    waitForExpectations(timeout: 5)
+    app.typeKey(.leftArrow, modifierFlags: [.command, .option])
+    expectation(for: NSPredicate(format: "value == %@", title ?? ""), evaluatedWith: app.staticTexts["player.title"])
+    waitForExpectations(timeout: 5)
+    XCTAssertTrue(app.buttons["player.resume"].exists)
+    XCTAssertTrue(app.buttons["player.previous"].isEnabled)
   }
 
   @MainActor
