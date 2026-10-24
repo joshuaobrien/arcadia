@@ -79,6 +79,13 @@ struct TrackRow: View {
     } label: {
       Image(systemName: isPauseAction ? "pause.fill" : "play.fill")
         .frame(minWidth: 44, minHeight: 44)
+        .overlay {
+          if isCurrentTrack {
+            RoundedRectangle(cornerRadius: DesignTokens.Radius.m)
+              .strokeBorder(.secondary, lineWidth: 1)
+              .accessibilityHidden(true)
+          }
+        }
     }
     .buttonStyle(.borderless)
     .accessibilityLabel("\(playbackAction) \(track.title ?? "Untitled track")")
