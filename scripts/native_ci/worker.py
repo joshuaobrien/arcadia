@@ -10,6 +10,7 @@ import signal
 import subprocess
 import sys
 import time
+import tempfile
 import uuid
 
 
@@ -31,12 +32,13 @@ def fingerprint(template):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--template', required=True)
-    parser.add_argument('--template-root', type=Path, default=Path.home() / '.tart/vms')
-    parser.add_argument('--state', type=Path, default=Path.home() / '.cache/arcadia-ci')
+    parser.add_argument('--template-root', type=Path, default=Path(os.environ.get('ARCADIA_CI_TEMPLATE_ROOT', str(Path.home() / '.tart/vms'))))
+    parser.add_argument('--state', type=Path, default=Path(os.environ.get('ARCADIA_CI_STATE', str(Path.home() / '.cache/arcadia-ci'))))
     parser.add_argument('--artifacts', type=Path, required=True)
     parser.add_argument('--reserve-gib', type=float, default=float(os.environ.get('ARCADIA_CI_RESERVE_GIB', '12')))
     parser.add_argument('--max-guests', type=int, default=2)
     parser.add_argument('--provision', action='store_true')
+    parser.add_argument('--source', type=Path, default=Path.cwd())
     parser.add_argument('--command-timeout', type=float, default=2400)
     args, command = parser.parse_known_args(argv)
     if command[:1] == ['--']:
@@ -52,6 +54,8 @@ def main(argv=None):
     lock = None
     status = 1
     previous = {}
+    cache_private = None
+    cache_entry = None
 
     def phase(name):
         report['phases'].append({'phase': name, 'seconds': round(time.monotonic() - started, 3)})
@@ -94,9 +98,28 @@ def main(argv=None):
         phase('local clone')
         subprocess.run(['tart', 'clone', args.template, report['vm'], '--prune-limit', '0'],
                        env=dict(os.environ, TART_NO_AUTO_PRUNE='1'), check=True, timeout=120)
+        # Existing guest cache code strips app/test outputs; only dependency seeds cross jobs.
+        inputs = [b'ci-dependencies-v1', json.dumps(identity, sort_keys=True).encode()]
+        for path in sorted((args.source / 'Arcadia').rglob('Package.resolved')):
+            inputs.append(path.read_bytes())
+        project = args.source / 'Arcadia/Arcadia.xcodeproj/project.pbxproj'
+        if project.is_file():
+            inputs.append(project.read_bytes())
+        key = hashlib.sha256(b'\0'.join(inputs)).hexdigest()
+        cache_entry = args.state / 'dependencies' / key
+        cache_private = Path(tempfile.mkdtemp(prefix='dependencies-', dir=args.state))
+        if cache_entry.is_dir():
+            for seed in cache_entry.glob('*.tgz'):
+                receipt = seed.with_suffix('.json')
+                if receipt.is_file() and seed.stat().st_size <= 512 * 1024 ** 2:
+                    facts = json.loads(receipt.read_text())
+                    if facts.get('sha256') == hashlib.sha256(seed.read_bytes()).hexdigest():
+                        shutil.copy2(seed, cache_private / seed.name)
+                        shutil.copy2(receipt, cache_private / receipt.name)
+        report['dependency_key'] = key
         phase('worker command')
         child = subprocess.Popen(command, env=dict(os.environ, ARCADIA_CI_VM=report['vm'],
-                                                  ARCADIA_CI_MANAGED='1'), start_new_session=True)
+                                                  ARCADIA_CI_MANAGED='1', ARCADIA_CI_CACHE_DIR=str(cache_private)), start_new_session=True)
         deadline = time.monotonic() + args.command_timeout
         while True:
             try:
@@ -108,6 +131,22 @@ def main(argv=None):
                     raise RuntimeError('Worker command deadline exceeded')
         if status:
             raise RuntimeError('Worker command failed: ' + str(status))
+        phase('cache publication')
+        cache_entry.mkdir(parents=True, exist_ok=True)
+        for seed in cache_private.glob('*.tgz'):
+            receipt = seed.with_suffix('.json')
+            if receipt.is_file() and seed.stat().st_size <= 512 * 1024 ** 2:
+                facts = json.loads(receipt.read_text())
+                if facts.get('sha256') == hashlib.sha256(seed.read_bytes()).hexdigest():
+                    # Publish the pair in a generation directory before atomic replacement.
+                    generation = cache_entry / ('.' + seed.stem + '-' + uuid.uuid4().hex)
+                    generation.mkdir()
+                    shutil.copy2(seed, generation / seed.name)
+                    shutil.copy2(receipt, generation / receipt.name)
+                    os.replace(generation / seed.name, cache_entry / seed.name)
+                    os.replace(generation / receipt.name, cache_entry / receipt.name)
+                    generation.rmdir()
+
     except KeyboardInterrupt:
         report['error'] = 'Cancelled'
         status = 130
@@ -151,8 +190,16 @@ def main(argv=None):
             report['seconds'] = round(time.monotonic() - started, 3)
             report['free_after'] = shutil.disk_usage(args.template_root).free
             write_json(ownership, report)
+            manifest = args.artifacts / 'manifest.json'
+            if manifest.is_file():
+                inner = json.loads(manifest.read_text())
+                inner.update(vm_removed=report['worker_removed'], cleanup_errors=cleanup,
+                             passed=inner.get('passed', False) and report['passed'])
+                write_json(manifest, inner)
         if not args.provision:
             write_json(args.artifacts / 'worker.json', report)
+        if cache_private:
+            shutil.rmtree(cache_private)
         if lock:
             lock.close()
         for sig, handler in previous.items():

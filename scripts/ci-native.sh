@@ -11,8 +11,16 @@
 
 set -euo pipefail
 
+if [[ "${ARCADIA_CI_MANAGED:-}" != 1 ]]; then
+  SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+  exec python3 "$SCRIPT_DIR/ci-worker" \
+    --template "${TART_IMAGE:-arcadia-ci-xcode-26-5-cache}" --source "${1:-$PWD}" \
+    --artifacts "${CI_EVIDENCE_DIR:-${ARTIFACT_DIR:-$PWD/artifacts/native-mac}}" \
+    -- bash "$SCRIPT_DIR/ci-native.sh" "$@"
+fi
+
 IMAGE="${TART_IMAGE:-ghcr.io/cirruslabs/macos-tahoe-xcode:26.5}"
-VM="arcadia-ci-${GITHUB_RUN_ID:-$$}"
+VM="$ARCADIA_CI_VM"
 VM_USER=admin
 VM_PASS=admin
 SRC_DIR="${1:-$PWD}"
@@ -33,18 +41,8 @@ if [[ -n "$ARTIFACT_DIR" ]]; then
   rm -f "$ARTIFACT_DIR/Arcadia.zip"
 fi
 
-cleanup() {
-  tart stop "$VM" >/dev/null 2>&1 || true
-  sleep 2
-  tart delete "$VM" >/dev/null 2>&1 || true
-}
-trap cleanup EXIT
-
-echo "==> Cloning $IMAGE -> $VM"
-tart clone "$IMAGE" "$VM"
-
 echo "==> Booting"
-TART_RUN_ARGS=(--no-graphics "--dir=mint:$MINT_CACHE")
+TART_RUN_ARGS=(--no-graphics --no-audio --no-clipboard "--dir=mint:$MINT_CACHE" "--dir=dependencies:$ARCADIA_CI_CACHE_DIR")
 if [[ -n "$ARTIFACT_DIR" ]]; then
   TART_RUN_ARGS+=("--dir=artifacts:$ARTIFACT_DIR")
 fi
@@ -67,6 +65,7 @@ echo "==> VM up at $IP"
 # Note the password pattern must be brace-quoted: Tcl interpolates inside
 # "..." and the interpolated form silently fails to match, hanging the run.
 WORK=$(mktemp -d)
+trap 'rm -rf "$WORK"' EXIT
 cat > "$WORK/ssh.exp" <<'EOF'
 #!/usr/bin/expect -f
 log_user 1
@@ -102,7 +101,7 @@ vm_run() { /usr/bin/expect -f "$WORK/ssh.exp" "$VM_USER" "$IP" "$1" "$VM_PASS"; 
 
 echo "==> Copying source"
 tar czf "$WORK/src.tgz" -C "$SRC_DIR" --exclude='.git' \
-  Arcadia .swiftlint.yml .swift-format Mintfile
+  Arcadia .swiftlint.yml .swift-format Mintfile scripts/ci-build-cache scripts/native_ci/build_cache.py scripts/native_loop/dependencies.py
 /usr/bin/expect -f "$WORK/scp.exp" "$WORK/src.tgz" "$VM_USER" "$IP" /tmp/src.tgz "$VM_PASS"
 vm_run "rm -rf /tmp/build && mkdir -p /tmp/build && tar xzf /tmp/src.tgz -C /tmp/build"
 
@@ -116,18 +115,22 @@ vm_run "cd /tmp/build && export PATH=/opt/homebrew/bin:\$PATH MINT_PATH='/Volume
 echo "==> swift-format"
 vm_run "cd /tmp/build && xcrun swift-format lint --configuration .swift-format --recursive --strict Arcadia/Arcadia"
 
+cache() { vm_run "cd /tmp/build && /usr/bin/python3 scripts/ci-build-cache $1 --derived $2 --shared '/Volumes/My Shared Files/dependencies' --name $3"; }
+cache restore /tmp/arcadia-debug debug
 echo "==> Building"
-vm_run "cd /tmp/build/Arcadia && xcodebuild -project Arcadia.xcodeproj -scheme Arcadia -configuration Debug -destination 'platform=macOS' -skipMacroValidation build CODE_SIGNING_ALLOWED=NO"
+vm_run "cd /tmp/build/Arcadia && xcodebuild -project Arcadia.xcodeproj -scheme Arcadia -configuration Debug -destination 'platform=macOS' -derivedDataPath /tmp/arcadia-debug -skipMacroValidation build CODE_SIGNING_ALLOWED=NO"
 
 echo "==> Testing"
-vm_run "cd /tmp/build/Arcadia && xcodebuild -project Arcadia.xcodeproj -scheme Arcadia -configuration Debug -destination 'platform=macOS' -skipMacroValidation -only-testing:ArcadiaTests test CODE_SIGNING_ALLOWED=NO"
+vm_run "cd /tmp/build/Arcadia && xcodebuild -project Arcadia.xcodeproj -scheme Arcadia -configuration Debug -destination 'platform=macOS' -derivedDataPath /tmp/arcadia-debug -skipMacroValidation -only-testing:ArcadiaTests test CODE_SIGNING_ALLOWED=NO"
 
 if [[ -n "$ARTIFACT_DIR" ]]; then
   printf -v ESCAPED_BASE_URL '%q' "$ARCADIA_BASE_URL"
 
+  cache restore /tmp/arcadia-release release
   echo "==> Building unsigned Release artifact"
   vm_run "cd /tmp/build/Arcadia && xcodebuild -project Arcadia.xcodeproj -scheme Arcadia -configuration Release -destination 'platform=macOS' -derivedDataPath /tmp/arcadia-release -skipMacroValidation CODE_SIGNING_ALLOWED=NO ARCADIA_BASE_URL=$ESCAPED_BASE_URL"
 
+  cache publish /tmp/arcadia-release release
   echo "==> Ad-hoc signing Release artifact"
   vm_run "codesign --force --deep --sign - /tmp/arcadia-release/Build/Products/Release/Arcadia.app"
   vm_run "codesign --verify --deep --strict --verbose=2 /tmp/arcadia-release/Build/Products/Release/Arcadia.app"
@@ -140,4 +143,5 @@ if [[ -n "$ARTIFACT_DIR" ]]; then
   }
 fi
 
+cache publish /tmp/arcadia-debug debug
 echo "==> Done"

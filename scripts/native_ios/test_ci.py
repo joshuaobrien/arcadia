@@ -21,6 +21,7 @@ args = sys.argv[1:]
 root = pathlib.Path(os.environ['FAKE_ROOT'])
 with (root / 'calls').open('a') as log:
     log.write(json.dumps(args) + '\\n')
+if args[0] == 'list': print('[]')
 if args[0] == 'run':
     shared = next(arg for arg in args if arg.startswith('--dir=artifacts:'))
     (root / 'artifacts').write_text(shared.split(':', 1)[1])
@@ -37,6 +38,15 @@ elif args[0] == 'exec' and '--archive' in args:
             provider.chmod(0o755)
             env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ['PATH'],
                        FAKE_ROOT=str(root), FAIL_GUEST=str(int(fail)), FAIL_STOP=str(int(stop_failure)))
+            template = root / 'templates/gold'
+            template.mkdir(parents=True)
+            for name in ['config.json', 'disk.img', 'nvram.bin']:
+                (template / name).write_text('{}')
+            env.update(ARCADIA_CI_TEMPLATE_ROOT=str(root / 'templates'), ARCADIA_CI_STATE=str(root / 'state'),
+                       NATIVE_IOS_TEMPLATE='gold')
+            subprocess.run([sys.executable, str(ROOT / 'scripts/ci-worker'), '--template', 'gold',
+                            '--artifacts', str(root / 'evidence'), '--provision'], env=env, check=True,
+                           capture_output=True)
             result = subprocess.run([sys.executable, str(ROOT / 'scripts/ci-native-ios'), '--artifacts', str(root / 'evidence')],
                                     env=env, capture_output=True, text=True, timeout=40)
             report = json.loads((root / 'evidence/manifest.json').read_text())

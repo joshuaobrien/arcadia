@@ -1,0 +1,5 @@
+#!/usr/bin/env python3
+"""Restore/publish private CI dependency products; application outputs are excluded."""
+from native_ci.build_cache import main
+
+raise SystemExit(main())

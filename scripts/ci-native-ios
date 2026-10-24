@@ -4,6 +4,13 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from native_ios.ci import main
+import os
+from native_ci.worker import main
 
-raise SystemExit(main())
+args = sys.argv[1:]
+# The inner lane retains its existing arguments; the outer owner controls the clone.
+artifacts = args[args.index('--artifacts') + 1] if '--artifacts' in args else 'artifacts/native-ios'
+template = args[args.index('--template') + 1] if '--template' in args else os.environ.get('NATIVE_IOS_TEMPLATE', 'arcadia-mobile-xcode-27-1-27a9275')
+raise SystemExit(main(['--template', template, '--artifacts', artifacts, '--source',
+                       args[args.index('--source') + 1] if '--source' in args else str(Path(__file__).resolve().parents[1]), '--',
+                      sys.executable, str(Path(__file__).parent / 'native_ios/ci.py'), *args]))

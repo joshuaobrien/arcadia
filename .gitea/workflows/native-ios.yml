@@ -21,10 +21,13 @@ jobs:
         run: |
           python3 -m unittest discover -s scripts/native_preview -p 'test_*.py'
           python3 -m unittest discover -s scripts/native_ios -p 'test_*.py'
+          python3 -m unittest discover -s scripts/native_loop -p 'test_*.py'
+          python3 -m unittest discover -s scripts/native_ci -p 'test_*.py'
       - name: Compile in an ephemeral background VM
         run: ./scripts/ci-native-ios --artifacts "$PWD/artifacts/native-ios"
       - name: Upload compile evidence (not behavioral UI results)
-        if: always()
+        if: always() && !cancelled()
+        timeout-minutes: 2
         uses: actions/upload-artifact@v3
         with:
           name: native-ios-${{ github.sha }}

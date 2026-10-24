@@ -19,6 +19,9 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Check CI worker command behavior
+        run: python3 -m unittest discover -s scripts/native_ci -p 'test_*.py'
+
       - name: Lint, build and test in an ephemeral VM
         env:
           ARCADIA_BASE_URL: ${{ vars.ARCADIA_BASE_URL }}
@@ -30,9 +33,19 @@ jobs:
           fi
 
       - name: Upload unsigned app
+        timeout-minutes: 2
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@v3
         with:
           name: Arcadia-${{ github.sha }}
           path: artifacts/Arcadia.zip
           retention-days: 30
+
+      - name: Upload CI lifecycle evidence
+        if: always() && !cancelled()
+        timeout-minutes: 2
+        uses: actions/upload-artifact@v3
+        with:
+          name: native-mac-ci-${{ github.sha }}
+          path: artifacts/**/worker.json
+          retention-days: 14
