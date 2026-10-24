@@ -191,13 +191,18 @@ def retain_diagnostics(state, vm, report, artifacts=None):
                 shutil.copy2(source, destination / name)
         if (destination / 'worker.log').exists():
             shutil.copy2(destination / 'worker.log', artifacts / 'worker.log')
-    retained = sorted((state / 'evidence').glob('arcadia-fast-ci-*'), key=lambda p: p.stat().st_mtime, reverse=True)
-    for old in retained[5:]:
-        record = state / 'workers' / (old.name + '.json')
-        if (old.is_dir() and old.name != vm and record.is_file()
-                and json.loads(record.read_text()).get('vm') == old.name
-                and json.loads(record.read_text()).get('worker_removed')):
-            shutil.rmtree(old)
+    with (state / 'evidence.lock').open('a') as pruning:
+        try:
+            fcntl.flock(pruning, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return
+        retained = sorted((state / 'evidence').glob('arcadia-fast-ci-*'), key=lambda p: p.stat().st_mtime, reverse=True)
+        for old in retained[5:]:
+            record = state / 'workers' / (old.name + '.json')
+            if (old.is_dir() and old.name != vm and record.is_file()
+                    and json.loads(record.read_text()).get('vm') == old.name
+                    and json.loads(record.read_text()).get('worker_removed')):
+                shutil.rmtree(old)
 
 
 def main(argv=None):
@@ -325,13 +330,13 @@ def main(argv=None):
                     shutil.copy2(seed, cache_private / seed.name)
                     shutil.copy2(receipt, cache_private / receipt.name)
         report['dependency_key'] = key
-        fcntl.flock(lock, fcntl.LOCK_UN)
         phase('worker command')
         args.artifacts.mkdir(parents=True, exist_ok=True)
         child = subprocess.Popen(command, env=dict(os.environ, ARCADIA_CI_VM=report['vm'],
                                                   ARCADIA_CI_MANAGED='1', ARCADIA_CI_EVIDENCE_DIR=str(args.artifacts.resolve()),
                                                   ARCADIA_CI_CACHE_DIR=str(cache_private), ARCADIA_CI_PRIVATE_DIR=str(private_root)), start_new_session=True,
                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        admission_released = False
         deadline = time.monotonic() + args.command_timeout
         last_progress = time.monotonic()
         with selectors.DefaultSelector() as reader, (durable / 'worker.log').open('wb', buffering=0) as log:
@@ -339,6 +344,14 @@ def main(argv=None):
             pending = b''
             logged = 0
             while reader.get_map() or child.poll() is None:
+                # Keep admission until older checkout versions can see the guest
+                # in Tart's running inventory (they do not read reservations).
+                if not admission_released and any(
+                        g.get('Name', g.get('name')) == report['vm']
+                        and str(g.get('State', g.get('state', ''))).lower() == 'running'
+                        for g in inventory()):
+                    fcntl.flock(lock, fcntl.LOCK_UN)
+                    admission_released = True
                 if time.monotonic() >= deadline:
                     raise RuntimeError('Worker command deadline exceeded')
                 for key_event, _ in reader.select(timeout=min(1, max(.01, deadline - time.monotonic()))):

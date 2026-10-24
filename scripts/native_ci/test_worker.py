@@ -25,7 +25,9 @@ class WorkerCommand(unittest.TestCase):
         self.calls = self.root / 'calls'
         tart = self.bin / 'tart'
         tart.write_text('#!' + sys.executable + '''
-import json, os, pathlib, sys
+import fcntl, json, os, pathlib, sys
+vm_lock = open(os.environ['CALLS'] + '.lock', 'a')
+fcntl.flock(vm_lock, fcntl.LOCK_EX)
 with open(os.environ['CALLS'], 'a') as log:
     log.write(json.dumps(sys.argv[1:]) + '\\n')
 store = pathlib.Path(os.environ['CALLS']).with_name('vms.json')
@@ -36,6 +38,10 @@ if sys.argv[1] == 'clone':
     vms.append({'Name': sys.argv[3], 'State': 'stopped'})
     store.write_text(json.dumps(vms))
     if os.environ.get('PAUSE_CLONE'): __import__('time').sleep(60)
+if sys.argv[1] == 'run':
+    for vm in vms:
+        if vm['Name'] == sys.argv[2]: vm['State'] = 'running'
+    store.write_text(json.dumps(vms))
 if sys.argv[1] == 'stop' and os.environ.get('FAIL_STOP'): sys.exit(9)
 if sys.argv[1] == 'delete':
     if os.environ.get('FAIL_DELETE'): sys.exit(9)
@@ -103,7 +109,7 @@ if sys.argv[1] == 'delete':
         try:
             for index in range(3):
                 marker = self.root / ('entered-' + str(index))
-                command = "from pathlib import Path; import time; Path(" + repr(str(marker)) + ").touch(); time.sleep(2)"
+                command = "from pathlib import Path; import time, subprocess, os; subprocess.run(['tart', 'run', os.environ['ARCADIA_CI_VM']]); print('running', flush=True); Path(" + repr(str(marker)) + ").touch(); time.sleep(2)"
                 processes.append(subprocess.Popen([
                     sys.executable, str(CLI), '--template', 'gold',
                     '--template-root', str(self.templates), '--state', str(self.root / 'state'),
@@ -128,6 +134,32 @@ if sys.argv[1] == 'delete':
                     process.kill()
                 process.communicate()
 
+    def test_admission_stays_locked_until_guest_is_visible_to_old_workers(self):
+        import fcntl
+        self.provision()
+        marker = self.root / 'starting'
+        process = subprocess.Popen([
+            sys.executable, str(CLI), '--template', 'gold',
+            '--template-root', str(self.templates), '--state', str(self.root / 'state'),
+            '--artifacts', str(self.root / 'evidence'), '--reserve-gib', '0', '--',
+            sys.executable, '-c', "from pathlib import Path; import time; Path(" + repr(str(marker)) + ").touch(); print('starting', flush=True); time.sleep(30)"],
+            env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            deadline = time.monotonic() + 3
+            while not marker.exists() and time.monotonic() < deadline:
+                time.sleep(.02)
+            self.assertTrue(marker.exists())
+            with (self.root / 'state/worker.lock').open('a') as old_worker:
+                with self.assertRaises(BlockingIOError):
+                    fcntl.flock(old_worker, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            process.terminate()
+            output, errors = process.communicate(timeout=5)
+            self.assertEqual(process.returncode, 130, output + errors)
+        finally:
+            if process.poll() is None:
+                process.kill()
+            process.communicate()
+
     def test_cancelled_worker_does_not_wait_for_peer_admission_lock(self):
         import fcntl
         self.provision()
@@ -136,15 +168,16 @@ if sys.argv[1] == 'delete':
             sys.executable, str(CLI), '--template', 'gold',
             '--template-root', str(self.templates), '--state', str(self.root / 'state'),
             '--artifacts', str(self.root / 'evidence'), '--reserve-gib', '0', '--',
-            sys.executable, '-c', "from pathlib import Path; import time; Path(" + repr(str(marker)) + ").touch(); time.sleep(30)"],
+            sys.executable, '-c', "from pathlib import Path; import time, subprocess, os; subprocess.run(['tart', 'run', os.environ['ARCADIA_CI_VM']]); print('running', flush=True); Path(" + repr(str(marker)) + ").touch(); time.sleep(30)"],
             env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         try:
             deadline = time.monotonic() + 3
             while not marker.exists() and time.monotonic() < deadline:
                 time.sleep(.02)
             self.assertTrue(marker.exists())
-            with (self.root / 'state/worker.lock').open('a') as peer:
+            with (self.root / 'state/worker.lock').open('a') as peer, (self.root / 'state/evidence.lock').open('a') as pruning:
                 fcntl.flock(peer, fcntl.LOCK_EX)
+                fcntl.flock(pruning, fcntl.LOCK_EX)
                 process.terminate()
                 output, errors = process.communicate(timeout=5)
                 self.assertEqual(process.returncode, 130, output + errors)
