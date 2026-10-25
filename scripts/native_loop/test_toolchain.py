@@ -76,6 +76,18 @@ class CertificateChecks(unittest.TestCase):
             task.args.operation = 'build'
             with self.assertRaises(runner.LoopError): task.load()
 
+    def test_later_failed_smoke_check_cannot_be_hidden_by_an_earlier_pass(self):
+        import argparse
+        import runner
+        from unittest.mock import patch
+        task = runner.Task(argparse.Namespace(root='/tmp/test-only', task='smoke'))
+        runs = [{'operation': op, 'status': 'passed', 'source_sha256': 'source'}
+                for op in ['preflight', 'lint', 'build', 'test']]
+        runs.append({'operation': 'test', 'status': 'failed', 'source_sha256': 'source'})
+        task.manifest = {'template_name': 'candidate', 'state': 'finished', 'runs': runs, 'source_sha256': 'source'}
+        with patch('runner.run', side_effect=AssertionError('Must reject before provider access')):
+            with self.assertRaises(runner.LoopError): task.certify_template()
+
     def test_certificate_cannot_be_published_before_smoke_checks_and_cleanup(self):
         import argparse
         import runner

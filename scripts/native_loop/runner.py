@@ -540,9 +540,10 @@ class Task:
         if not template or self.manifest.get('state') != 'finished':
             raise LoopError('Certification requires a finished local-template smoke task')
         required = {'preflight', 'lint', 'build', 'test'}
-        passed = {r['operation'] for r in self.manifest['runs']
-                  if r.get('status') == 'passed' and r.get('source_sha256') == self.manifest['source_sha256']}
-        if not required <= passed:
+        latest = {r['operation']: r for r in self.manifest['runs'] if r['operation'] in required}
+        if not required <= latest.keys() or any(
+                r.get('status') != 'passed' or r.get('source_sha256') != self.manifest['source_sha256']
+                for r in latest.values()):
             raise LoopError('Certification requires passing preflight, lint, build and behavioral test on the same source')
         guests = json.loads(run([self.tart, 'list', '--format', 'json'], capture_output=True, text=True).stdout)
         if any(g.get('Name') == template and (g.get('Running') or g.get('State') == 'running') for g in guests):

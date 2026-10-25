@@ -63,9 +63,11 @@ def require_certificate(path, image, contract):
         certificate = json.loads(path.read_text())
     except (OSError, ValueError):
         raise RuntimeError('Template is not certified: provision and smoke-test it first; do not repair tools during an app task')
+    if not isinstance(certificate, dict):
+        raise RuntimeError('Template certificate is invalid; recertify before starting an app task')
     if certificate.get('image') != image or certificate.get('contract_sha256') != contract:
         raise RuntimeError('Template or Mintfile/formatter configuration changed: recertify before starting an app task')
-    if not certificate.get('ready'):
+    if certificate.get('ready') is not True:
         raise RuntimeError('Template certificate is not ready')
 
 
