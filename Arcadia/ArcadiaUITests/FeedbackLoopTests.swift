@@ -99,6 +99,15 @@ final class FeedbackLoopTests: XCTestCase {
   }
 
   @MainActor
+  func testInitialPageCountIncludesUnloadedAlbums() {
+    let app = launch("two-page")
+    XCTAssertTrue(app.buttons["album.fixture-1"].waitForExistence(timeout: 10))
+    XCTAssertFalse(app.buttons["album.fixture-24"].exists, "The remaining page has not loaded")
+    XCTAssertEqual(app.staticTexts["albums.count"].value as? String, "24 albums")
+    capture(app, "Initial page - total includes unloaded albums")
+  }
+
+  @MainActor
   func testTwoPage() {
     let app = launch("two-page")
     XCTAssertTrue(app.buttons["album.fixture-1"].waitForExistence(timeout: 10))

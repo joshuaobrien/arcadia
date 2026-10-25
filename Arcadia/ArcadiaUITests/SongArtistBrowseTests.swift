@@ -9,7 +9,8 @@ final class SongArtistBrowseTests: XCTestCase {
     app.launchArguments = ["-ApplePersistenceIgnoreState", "YES"]
     app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
     app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
-    app.launchEnvironment["ARCADIA_RUN_ID"] = ProcessInfo.processInfo.environment["ARCADIA_RUN_ID"] ?? "songs-artists-ui"
+    app.launchEnvironment["ARCADIA_RUN_ID"] =
+      ProcessInfo.processInfo.environment["ARCADIA_RUN_ID"] ?? "songs-artists-ui"
     app.launch()
     capture(app, "Songs - initial destination")
     XCTAssertTrue(app.staticTexts["songs.count"].waitForExistence(timeout: 10))
@@ -60,6 +61,9 @@ final class SongArtistBrowseTests: XCTestCase {
   @MainActor
   func testPagedSongsAndArtistsRestoreTheirDestination() {
     let app = launch("two-page")
+    XCTAssertTrue(app.staticTexts["songs.count"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.buttons["track.fixture-1-track-1.play"].waitForExistence(timeout: 10))
+    XCTAssertEqual(app.staticTexts["songs.count"].value as? String, "24 songs")
     let lastSong = app.buttons["track.fixture-8-track-3.play"]
     for _ in 0..<16 {
       if lastSong.exists && lastSong.isHittable { break }
@@ -69,6 +73,9 @@ final class SongArtistBrowseTests: XCTestCase {
     XCTAssertEqual(app.staticTexts["songs.count"].value as? String, "24 songs")
     XCTAssertEqual(app.buttons.matching(identifier: "track.fixture-8-track-3.play").count, 1)
     app.staticTexts["library.destination.artists"].click()
+    XCTAssertTrue(app.staticTexts["artists.count"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.buttons["artist.fixture-artist-1"].waitForExistence(timeout: 10))
+    XCTAssertEqual(app.staticTexts["artists.count"].value as? String, "24 artists")
     let lastArtist = app.buttons["artist.fixture-artist-24"]
     for _ in 0..<16 {
       if lastArtist.exists && lastArtist.isHittable { break }
@@ -98,10 +105,12 @@ final class SongArtistBrowseTests: XCTestCase {
   @MainActor
   func testLoadingWhileInitialLibraryRequestsArePending() {
     let app = launch("delayed-library")
-    XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "songs.loading").firstMatch.waitForExistence(timeout: 5))
+    XCTAssertTrue(
+      app.descendants(matching: .any).matching(identifier: "songs.loading").firstMatch.waitForExistence(timeout: 5))
     XCTAssertTrue(app.buttons["track.fixture-1-track-1.play"].waitForExistence(timeout: 10))
     app.staticTexts["library.destination.artists"].click()
-    XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "artists.loading").firstMatch.waitForExistence(timeout: 5))
+    XCTAssertTrue(
+      app.descendants(matching: .any).matching(identifier: "artists.loading").firstMatch.waitForExistence(timeout: 5))
     XCTAssertTrue(app.buttons["artist.fixture-artist-1"].waitForExistence(timeout: 10))
   }
 
@@ -111,7 +120,8 @@ final class SongArtistBrowseTests: XCTestCase {
     app.launchArguments = ["-ApplePersistenceIgnoreState", "YES"]
     app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
     app.launchEnvironment["ARCADIA_FIXTURE_SCENARIO"] = scenario
-    app.launchEnvironment["ARCADIA_RUN_ID"] = ProcessInfo.processInfo.environment["ARCADIA_RUN_ID"] ?? "songs-artists-ui"
+    app.launchEnvironment["ARCADIA_RUN_ID"] =
+      ProcessInfo.processInfo.environment["ARCADIA_RUN_ID"] ?? "songs-artists-ui"
     app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
     app.launch()
     return app

@@ -8,6 +8,8 @@ final class PagedLibrary<Item: Identifiable> {
   private(set) var isLoading = false
   private(set) var hasOpened = false
   private(set) var errorText: String?
+  private(set) var totalCount: Int?
+  var countText: String { libraryCountText(total: totalCount, loaded: items.count, hasMore: nextCursor != nil) }
   private(set) var nextCursor: String?
   var scrollAnchor: Item.ID?
   private let fetch: (String?) async throws -> LibraryPage<Item>
@@ -49,6 +51,7 @@ final class PagedLibrary<Item: Identifiable> {
         guard !Task.isCancelled else { return }
         var identities = Set(items.map(\.id))
         items.append(contentsOf: page.items.filter { identities.insert($0.id).inserted })
+        totalCount = page.totalCount ?? totalCount
         nextCursor = page.nextCursor
       } catch {
         guard !Task.isCancelled else { return }
@@ -99,7 +102,7 @@ final class ArtistLibraryModel {
     }
     releases = PagedLibrary {
       let page = try await source.fetchArtistAlbums(artistID: artist.id, cursor: $0)
-      return LibraryPage(items: page.albums, nextCursor: page.nextCursor)
+      return LibraryPage(items: page.albums, nextCursor: page.nextCursor, totalCount: page.totalCount)
     }
   }
 }

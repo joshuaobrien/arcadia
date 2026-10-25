@@ -54,7 +54,7 @@ struct PlaylistDetail: View {
           Text(error).accessibilityIdentifier("playlist.play.error")
           Button("Retry Play") { model.play(using: playerStore) }.accessibilityIdentifier("playlist.play.retry")
         }
-        Text("\(model.songs.items.count) songs\(model.songs.nextCursor == nil ? "" : " loaded")")
+        Text("\(model.songs.countText) songs")
           .accessibilityIdentifier("playlist.count")
         ForEach(model.songs.items) { entry in
           TrackRow(track: entry.track, showsTrackNumber: false)

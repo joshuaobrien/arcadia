@@ -64,16 +64,20 @@ extension MusicSource {
     switch input.category {
     case .songs:
       let page = try await fetchSongs(SongBrowseRequest(cursor: input.cursor, searchTerm: input.query))
-      return LibraryPage(items: page.items.map(LibrarySearchResult.song), nextCursor: page.nextCursor)
+      return LibraryPage(
+        items: page.items.map(LibrarySearchResult.song), nextCursor: page.nextCursor, totalCount: page.totalCount)
     case .artists:
       let page = try await fetchArtists(ArtistBrowseRequest(cursor: input.cursor, searchTerm: input.query))
-      return LibraryPage(items: page.items.map(LibrarySearchResult.artist), nextCursor: page.nextCursor)
+      return LibraryPage(
+        items: page.items.map(LibrarySearchResult.artist), nextCursor: page.nextCursor, totalCount: page.totalCount)
     case .albums:
       let page = try await fetchAlbums(FetchAlbumsRequest(cursor: input.cursor, searchTerm: input.query))
-      return LibraryPage(items: page.albums.map(LibrarySearchResult.album), nextCursor: page.nextCursor)
+      return LibraryPage(
+        items: page.albums.map(LibrarySearchResult.album), nextCursor: page.nextCursor, totalCount: page.totalCount)
     case .playlists:
       let page = try await fetchPlaylists(PlaylistBrowseRequest(cursor: input.cursor, searchTerm: input.query))
-      return LibraryPage(items: page.items.map(LibrarySearchResult.playlist), nextCursor: page.nextCursor)
+      return LibraryPage(
+        items: page.items.map(LibrarySearchResult.playlist), nextCursor: page.nextCursor, totalCount: page.totalCount)
     }
   }
 

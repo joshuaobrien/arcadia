@@ -103,7 +103,8 @@ final class JellyfinMusicSource: MusicSource {
         )
       },
       nextCursor: offset + page.items.count < page.totalRecordCount && !page.items.isEmpty
-        ? String(offset + page.items.count) : nil
+        ? String(offset + page.items.count) : nil,
+      totalCount: page.totalRecordCount
     )
   }
 
@@ -134,7 +135,9 @@ final class JellyfinMusicSource: MusicSource {
     var query = browseQuery(offset: offset, type: "Audio", search: input.searchTerm)
     if let artistID = input.artistID { query.append(URLQueryItem(name: "ArtistIds", value: artistID)) }
     let page = try await items(query: query)
-    return LibraryPage(items: page.items.map(song), nextCursor: nextCursor(offset: offset, page: page))
+    return LibraryPage(
+      items: page.items.map(song), nextCursor: nextCursor(offset: offset, page: page), totalCount: page.totalRecordCount
+    )
   }
 
   func fetchArtists(_ input: ArtistBrowseRequest) async throws -> LibraryPage<Artist> {
@@ -155,7 +158,7 @@ final class JellyfinMusicSource: MusicSource {
     do { page = try JSONDecoder().decode(Items.self, from: data) } catch { throw MusicSourceError.invalidResponse }
     return LibraryPage(
       items: page.items.map { Artist(id: $0.id, name: $0.name, artworkURL: artwork($0)) },
-      nextCursor: nextCursor(offset: offset, page: page))
+      nextCursor: nextCursor(offset: offset, page: page), totalCount: page.totalRecordCount)
   }
 
   func fetchArtistAlbums(artistID: String, cursor: String?) async throws -> FetchAlbumsResponse {
@@ -168,7 +171,7 @@ final class JellyfinMusicSource: MusicSource {
         Album(
           id: item.id, title: item.name, albumArtist: item.albumArtist ?? "Unknown Artist",
           year: item.productionYear, trackCount: item.childCount, artworkURL: artwork(item))
-      }, nextCursor: nextCursor(offset: offset, page: page))
+      }, nextCursor: nextCursor(offset: offset, page: page), totalCount: page.totalRecordCount)
   }
 
   func fetchPlaylists(_ input: PlaylistBrowseRequest) async throws -> LibraryPage<Playlist> {
@@ -176,7 +179,7 @@ final class JellyfinMusicSource: MusicSource {
     let page = try await items(query: browseQuery(offset: offset, type: "Playlist", search: input.searchTerm))
     return LibraryPage(
       items: page.items.map { Playlist(id: $0.id, title: $0.name, artworkURL: artwork($0)) },
-      nextCursor: nextCursor(offset: offset, page: page))
+      nextCursor: nextCursor(offset: offset, page: page), totalCount: page.totalRecordCount)
   }
 
   func fetchPlaylistSongs(playlistID: String, cursor: String?) async throws -> LibraryPage<PlaylistSong> {
@@ -197,7 +200,8 @@ final class JellyfinMusicSource: MusicSource {
     let occurrences = page.items.enumerated().map { position, item in
       PlaylistSong(id: "\(playlistID):\(offset + position):\(item.playlistItemId ?? item.id)", track: song(item))
     }
-    return LibraryPage(items: occurrences, nextCursor: nextCursor(offset: offset, page: page))
+    return LibraryPage(
+      items: occurrences, nextCursor: nextCursor(offset: offset, page: page), totalCount: page.totalRecordCount)
   }
 
   private func pageOffset(_ cursor: String?) throws -> Int {

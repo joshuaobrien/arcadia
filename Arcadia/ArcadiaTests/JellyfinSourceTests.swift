@@ -19,6 +19,7 @@ final class JellyfinSourceTests: XCTestCase {
     let source = connection.source
     let first = try await source.fetchAlbums(FetchAlbumsRequest(cursor: nil, searchTerm: ""))
     XCTAssertEqual(first.albums.count, 20)
+    XCTAssertEqual(first.totalCount, 24)
     XCTAssertEqual(first.nextCursor, "20")
     let second = try await source.fetchAlbums(FetchAlbumsRequest(cursor: first.nextCursor, searchTerm: ""))
     XCTAssertEqual(second.albums.count, 4)
@@ -26,6 +27,7 @@ final class JellyfinSourceTests: XCTestCase {
     XCTAssertEqual(Set((first.albums + second.albums).map(\.id)).count, 24)
     let searched = try await source.fetchAlbums(FetchAlbumsRequest(cursor: nil, searchTerm: "Orb Sessions"))
     XCTAssertEqual(searched.albums.count, 1)
+    XCTAssertEqual(searched.totalCount, 1)
     let album = try XCTUnwrap(searched.albums.first)
     XCTAssertEqual(album.title, "Orb Sessions")
     XCTAssertEqual(album.albumArtist, "Arcadia Test Ensemble")

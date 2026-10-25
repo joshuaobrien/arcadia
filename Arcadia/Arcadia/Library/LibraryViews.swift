@@ -12,7 +12,7 @@ struct SongsView: View {
 
   var body: some View {
     ScrollView {
-      Text("\(model.items.count) songs")
+      Text("\(model.countText) songs")
         .font(.caption)
         .foregroundStyle(.secondary)
         .accessibilityIdentifier("songs.count")
@@ -47,7 +47,7 @@ struct ArtistsView: View {
 
   var body: some View {
     ScrollView {
-      Text("\(model.items.count) artists")
+      Text("\(model.countText) artists")
         .font(.caption)
         .foregroundStyle(.secondary)
         .accessibilityIdentifier("artists.count")

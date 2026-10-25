@@ -12,10 +12,12 @@ final class SongArtistSourceTests: XCTestCase {
     }
     let fixture = try JSONDecoder().decode(SongArtistFixture.self, from: Data(contentsOf: file))
     let server = try XCTUnwrap(URL(string: fixture.server))
-    let connection = try await JellyfinConnector().connect(server: server, username: fixture.username, password: fixture.password)
+    let connection = try await JellyfinConnector().connect(
+      server: server, username: fixture.username, password: fixture.password)
     let source = connection.source
     let firstSongs = try await source.fetchSongs(SongBrowseRequest(cursor: nil, searchTerm: ""))
     XCTAssertEqual(firstSongs.items.count, 20)
+    XCTAssertEqual(firstSongs.totalCount, 26)
     let secondSongs = try await source.fetchSongs(SongBrowseRequest(cursor: firstSongs.nextCursor, searchTerm: ""))
     XCTAssertEqual(secondSongs.items.count, 6)
     XCTAssertNil(secondSongs.nextCursor)
@@ -23,7 +25,9 @@ final class SongArtistSourceTests: XCTestCase {
     XCTAssertEqual(Set(songs.map(\.id)).count, 26)
     let firstArtists = try await source.fetchArtists(ArtistBrowseRequest(cursor: nil, searchTerm: ""))
     XCTAssertEqual(firstArtists.items.count, 20)
-    let secondArtists = try await source.fetchArtists(ArtistBrowseRequest(cursor: firstArtists.nextCursor, searchTerm: ""))
+    XCTAssertEqual(firstArtists.totalCount, 23)
+    let secondArtists = try await source.fetchArtists(
+      ArtistBrowseRequest(cursor: firstArtists.nextCursor, searchTerm: ""))
     XCTAssertEqual(secondArtists.items.count, 3)
     XCTAssertNil(secondArtists.nextCursor)
     let artists = firstArtists.items + secondArtists.items

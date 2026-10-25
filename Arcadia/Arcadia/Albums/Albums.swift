@@ -43,6 +43,7 @@ struct Albums: View {
         AlbumGridView(
           albumService: albumService,
 
+          countText: model.countText,
           albums: model.albums,
           hasNextPage: model.hasNextPage,
           isLoadingNextPage: model.loadState == LoadMode.nextPage,
