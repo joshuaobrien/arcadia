@@ -3,6 +3,14 @@ import SwiftUI
 struct LibrarySearchView: View {
   @Bindable var model: LibrarySearchModel
 
+  private var loadingLayout: LibrarySkeleton.Layout {
+    switch model.category {
+    case .songs: .songs
+    case .albums: .albumResults
+    case .artists, .playlists: .searchLinks
+    }
+  }
+
   var body: some View {
     VStack(alignment: .leading, spacing: DesignTokens.Spacing.m) {
       TextField("Search library", text: $model.query)
@@ -26,7 +34,11 @@ struct LibrarySearchView: View {
       } else if let page = model.sections[model.category] {
         SearchResultsView(page: page, model: model)
       } else {
-        ProgressView("Searching").accessibilityIdentifier("search.loading")
+        ScrollView {
+          LibrarySkeleton(layout: loadingLayout, label: "Searching", identifier: "search.loading")
+            .padding(.vertical)
+        }
+        .accessibilityIdentifier("search.results.scroll")
       }
     }
     .padding()

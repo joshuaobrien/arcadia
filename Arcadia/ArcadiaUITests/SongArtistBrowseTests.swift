@@ -107,11 +107,45 @@ final class SongArtistBrowseTests: XCTestCase {
     let app = launch("delayed-library")
     XCTAssertTrue(
       app.descendants(matching: .any).matching(identifier: "songs.loading").firstMatch.waitForExistence(timeout: 5))
+    let loading = app.descendants(matching: .any).matching(identifier: "songs.loading").firstMatch
+    XCTAssertGreaterThan(loading.frame.height, 240, "Loading reserves several real row heights")
+    XCTAssertFalse(app.buttons["track.loading.play"].exists, "Placeholders expose no fake playback actions")
+    let reservedTop = loading.frame.minY
+    capture(app, "Songs - loading")
     XCTAssertTrue(app.buttons["track.fixture-1-track-1.play"].waitForExistence(timeout: 10))
+    XCTAssertEqual(app.buttons["track.fixture-1-track-1.play"].frame.minY, reservedTop + 4, accuracy: 6)
+    XCTAssertFalse(loading.exists)
+    capture(app, "Songs - loaded")
     app.staticTexts["library.destination.artists"].click()
     XCTAssertTrue(
       app.descendants(matching: .any).matching(identifier: "artists.loading").firstMatch.waitForExistence(timeout: 5))
+    capture(app, "Artists - loading")
     XCTAssertTrue(app.buttons["artist.fixture-artist-1"].waitForExistence(timeout: 10))
+    capture(app, "Artists - loaded")
+  }
+
+  @MainActor
+  func testLoadingAlbumsAndTracksReservesContentUntilSuccess() {
+    let app = launch("delayed-library")
+    app.staticTexts["library.destination.albums"].click()
+    let loading = app.descendants(matching: .any).matching(identifier: "albums.loading").firstMatch
+    XCTAssertTrue(loading.waitForExistence(timeout: 5))
+    XCTAssertTrue(app.staticTexts["albums.count"].exists, "The count and grid remain in place while loading")
+    capture(app, "Albums - loading")
+    let album = app.buttons["album.fixture-1"]
+    XCTAssertTrue(album.waitForExistence(timeout: 10))
+    XCTAssertFalse(loading.exists)
+    capture(app, "Albums - loaded")
+    album.click()
+    let tracks = app.descendants(matching: .any).matching(identifier: "tracks.loading").firstMatch
+    XCTAssertTrue(tracks.waitForExistence(timeout: 5))
+    XCTAssertGreaterThan(tracks.frame.height, 100)
+    XCTAssertFalse(app.buttons["album.play"].isEnabled)
+    capture(app, "Tracks - loading")
+    XCTAssertTrue(app.buttons["track.fixture-1-track-1.play"].waitForExistence(timeout: 10))
+    XCTAssertFalse(tracks.exists)
+    XCTAssertTrue(app.buttons["album.play"].isEnabled)
+    capture(app, "Tracks - loaded")
   }
 
   @MainActor

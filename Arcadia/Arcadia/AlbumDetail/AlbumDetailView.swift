@@ -86,7 +86,7 @@ struct LoadingAlbumTracksView: View {
 
   var body: some View {
     if isLoading {
-      ProgressView("Loading tracks")
+      LibrarySkeleton(layout: .tracks, label: "Loading tracks", identifier: "tracks.loading")
     } else if let errorText = errorText {
       ContentUnavailableView(
         "Couldn't Load Tracks",

@@ -57,7 +57,7 @@ final class FeedbackLoopTests: XCTestCase {
     )
     XCTAssertFalse(app.staticTexts["albums.count"].exists)
     XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'album.'")).count, 0)
-    XCTAssertFalse(app.progressIndicators["albums.loading"].exists)
+    XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "albums.loading").firstMatch.exists)
     XCTAssertFalse(app.staticTexts["albums.error"].exists)
     capture(app, "Empty - no albums yet")
   }
@@ -69,7 +69,7 @@ final class FeedbackLoopTests: XCTestCase {
     XCTAssertTrue(error.waitForExistence(timeout: 10))
     XCTAssertEqual(error.value as? String, "Fixture request failed.")
     XCTAssertFalse(app.staticTexts["albums.empty.title"].exists)
-    XCTAssertFalse(app.progressIndicators["albums.loading"].exists)
+    XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "albums.loading").firstMatch.exists)
     XCTAssertFalse(app.staticTexts["albums.count"].exists)
     XCTAssertEqual(app.staticTexts["albums.error.title"].value as? String, "Couldn’t load albums")
     let retry = app.buttons["albums.retry"]
@@ -94,7 +94,7 @@ final class FeedbackLoopTests: XCTestCase {
     XCTAssertFalse(app.staticTexts["albums.error"].exists)
     XCTAssertFalse(app.staticTexts["albums.error.title"].exists)
     XCTAssertFalse(app.buttons["albums.retry"].exists)
-    XCTAssertFalse(app.progressIndicators["albums.loading"].exists)
+    XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "albums.loading").firstMatch.exists)
     capture(app, "Retry - recovered library")
   }
 

@@ -9,6 +9,7 @@ struct AlbumGridView: View {
   let hasNextPage: Bool
   let isLoadingNextPage: Bool
   let onReachBottom: () async -> Void
+  var isInitialLoading = false
 
   var body: some View {
     ScrollView {
@@ -17,6 +18,14 @@ struct AlbumGridView: View {
         .foregroundStyle(.secondary)
         .accessibilityIdentifier("albums.count")
       AlbumCardGrid {
+        if isInitialLoading {
+          ForEach(0..<8, id: \.self) { _ in
+            AlbumCardView(artworkURL: nil, title: "A familiar record", artist: "An artist", year: "2026")
+              .redacted(reason: .placeholder)
+              .skeletonPulse()
+              .accessibilityHidden(true)
+          }
+        }
         ForEach(albums) { album in
           NavigationLink {
             AlbumDetail(
@@ -38,7 +47,11 @@ struct AlbumGridView: View {
         if hasNextPage {
           VStack(spacing: DesignTokens.Spacing.s) {
             if isLoadingNextPage {
-              ProgressView()
+              AlbumCardView(artworkURL: nil, title: "A familiar record", artist: "An artist", year: "2026")
+                .redacted(reason: .placeholder)
+                .skeletonPulse()
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Loading more albums")
             }
           }
           .task {
@@ -49,6 +62,7 @@ struct AlbumGridView: View {
       .padding(.horizontal, DesignTokens.Spacing.l)
       .libraryNavigationTitle("Albums")
     }
-    .accessibilityIdentifier("albums.scroll")
+    .accessibilityIdentifier(isInitialLoading ? "albums.loading" : "albums.scroll")
+    .accessibilityLabel(isInitialLoading ? "Loading albums" : "Albums")
   }
 }

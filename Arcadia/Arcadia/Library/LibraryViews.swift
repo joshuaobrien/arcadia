@@ -12,7 +12,7 @@ struct SongsView: View {
 
   var body: some View {
     ScrollView {
-      Text("\(model.countText) songs")
+      Text("\(model.isLoading && model.items.isEmpty ? "…" : model.countText) songs")
         .font(.caption)
         .foregroundStyle(.secondary)
         .accessibilityIdentifier("songs.count")
@@ -47,7 +47,7 @@ struct ArtistsView: View {
 
   var body: some View {
     ScrollView {
-      Text("\(model.countText) artists")
+      Text("\(model.isLoading && model.items.isEmpty ? "…" : model.countText) artists")
         .font(.caption)
         .foregroundStyle(.secondary)
         .accessibilityIdentifier("artists.count")
@@ -126,11 +126,25 @@ struct LibraryPageStatus<Item: Identifiable>: View {
   let model: PagedLibrary<Item>
   let noun: String
 
+  private var skeletonLayout: LibrarySkeleton.Layout {
+    switch noun {
+    case "artists": .artists
+    case "playlists": .playlists
+    case "releases": .albums
+    case "search-albums": .albumResults
+    case "search-artists", "search-playlists": .searchLinks
+    default: .songs
+    }
+  }
+
   var body: some View {
     VStack(alignment: .leading, spacing: DesignTokens.Spacing.m) {
-      if model.isLoading {
-        ProgressView("Loading \(noun)")
-          .accessibilityIdentifier("\(noun).loading")
+      if model.isLoading || !model.hasOpened {
+        LibrarySkeleton(
+          layout: skeletonLayout, count: model.items.isEmpty ? 6 : 2,
+          showsDividers: noun == "songs" || noun == "artists",
+          label: "Loading \(noun.replacingOccurrences(of: "-", with: " "))", identifier: "\(noun).loading"
+        )
       } else if let error = model.errorText {
         Text(error).foregroundStyle(.secondary).accessibilityIdentifier("\(noun).error")
         Button("Retry") { Task { await model.retry() } }
