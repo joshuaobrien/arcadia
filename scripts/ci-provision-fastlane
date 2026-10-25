@@ -8,5 +8,8 @@ export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1
 brew install ruby@3.4
 export BUNDLE_GEMFILE="$SOURCE/Gemfile" BUNDLE_PATH="$HOME/.cache/arcadia-fastlane" BUNDLE_FROZEN=1
 bundle install
+bundle check
 bundle exec fastlane --version
 ruby --version
+# Flush installed gems before the template is stopped and fingerprinted.
+sync
