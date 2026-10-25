@@ -18,6 +18,8 @@
         let page = try libraryPage(matches, cursor: request.cursor)
         return FetchAlbumsResponse(albums: page.items, nextCursor: page.nextCursor, totalCount: page.totalCount)
       }
+      if scenario == .loading { try await Task.sleep(for: .seconds(60)) }
+      if scenario == .delayedLibrary { try await Task.sleep(for: .seconds(2)) }
       AppDiagnostics.event("albums.request")
       albumRequests += 1
       if scenario == .failure || (scenario == .failureThenSuccess && albumRequests == 1) {
@@ -36,6 +38,8 @@
     }
 
     func fetchAlbum(_ request: FetchAlbumRequest) async throws -> FetchAlbumResponse {
+      if scenario == .loading { try await Task.sleep(for: .seconds(60)) }
+      if scenario == .delayedLibrary { try await Task.sleep(for: .seconds(2)) }
       AppDiagnostics.event("tracks.request")
       guard request.albumId.hasPrefix("fixture-") else { throw FixtureError.invalidAlbum }
       return FetchAlbumResponse(
@@ -129,6 +133,7 @@
     }
 
     private func libraryRequest(key: String) async throws {
+      if scenario == .loading { try await Task.sleep(for: .seconds(60)) }
       if scenario == .delayedPlaylist && key.hasPrefix("playlist.") { try await Task.sleep(for: .seconds(4)) }
       if scenario == .delayedLibrary { try await Task.sleep(for: .seconds(2)) }
       libraryRequests[key, default: 0] += 1

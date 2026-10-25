@@ -12,8 +12,10 @@ struct Albums: View {
   var body: some View {
     Group {
       if model.loadState == LoadMode.initial {
-        ProgressView("Loading albums")
-          .accessibilityIdentifier("albums.loading")
+        AlbumGridView(
+          albumService: albumService, countText: "…", albums: [], hasNextPage: false,
+          isLoadingNextPage: false, onReachBottom: model.onReachBottom, isInitialLoading: true
+        )
       } else if let errorText = model.errorText {
         ContentUnavailableView {
           Label("Couldn’t load albums", systemImage: "exclamationmark.triangle")

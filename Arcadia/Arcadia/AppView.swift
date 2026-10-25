@@ -288,12 +288,22 @@ struct AppView: View {
 #if DEBUG
   extension AppView {
     private var developmentFrameReady: Bool {
-      switch AppSection(rawValue: destination) ?? .songs {
-      case .songs: libraryModel.songs.hasOpened && !libraryModel.songs.isLoading
-      case .artists: libraryModel.artists.hasOpened && !libraryModel.artists.isLoading
-      case .playlists: libraryModel.playlists.hasOpened && !libraryModel.playlists.isLoading
+      let capturingLoading = ProcessInfo.processInfo.environment["ARCADIA_FIXTURE_SCENARIO"] == "loading"
+      return switch AppSection(rawValue: destination) ?? .songs {
+      case .songs:
+        libraryModel.songs.hasOpened && libraryModel.songs.isLoading == capturingLoading
+      case .artists:
+        libraryModel.artists.hasOpened && libraryModel.artists.isLoading == capturingLoading
+      case .playlists:
+        libraryModel.playlists.hasOpened && libraryModel.playlists.isLoading == capturingLoading
       case .albums:
-        if case .loaded = albumsModel.loadState { true } else { false }
+        if capturingLoading {
+          albumsModel.loadState == .initial
+        } else if case .loaded = albumsModel.loadState {
+          true
+        } else {
+          false
+        }
       case .search: true
       }
     }

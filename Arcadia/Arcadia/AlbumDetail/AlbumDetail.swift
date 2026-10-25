@@ -45,8 +45,9 @@ struct AlbumDetail: View {
         Divider()
 
         if model.isLoading {
-          ProgressView("Loading tracks")
-            .accessibilityIdentifier("tracks.loading")
+          LibrarySkeleton(
+            layout: .tracks, count: min(album.trackCount ?? 6, 12),
+            label: "Loading tracks", identifier: "tracks.loading")
         } else if let errorText = model.errorText {
           ContentUnavailableView(
             "Couldn't Load Tracks",

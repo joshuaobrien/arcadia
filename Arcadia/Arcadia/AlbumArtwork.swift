@@ -25,7 +25,7 @@ struct AlbumArtwork: View {
       } else {
         artworkPlaceholder {
           if isLoading {
-            ProgressView()
+            Rectangle().fill(.quaternary).skeletonPulse().accessibilityLabel("Loading artwork")
           } else {
             Image(systemName: "opticaldisc")
               .font(.largeTitle)

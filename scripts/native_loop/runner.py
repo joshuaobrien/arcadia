@@ -824,7 +824,7 @@ def main():
     parser.add_argument('--platform', choices=['mac', 'iphone', 'duo'], default='mac')
     parser.add_argument('--state', choices=['songs', 'artists', 'albums', 'playlists', 'search'], default='songs')
     parser.add_argument('--data-mode', choices=['fixtures', 'jellyfin'], default='fixtures')
-    parser.add_argument('--scenario', choices=['success', 'empty', 'failure', 'two-page'], default='success')
+    parser.add_argument('--scenario', choices=['success', 'empty', 'failure', 'two-page', 'loading'], default='success')
     parser.add_argument('--template', help='Clone a stopped local Xcode template; its identity is recorded for this task.')
     parser.add_argument('--validate-template', action='store_true', help='Maintainer-only smoke task for an uncertified candidate; never bypass guest readiness')
     parser.add_argument('--image', default=os.environ.get('TART_IMAGE', IMAGE))

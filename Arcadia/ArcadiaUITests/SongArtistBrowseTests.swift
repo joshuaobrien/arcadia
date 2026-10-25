@@ -107,22 +107,70 @@ final class SongArtistBrowseTests: XCTestCase {
     let app = launch("delayed-library")
     XCTAssertTrue(
       app.descendants(matching: .any).matching(identifier: "songs.loading").firstMatch.waitForExistence(timeout: 5))
+    let loading = app.descendants(matching: .any).matching(identifier: "songs.loading").firstMatch
+    XCTAssertGreaterThan(loading.frame.height, 240, "Loading reserves several real row heights")
+    XCTAssertFalse(app.buttons["track.loading.play"].exists, "Placeholders expose no fake playback actions")
+    let reservedTop = loading.frame.minY
+    // Six placeholders are separated by the same 12-point stack gap as real rows.
+    let reservedRowPitch = (loading.frame.height + 12) / 6
+    capture(app, "Songs - loading")
     XCTAssertTrue(app.buttons["track.fixture-1-track-1.play"].waitForExistence(timeout: 10))
+    capture(app, "Songs - loaded")
+    let firstRow = app.descendants(matching: .any).matching(identifier: "track.fixture-1-track-1").firstMatch
+    let secondRow = app.descendants(matching: .any).matching(identifier: "track.fixture-1-track-2").firstMatch
+    let geometry = XCTAttachment(
+      string: "Reserved top: \(reservedTop); pitch: \(reservedRowPitch); first: \(firstRow.frame); second: \(secondRow.frame)")
+    geometry.name = "Loading and loaded song-row geometry"
+    geometry.lifetime = .keepAlways
+    add(geometry)
+    XCTAssertEqual(firstRow.frame.minY, reservedTop, accuracy: 6, "The first row stays in its reserved position")
+    XCTAssertEqual(secondRow.frame.minY - firstRow.frame.minY, reservedRowPitch, accuracy: 6,
+                   "Loaded row spacing matches the skeleton's row pitch")
+    XCTAssertFalse(loading.exists)
     app.staticTexts["library.destination.artists"].click()
     XCTAssertTrue(
       app.descendants(matching: .any).matching(identifier: "artists.loading").firstMatch.waitForExistence(timeout: 5))
+    capture(app, "Artists - loading")
     XCTAssertTrue(app.buttons["artist.fixture-artist-1"].waitForExistence(timeout: 10))
+    capture(app, "Artists - loaded")
   }
 
   @MainActor
-  private func launch(_ scenario: String) -> XCUIApplication {
+  func testLoadingAlbumsAndTracksReservesContentUntilSuccess() {
+    let app = launch("delayed-library", destination: "albums")
+    let loading = app.descendants(matching: .any).matching(identifier: "albums.loading").firstMatch
+    XCTAssertTrue(loading.waitForExistence(timeout: 5))
+    XCTAssertTrue(app.staticTexts["albums.count"].exists, "The count and grid remain in place while loading")
+    capture(app, "Albums - loading")
+    let album = app.buttons["album.fixture-1"]
+    XCTAssertTrue(album.waitForExistence(timeout: 10))
+    XCTAssertFalse(loading.exists)
+    capture(app, "Albums - loaded")
+    album.click()
+    let tracks = app.descendants(matching: .any).matching(identifier: "tracks.loading").firstMatch
+    XCTAssertTrue(tracks.waitForExistence(timeout: 5))
+    XCTAssertGreaterThan(tracks.frame.height, 100)
+    XCTAssertFalse(app.buttons["album.play"].isEnabled)
+    capture(app, "Tracks - loading")
+    XCTAssertTrue(app.buttons["track.fixture-1-track-1.play"].waitForExistence(timeout: 10))
+    XCTAssertFalse(tracks.exists)
+    XCTAssertTrue(app.buttons["album.play"].isEnabled)
+    capture(app, "Tracks - loaded")
+  }
+
+  @MainActor
+  private func launch(_ scenario: String, destination: String? = nil) -> XCUIApplication {
     let app = XCUIApplication()
     app.launchArguments = ["-ApplePersistenceIgnoreState", "YES"]
     app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
     app.launchEnvironment["ARCADIA_FIXTURE_SCENARIO"] = scenario
     app.launchEnvironment["ARCADIA_RUN_ID"] =
       ProcessInfo.processInfo.environment["ARCADIA_RUN_ID"] ?? "songs-artists-ui"
-    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
+    let namespace = UUID().uuidString
+    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = namespace
+    if let destination {
+      app.launchArguments += ["-arcadia.library.destination.\(namespace)", destination]
+    }
     app.launch()
     return app
   }

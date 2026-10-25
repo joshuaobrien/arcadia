@@ -28,6 +28,7 @@ struct AppConfiguration {
     case playbackFailure = "playback-failure"
     case delayedPlayback = "delayed-playback"
     case delayedLibrary = "delayed-library"
+    case loading
     case delayedPlaylist = "delayed-playlist"
     case delayedSearch = "delayed-search"
     case pagedSearchFailure = "paged-search-failure"
