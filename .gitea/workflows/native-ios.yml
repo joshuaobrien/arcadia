@@ -18,6 +18,23 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Restore upstream Xcode cache (ios)
+        uses: irgaly/xcode-cache@282e57619a58eb57a2374be91df1798d46703bfd
+        with:
+          key: arcadia-established-v1-xcode27-1-ios-ios-${{ hashFiles('Gemfile.lock', 'fastlane/Fastfile', 'Arcadia/**/Package.resolved', 'Arcadia/Arcadia.xcodeproj/project.pbxproj') }}-${{ github.sha }}
+          restore-keys: arcadia-established-v1-xcode27-1-ios-ios-${{ hashFiles('Gemfile.lock', 'fastlane/Fastfile', 'Arcadia/**/Package.resolved', 'Arcadia/Arcadia.xcodeproj/project.pbxproj') }}-
+          deriveddata-directory: .ci-derived/ios
+          sourcepackages-directory: .ci-derived/ios/SourcePackages
+          swiftpm-package-resolved-file: Arcadia/Arcadia.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+          swiftpm-cache-key: arcadia-established-sourcepackages-${{ hashFiles('Arcadia/Arcadia.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-mtime-targets: |
+            Arcadia/**/*
+            !**/xcuserdata/**
+
       - name: Check preview command behavior
         run: |
           python3 -m unittest discover -s scripts/native_preview -p 'test_*.py'
@@ -27,6 +44,7 @@ jobs:
       - name: Compile in an ephemeral background VM
         env:
           ARCADIA_CI_TOKEN: ${{ github.token }}
+          ARCADIA_CI_DERIVED_DIR: ${{ github.workspace }}/.ci-derived
         run: ./scripts/ci-native-ios --artifacts "$PWD/artifacts/native-ios"
       - name: Upload compile evidence (not behavioral UI results)
         if: always() && !cancelled()

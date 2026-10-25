@@ -1,125 +1,85 @@
-# Fast isolated native CI
+# Isolated native CI with established build and cache tools
 
-Mac and iOS CI keep their existing checks and outputs. Each job owns a fresh,
-background Tart clone. The host coordinates work; builds run in the guest.
+Gitea runs two native lanes concurrently on the mini. Each job owns a disposable,
+background Tart clone. Fastlane builds/tests inside the clone; the unmodified
+`irgaly/xcode-cache` action and Gitea's cache service own cache persistence.
 
-## Provision once, not in PR jobs
+## Tooling and templates
 
-On the runner host, use the existing stopped Mac template
-`arcadia-ci-xcode-26-5-cache` and iOS template
-`arcadia-mobile-xcode-27-1-27a9275`. Provisioning an image or updating Xcode is
-an explicit maintenance action. Once the correct template is installed:
+`Gemfile.lock` pins Fastlane and its transitive dependencies. Ruby and gems are
+installed **once during template provisioning**, never during a normal job.
+Clone the existing Xcode template, boot it privately, and run inside that clone:
 
 ```sh
-python3 scripts/ci-worker --template arcadia-ci-xcode-26-5-cache --artifacts artifacts/provision --provision
-python3 scripts/ci-worker --template arcadia-mobile-xcode-27-1-27a9275 --artifacts artifacts/provision --provision
+./scripts/ci-provision-fastlane /path/to/checkout
 ```
 
-Provisioning records local config/NVRAM hashes, the available OCI-manifest hash,
-and disk size, inode/device identity and nanosecond modification time. Disk writes
-or replacement therefore require explicit reprovisioning without hashing 87 GiB
-on every job. This detects ordinary template drift; it is not a cryptographic
-attestation against an administrator deliberately rewriting disk metadata.
-It does not boot, download or modify the template. Reprovision only after an
-intentional verified toolchain change. Jobs reject absent or changed identities.
-Mac `TART_IMAGE` and iOS `NATIVE_IOS_TEMPLATE` now select **local template names**,
-not registry tags. Normal clones disable automatic pruning after disk admission.
+Stop it before recording its immutable identity using `scripts/ci-worker --provision`.
+The prepared template names are `arcadia-ci-xcode-26-5-fastlane-2-241-1` and
+`arcadia-mobile-xcode-27-1-fastlane-2-241-1`. The earlier templates remain available
+for rollback. Intentional toolchain changes need a new cache namespace and explicit
+reprovisioning. Existing config/NVRAM/manifest hashes and disk metadata validation
+still reject template drift without hashing the whole image every job.
 
-## What stays warm
+## Cache ownership and VM boundary
 
-The existing Mint cache supplies the pinned lint tool. Dependency seeds contain
-package checkouts, dependency build products and compilation metadata, using the
-existing native-loop dependency filter. They exclude Arcadia app/test products,
-runtime state and credentials. Every guest receives a private copy. A seed key
-includes template identity, resolved packages, project settings and cache/filter
-implementation. Bad checksums fall back to a cold build. Only successful jobs
-publish seeds after VM and private-input cleanup. Stable guest source and DerivedData paths preserve signatures.
+The workflows pin the upstream Xcode cache action and Node 24. Debug, Release and
+iOS have separate keys, including toolchain namespace, resolved package/project
+settings, Fastfile and Gemfile.lock. Revision-specific keys have compatible restore
+prefixes. Gitea's existing cache service handles archive transport and eviction.
+The action restores source mtimes only when content hashes match, and preserves
+DerivedData metadata. No private build database decoding or rewriting is used.
 
-The cache is an optimization: current source still builds and current tests run.
-The first successful job for a new key is cold. Compatible seeds are retained
-rather than recompressed on every warm job.
+Host job paths are unique; the action restores `.ci-derived/<variant>` in that
+job's checkout. Tart exposes it through a private `derived` mount. Fastlane uses
+native `cp -aX` into stable guest-local DerivedData paths, builds/tests, then exports
+back through the same mount. Source archives use native POSIX/PAX tar end to end.
+Python still validates iOS archive members before native extraction; it no longer
+serializes/extracts metadata through floating-point timestamps.
 
-## Ownership, admission and recovery
+The upstream action saves in its success-only post phase, **after** worker cleanup.
+Worker cleanup removes its private inputs and VM while preserving job DerivedData
+for this post phase. Runner workspace cleanup later removes the job directory.
+The old seed archive code, checksum receipts, publication enumeration and package
+product allowlists are no longer part of CI. Interactive native-loop dependency
+helpers remain scoped to that separate workflow.
 
-A short host lock serializes admission and shared-cache publication; up to two CI
-workers can build concurrently. A third worker waits for capacity for at most five
-minutes (`--admission-timeout`); `--max-workers 1` restores serial admission.
-Ownership reserves CPU/memory even while a clone is stopped during startup or
-cleanup. Admission stays locked until Tart reports the guest running so older
-checkout versions can also see its budget. Cancelled/failed workers skip shared
-cache publication; successful publication waits at most 15 seconds. Optional
-diagnostic pruning uses its own nonblocking lock. The default total running-guest ceiling is two,
-including separately running task VMs. Admission also sums their configured
-CPU/memory budgets, leaves at least 4 GiB or one quarter of host RAM (whichever
-is larger), and refuses CPU oversubscription. Unknown active-guest budgets fail
-closed. The observed templates each use 4 CPUs and 8 GiB RAM on the 10-CPU,
-24-GiB mini. The disk reserve is 12 GiB, calibrated against a 2.57-GiB observed warm
-write excursion plus artifact/cache/diagnostic headroom and an explicit margin;
-see [measurement results](ci-performance-results-2026-10-24.md).
-Each existing CI worker adds 3 GiB to the free-space admission floor to cover its
-measured warm write burst. `ARCADIA_CI_RESERVE_GIB` can set the operating budget. Remeasure after workload
-or toolchain growth. Admission refuses work instead of deleting unrelated resources.
+Full incremental app/test products may now be reused by the established action.
+This never skips tests: Mac runs the same ArcadiaTests target, iOS still builds
+both app and UI-test runner without claiming UI execution, and Release preserves
+its base URL, ad-hoc signing verification and Arcadia.zip. Changed-source and
+intentional-regression probes must demonstrate invalidation. Cache-hit messages
+alone are not acceptance evidence; inspect actual compiler work in warm guests.
 
-Ownership is recorded before cloning. Cancellation terminates the owned process
-group within its own UID and stops/deletes only the recorded clone with bounded waits. Cleanup errors
-are visible failures. After a crash, reconciliation requires both a dead owner PID
-and authoritative confirmation that the corresponding Gitea run completed.
-Missing credentials or an active run prevent automatic reclamation. Reconciliation verifies actual VM
-absence after cleanup; a stop error followed by successful deletion is retained
-as an attempt warning rather than permanently poisoning admission. CI supplies
-`ARCADIA_CI_TOKEN` for this read; the credential is never written to receipts or
-passed as a guest build argument. `--reconcile` runs the same recovery check alone.
+## Isolation, admission and diagnostics
 
-Artifacts include `worker.json` and a bounded local `worker.log`.
-The host keeps the five most recent owned histories under
-`~/.cache/arcadia-ci/evidence/<vm>/`, independently of the runner workspace:
-up to 64 MiB of streamed log per run plus compact JSON (at most 1 MiB per
-supplemental summary). This survives workspace deletion and failed uploads.
-Unknown evidence directories are not pruned. Per-worker dependencies and iOS
-source inputs live under `state/private/<vm>`; authoritative restart recovery
-also retries these after the VM has already been removed.
-Cache publication buffers at most three validated 512-MiB seeds after the VM
-is gone, removes private storage, then commits the dependency-only seeds. Compact Mac XCTest failure summaries are exported before a failed worker is
-removed. Existing iOS compile logs, source guards and the main Release zip remain. Upload steps have a
-two-minute deadline and skip obsolete cancelled jobs. Required upload failures
-remain failures; local evidence survives upload failure.
+Up to two workers build concurrently. A short host lock reserves CPU/memory and
+keeps startup visible to older checkout versions before release. The total guest
+ceiling is two, including task VMs; CPU budgets cannot exceed host cores, memory
+leaves at least 4 GiB or one quarter of RAM, and disk reserve remains 12 GiB plus
+3 GiB per existing CI worker. A third worker waits at most five minutes.
 
-## Measure the whole feedback path
+Cancellation stops the owned process tree and removes only its recorded VM.
+Cleanup failures remain failures. Crash reconciliation requires a dead owner PID
+and authoritative completed-run confirmation; active runs are never reclaimed.
+Five bounded local worker histories survive runner workspace removal, and optional
+diagnostic pruning never blocks cancellation. Fastlane raw logs/JUnit and existing
+JSON summaries remain available. Required uploads retain two-minute deadlines and
+skip cancelled obsolete jobs.
 
-Both workflows support manual dispatch. Mac dispatch's `release` input includes
-the normal main Release output for matched comparisons without merging a candidate.
-Keep PR and Release results separate. Capture server run/job created, started and
-completed times as well as worker/guest phase timings. Include queue delay and
-upload completion, cache state, source revision, host contention and cleanup.
+## Validation and rollback
 
-Compare at least three successful matched warm Mac+iOS cycles before and after;
-retain failed attempts too. Require a lower combined warm median, no unexplained
-per-lane regression, no registry pulls or lint recompilation, unchanged checks and
-artifacts, and passing cancellation/cache-invalidity/cleanup experiments. Increase
-sample count when spread prevents a conclusion. No speedup is claimed until those
-receipts exist.
-
-Deterministic tooling checks run without Xcode or a VM:
+Run command-boundary tests with fake VM tools:
 
 ```sh
 python3 -m unittest discover -s scripts/native_ci -p 'test_*.py'
 python3 -m unittest discover -s scripts/native_ios -p 'test_*.py'
 ```
 
-Real acceptance additionally covers cancellation during clone, startup, compilation,
-tests and upload; orphan recovery after abrupt termination; low-disk refusal; and
-the next queued job starting without manual repair. Template and cache retention
-must be verified after each controlled experiment.
+Real acceptance covers cold and fresh-guest warm builds, actual dependency reuse,
+changed source/build inputs, deliberate failures, simultaneous lanes, cancellation,
+Release packaging and cleanup. Compare normal PR and Release timings separately.
 
-## Runner concurrency
-
-The mini's runner has a separate `runner.capacity` setting. Keep it at one until
-matched real measurements support two. Worker concurrency does not change the
-runner's setting by itself. Change capacity only with no active jobs; keep the
-ceiling at two on the 10-core/24-GiB mini. A separate task VM consumes one of the
-two total guest slots and remains subject to admission checks.
-
-Use an explicit runner config containing `runner: {capacity: 2}` and pass its
-absolute path to `gitea-runner daemon --config ...`. Preserve all other runner
-configuration, labels and registration. Roll back to `capacity: 1` if queue-to-result
-latency or memory pressure regresses; no VM template or cache change is needed.
+Reverting the workflow/tooling change restores the old templates and seed path;
+no app or backend migration is involved. Runner capacity remains two, with its
+original capacity-one launch configuration retained on the host for rollback.

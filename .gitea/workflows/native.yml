@@ -25,12 +25,44 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Restore upstream Xcode cache (debug)
+        uses: irgaly/xcode-cache@282e57619a58eb57a2374be91df1798d46703bfd
+        with:
+          key: arcadia-established-v1-xcode26-5-mac-debug-${{ hashFiles('Gemfile.lock', 'fastlane/Fastfile', 'Arcadia/**/Package.resolved', 'Arcadia/Arcadia.xcodeproj/project.pbxproj') }}-${{ github.sha }}
+          restore-keys: arcadia-established-v1-xcode26-5-mac-debug-${{ hashFiles('Gemfile.lock', 'fastlane/Fastfile', 'Arcadia/**/Package.resolved', 'Arcadia/Arcadia.xcodeproj/project.pbxproj') }}-
+          deriveddata-directory: .ci-derived/debug
+          sourcepackages-directory: .ci-derived/debug/SourcePackages
+          swiftpm-package-resolved-file: Arcadia/Arcadia.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+          swiftpm-cache-key: arcadia-established-sourcepackages-${{ hashFiles('Arcadia/Arcadia.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-mtime-targets: |
+            Arcadia/**/*
+            !**/xcuserdata/**
+
+      - name: Restore upstream Xcode cache (release)
+        if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || inputs.release == true
+        uses: irgaly/xcode-cache@282e57619a58eb57a2374be91df1798d46703bfd
+        with:
+          key: arcadia-established-v1-xcode26-5-mac-release-${{ hashFiles('Gemfile.lock', 'fastlane/Fastfile', 'Arcadia/**/Package.resolved', 'Arcadia/Arcadia.xcodeproj/project.pbxproj') }}-${{ github.sha }}
+          restore-keys: arcadia-established-v1-xcode26-5-mac-release-${{ hashFiles('Gemfile.lock', 'fastlane/Fastfile', 'Arcadia/**/Package.resolved', 'Arcadia/Arcadia.xcodeproj/project.pbxproj') }}-
+          deriveddata-directory: .ci-derived/release
+          sourcepackages-directory: .ci-derived/release/SourcePackages
+          swiftpm-package-resolved-file: Arcadia/Arcadia.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+          swiftpm-cache-key: arcadia-established-sourcepackages-${{ hashFiles('Arcadia/Arcadia.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-mtime-targets: |
+            Arcadia/**/*
+            !**/xcuserdata/**
+
       - name: Check CI worker command behavior
         run: python3 -m unittest discover -s scripts/native_ci -p 'test_*.py'
 
       - name: Lint, build and test in an ephemeral VM
         env:
           ARCADIA_CI_TOKEN: ${{ github.token }}
+          ARCADIA_CI_DERIVED_DIR: ${{ github.workspace }}/.ci-derived
           ARCADIA_BASE_URL: ${{ vars.ARCADIA_BASE_URL }}
         run: |
           if { [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF" = "refs/heads/main" ]; } || [ "${{ inputs.release }}" = "true" ]; then
@@ -55,6 +87,9 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: native-mac-ci-${{ github.sha }}
-          path: artifacts/**/*.json
+          path: |
+            artifacts/**/*.json
+            artifacts/**/*.log
+            artifacts/**/*.xml
           if-no-files-found: error
           retention-days: 14

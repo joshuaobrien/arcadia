@@ -1,0 +1,73 @@
+require 'shellwords'
+
+ROOT = File.expand_path('..', __dir__)
+# Builds stay in the guest. The upstream Xcode cache action owns persistence.
+ENV["FASTLANE_SKIP_UPDATE_CHECK"] = "1"
+ENV["FASTLANE_HIDE_CHANGELOG"] = "1"
+ENV["FASTLANE_OPT_OUT_USAGE"] = "1"
+
+def derived_data(variant)
+  variant == "ios" ? File.expand_path("~/arcadia-ci-derived/ios") : "/tmp/arcadia-#{variant}"
+end
+
+def restore_derived_data(variant)
+  destination = derived_data(variant)
+  shared = "/Volumes/My Shared Files/derived/#{variant}"
+  FileUtils.mkdir_p(destination)
+  sh("/bin/cp", "-aX", "#{shared}/.", destination) if File.directory?(shared)
+  destination
+end
+
+def export_derived_data(variant)
+  shared = "/Volumes/My Shared Files/derived/#{variant}"
+  FileUtils.rm_rf(shared)
+  FileUtils.mkdir_p(shared)
+  sh("/bin/cp", "-aX", "#{derived_data(variant)}/.", shared)
+end
+
+lane :mac_ci do
+  derived = restore_derived_data("debug")
+  run_tests(
+    project: File.join(ROOT, "Arcadia/Arcadia.xcodeproj"), scheme: "Arcadia", configuration: "Debug",
+    destination: "platform=macOS", derived_data_path: derived,
+    only_testing: ["ArcadiaTests"], skip_package_dependencies_resolution: false,
+    xcargs: "-skipMacroValidation CODE_SIGNING_ALLOWED=NO",
+    result_bundle: true, result_bundle_path: "/tmp/arcadia-ci-tests.xcresult",
+    output_directory: "/Volumes/My Shared Files/evidence", output_types: "junit",
+    buildlog_path: "/Volumes/My Shared Files/evidence", xcodebuild_formatter: "",
+    disable_slide_to_type: false, skip_detect_devices: true
+  )
+  export_derived_data("debug")
+end
+
+lane :ios_compile do
+  derived = restore_derived_data("ios")
+  run_tests(
+    project: File.join(ROOT, "Arcadia/Arcadia.xcodeproj"), scheme: "ArcadiaMobile", configuration: "Debug",
+    destination: "generic/platform=iOS Simulator", derived_data_path: derived,
+    build_for_testing: true, skip_detect_devices: true,
+    xcargs: "-skipMacroValidation -onlyUsePackageVersionsFromResolvedFile CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=",
+    output_directory: "/Volumes/My Shared Files/artifacts", output_types: "",
+    buildlog_path: "/Volumes/My Shared Files/artifacts", xcodebuild_formatter: "",
+    disable_slide_to_type: false
+  )
+  export_derived_data("ios")
+end
+
+lane :mac_release do
+  derived = restore_derived_data("release")
+  build_app(
+    project: File.join(ROOT, "Arcadia/Arcadia.xcodeproj"), scheme: "Arcadia", configuration: "Release",
+    destination: "platform=macOS", derived_data_path: derived,
+    skip_codesigning: true, skip_package_pkg: true, skip_package_ipa: true,
+    archive_path: "/tmp/arcadia-release.xcarchive", skip_profile_detection: true,
+    xcargs: "-skipMacroValidation CODE_SIGNING_ALLOWED=NO ARCADIA_BASE_URL=#{Shellwords.escape(ENV.fetch("ARCADIA_BASE_URL"))}",
+    buildlog_path: "/Volumes/My Shared Files/evidence", xcodebuild_formatter: ""
+  )
+  app = "/tmp/arcadia-release.xcarchive/Products/Applications/Arcadia.app"
+  sh("/usr/bin/codesign", "--force", "--deep", "--sign", "-", app)
+  sh("/usr/bin/codesign", "--verify", "--deep", "--strict", "--verbose=2", app)
+  sh("/usr/bin/ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", app,
+     "/Volumes/My Shared Files/artifacts/Arcadia.zip")
+  export_derived_data("release")
+end

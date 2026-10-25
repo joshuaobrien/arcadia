@@ -103,6 +103,16 @@ if sys.argv[1] == 'delete':
         self.assertFalse((self.root / 'state/private' / receipt['vm']).exists())
         self.assertEqual([c[1] for c in calls if c[0] == 'delete'], [receipt['vm']])
 
+    def test_success_preserves_job_derived_data_for_upstream_action_post(self):
+        self.provision()
+        derived = self.root / 'upstream-derived'
+        self.env['ARCADIA_CI_DERIVED_DIR'] = str(derived)
+        result = self.invoke('--reserve-gib', '0', command="import os; from pathlib import Path; (Path(os.environ['ARCADIA_CI_DERIVED_DIR']) / 'product').write_text('current product')")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((derived / 'product').read_text(), 'current product')
+        receipt = json.loads((self.root / 'evidence/worker.json').read_text())
+        self.assertTrue(receipt['private_removed'])
+
     def test_two_workers_overlap_but_third_waits_for_capacity(self):
         self.provision()
         processes = []
@@ -235,27 +245,11 @@ if sys.argv[1] == 'delete':
         self.assertTrue(receipt['cleanup_errors'])
         self.assertTrue((self.root / 'state/private' / receipt['vm']).exists())
 
-    def test_failed_cleanup_does_not_publish_dependency_seed(self):
-        self.provision()
-        self.env['FAIL_DELETE'] = '1'
-        command = """import hashlib, json, os
-from pathlib import Path
-seed = Path(os.environ['ARCADIA_CI_CACHE_DIR']) / 'debug.tgz'
-seed.write_bytes(b'new dependency seed')
-seed.with_suffix('.json').write_text(json.dumps({'sha256': hashlib.sha256(seed.read_bytes()).hexdigest()}))
-"""
-        result = self.invoke('--reserve-gib', '0', command=command)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertFalse(list((self.root / 'state/dependencies').glob('**/*.tgz')))
-
-    def test_private_cleanup_failure_cannot_publish_seed_or_claim_success(self):
+    def test_private_cleanup_failure_cannot_claim_success(self):
         self.provision()
         command = """import hashlib, json, os
 from pathlib import Path
 private = Path(os.environ['ARCADIA_CI_PRIVATE_DIR'])
-seed = Path(os.environ['ARCADIA_CI_CACHE_DIR']) / 'debug.tgz'
-seed.write_bytes(b'new dependency seed')
-seed.with_suffix('.json').write_text(json.dumps({'sha256': hashlib.sha256(seed.read_bytes()).hexdigest()}))
 held = private.with_name(private.name + '-held')
 private.rename(held)
 private.symlink_to(held, target_is_directory=True)
@@ -267,7 +261,6 @@ private.symlink_to(held, target_is_directory=True)
         self.assertFalse(receipt['private_removed'])
         self.assertFalse(receipt['passed'])
         self.assertIn('Private input cleanup', str(receipt['cleanup_errors']))
-        self.assertFalse(list((self.root / 'state/dependencies').glob('**/*.tgz')))
 
     def test_successful_delete_recovers_from_stop_error_without_poisoning_next_job(self):
         self.provision()
@@ -278,38 +271,6 @@ private.symlink_to(held, target_is_directory=True)
         self.assertTrue(receipt['worker_removed'])
         self.assertTrue(receipt['cleanup_attempt_errors'])
         self.assertEqual(self.invoke('--reserve-gib', '0').returncode, 0)
-
-    def test_changed_cache_inputs_invalidate_seed_and_current_source_runs(self):
-        self.provision()
-        source = self.root / 'source'
-        project = source / 'Arcadia/Arcadia.xcodeproj/project.pbxproj'
-        project.parent.mkdir(parents=True)
-        project.write_text('initial build settings')
-        current = source / 'current.py'
-        current.write_text('print("initial current source")')
-        command = 'exec(open(' + repr(str(current)) + ').read())'
-        first = self.invoke('--reserve-gib', '0', '--source', str(source), command=command)
-        self.assertEqual(first.returncode, 0, first.stderr)
-        initial = json.loads((self.root / 'evidence/worker.json').read_text())['dependency_key']
-        project.write_text('changed build settings')
-        current.write_text('print("changed current source")')
-        second = self.invoke('--reserve-gib', '0', '--source', str(source), command=command)
-        self.assertEqual(second.returncode, 0, second.stderr)
-        changed = json.loads((self.root / 'evidence/worker.json').read_text())['dependency_key']
-        self.assertNotEqual(initial, changed)
-        self.assertIn('changed current source', second.stdout)
-
-    def test_corrupt_dependency_metadata_falls_back_to_current_build(self):
-        self.provision()
-        self.assertEqual(self.invoke('--reserve-gib', '0').returncode, 0)
-        receipt = json.loads((self.root / 'evidence/worker.json').read_text())
-        entry = self.root / 'state/dependencies' / receipt['dependency_key']
-        entry.mkdir(exist_ok=True)
-        (entry / 'debug.tgz').write_bytes(b'broken')
-        (entry / 'debug.json').write_text('invalid json')
-        result = self.invoke('--reserve-gib', '0')
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('built current source', result.stdout)
 
     def test_restart_reclaims_orphan_only_after_server_confirms_run_completed(self):
         self.provision()
@@ -361,12 +322,16 @@ private.symlink_to(held, target_is_directory=True)
         self.addCleanup(lambda: process.poll() is None and process.kill())
         deadline = time.monotonic() + 3
         while time.monotonic() < deadline:
-            if self.calls.exists() and 'clone' in self.calls.read_text():
-                break
+            store = self.root / 'vms.json'
+            try:
+                if store.exists() and json.loads(store.read_text()):
+                    break
+            except ValueError:
+                pass
             time.sleep(.02)
         process.terminate()
         output, error = process.communicate(timeout=5)
-        self.assertEqual(process.returncode, 130, output + error)
+        self.assertEqual(process.returncode, 130, output + error + (self.root / 'evidence/worker.json').read_text())
         receipt = json.loads((self.root / 'evidence/worker.json').read_text())
         self.assertEqual(receipt['error'], 'Cancelled')
         self.assertTrue(receipt['worker_removed'])
@@ -386,7 +351,7 @@ private.symlink_to(held, target_is_directory=True)
         self.assertTrue((self.root / 'vms.json').exists())
         process.terminate()
         output, error = process.communicate(timeout=5)
-        self.assertEqual(process.returncode, 130, output + error)
+        self.assertEqual(process.returncode, 130, output + error + (self.root / 'evidence/worker.json').read_text())
         receipt = json.loads((self.root / 'evidence/worker.json').read_text())
         self.assertTrue(receipt['worker_removed'])
         self.assertNotIn('should not start', output)

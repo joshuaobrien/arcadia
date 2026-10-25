@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Run once inside a stopped-template clone before recording its CI identity.
+# Ordinary CI jobs never install Ruby or gems.
+set -euo pipefail
+SOURCE="${1:?Pass the directory containing Gemfile and Gemfile.lock}"
+export PATH="/opt/homebrew/opt/ruby@3.4/bin:/opt/homebrew/bin:$PATH"
+export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1
+brew install ruby@3.4
+export BUNDLE_GEMFILE="$SOURCE/Gemfile" BUNDLE_PATH="$HOME/.cache/arcadia-fastlane" BUNDLE_FROZEN=1
+bundle install
+bundle check
+bundle exec fastlane --version
+ruby --version
+# Flush installed gems before the template is stopped and fingerprinted.
+sync

@@ -35,15 +35,6 @@ def fingerprint(template):
     return identity
 
 
-def valid_seed(seed):
-    receipt = seed.with_suffix('.json')
-    try:
-        return (seed.stat().st_size <= 512 * 1024 ** 2 and
-                json.loads(receipt.read_text()).get('sha256') == hashlib.sha256(seed.read_bytes()).hexdigest())
-    except (OSError, ValueError):
-        return False
-
-
 def inventory():
     return json.loads(subprocess.check_output(['tart', 'list', '--format', 'json'], text=True, timeout=15))
 
@@ -234,8 +225,6 @@ def main(argv=None):
     status = 1
     previous = {}
     private_root = None
-    cache_private = None
-    cache_entry = None
 
     def phase(name):
         report['phases'].append({'phase': name, 'seconds': round(time.monotonic() - started, 3)})
@@ -303,38 +292,17 @@ def main(argv=None):
         phase('local clone')
         subprocess.run(['tart', 'clone', args.template, report['vm'], '--prune-limit', '0'],
                        env=dict(os.environ, TART_NO_AUTO_PRUNE='1'), check=True, timeout=120)
-        # Existing guest cache code strips app/test outputs; only dependency seeds cross jobs.
-        inputs = [b'ci-dependencies-v1', json.dumps(identity, sort_keys=True).encode()]
-        for path in sorted((args.source / 'Arcadia').rglob('Package.resolved')):
-            inputs.append(path.read_bytes())
-        project = args.source / 'Arcadia/Arcadia.xcodeproj/project.pbxproj'
-        if project.is_file():
-            inputs.append(project.read_bytes())
-        for relative in ['scripts/native_ci/build_cache.py', 'scripts/native_loop/dependencies.py',
-                         'scripts/ci-native.sh', 'scripts/native_ios/guest.py',
-                         'scripts/native_preview/environment.py']:
-            helper = args.source / relative
-            if helper.is_file():
-                inputs.append(helper.read_bytes())
-        key = hashlib.sha256(b'\0'.join(inputs)).hexdigest()
-        cache_entry = args.state / 'dependencies' / key
         private_root = args.state / 'private' / report['vm']
-        cache_private = private_root / 'dependencies'
-        cache_private.mkdir(parents=True)
+        private_root.mkdir(parents=True)
+        derived = Path(os.environ.get('ARCADIA_CI_DERIVED_DIR', str(private_root / 'derived'))).resolve()
+        derived.mkdir(parents=True, exist_ok=True)
         durable = args.state / 'evidence' / report['vm']
         durable.mkdir(parents=True)
-        if cache_entry.is_dir():
-            for seed in cache_entry.glob('*.tgz'):
-                receipt = seed.with_suffix('.json')
-                if valid_seed(seed):
-                    shutil.copy2(seed, cache_private / seed.name)
-                    shutil.copy2(receipt, cache_private / receipt.name)
-        report['dependency_key'] = key
         phase('worker command')
         args.artifacts.mkdir(parents=True, exist_ok=True)
         child = subprocess.Popen(command, env=dict(os.environ, ARCADIA_CI_VM=report['vm'],
                                                   ARCADIA_CI_MANAGED='1', ARCADIA_CI_EVIDENCE_DIR=str(args.artifacts.resolve()),
-                                                  ARCADIA_CI_CACHE_DIR=str(cache_private), ARCADIA_CI_PRIVATE_DIR=str(private_root)), start_new_session=True,
+                                                  ARCADIA_CI_DERIVED_DIR=str(derived), ARCADIA_CI_PRIVATE_DIR=str(private_root)), start_new_session=True,
                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         admission_released = False
         deadline = time.monotonic() + args.command_timeout
@@ -409,14 +377,6 @@ def main(argv=None):
             report['cleanup_errors'] = cleanup
             if cleanup:
                 status = 1
-            # Bound staging to the three supported dependency seeds. Read after the VM
-            # is gone, then remove private inputs before making any shared publication.
-            publications = []
-            if status == 0 and not cleanup:
-                for name in ['debug', 'release', 'ios']:
-                    seed = cache_private / (name + '.tgz')
-                    if valid_seed(seed):
-                        publications.append((seed.name, seed.read_bytes(), seed.with_suffix('.json').read_bytes()))
             if private_root and absent:
                 try:
                     shutil.rmtree(private_root)
@@ -424,36 +384,6 @@ def main(argv=None):
                     cleanup.append('Private input cleanup: ' + str(error))
                     status = 1
             report['private_removed'] = not private_root or not private_root.exists()
-            # Failed/cancelled jobs never need shared publication. In particular,
-            # do not wait behind an older worker that holds its lock all build.
-            if status == 0 and not cleanup:
-                deadline = time.monotonic() + 15
-                while True:
-                    try:
-                        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                        break
-                    except BlockingIOError:
-                        if time.monotonic() >= deadline:
-                            cleanup.append('Cache publication lock deadline exceeded')
-                            status = 1
-                            break
-                        time.sleep(.1)
-            if status == 0 and not cleanup:
-                try:
-                    phase('cache publication')
-                    cache_entry.mkdir(parents=True, exist_ok=True)
-                    for name, payload, metadata in publications:
-                        generation = cache_entry / ('.' + report['vm'])
-                        generation.mkdir()
-                        (generation / name).write_bytes(payload)
-                        receipt_name = Path(name).with_suffix('.json').name
-                        (generation / receipt_name).write_bytes(metadata)
-                        os.replace(generation / name, cache_entry / name)
-                        os.replace(generation / receipt_name, cache_entry / receipt_name)
-                        generation.rmdir()
-                except (OSError, ValueError) as error:
-                    report['error'] = 'Cache publication failed: ' + str(error)
-                    status = 1
             report['passed'] = status == 0 and report['worker_removed']
             report['seconds'] = round(time.monotonic() - started, 3)
             report['free_after'] = shutil.disk_usage(args.template_root).free
