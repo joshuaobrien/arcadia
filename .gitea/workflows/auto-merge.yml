@@ -1,0 +1,58 @@
+name: Agent PR merge queue
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+jobs:
+  queue:
+    if: github.event.pull_request.user.login == 'arcadia-pilot-bot'
+    runs-on: docker
+    steps:
+      # No checkout and no PR code execution: this only calls the Gitea API.
+      - name: Mark ready and queue behind required checks
+        env:
+          MERGE_TOKEN: ${{ secrets.AGENTCONNECT_MERGE_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          EVENT_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          node <<'JS'
+          const base = 'https://joshs-mac-mini.tail81f644.ts.net/api/v1/repos/jj/arcadia';
+          async function api(path, method = 'GET', data) {
+            const response = await fetch(base + path, {
+              method,
+              headers: { Authorization: `token ${process.env.MERGE_TOKEN}`, 'Content-Type': 'application/json' },
+              body: data === undefined ? undefined : JSON.stringify(data),
+              signal: AbortSignal.timeout(30000),
+            });
+            const body = await response.text();
+            if (!response.ok) throw new Error(`Gitea ${method} ${path}: HTTP ${response.status}`);
+            return body ? JSON.parse(body) : null;
+          }
+          async function main() {
+            if (!process.env.MERGE_TOKEN) throw new Error('Missing merge token');
+            const number = process.env.PR_NUMBER;
+            if (!/^[1-9][0-9]*$/.test(number)) throw new Error('Invalid PR number');
+            const path = `/pulls/${number}`;
+            const pr = await api(path);
+            if (pr.state !== 'open' || pr.merged) return;
+            if (pr.user.login !== 'arcadia-pilot-bot' || pr.base.ref !== 'main' || pr.head.repo.full_name !== 'jj/arcadia') {
+              throw new Error('PR is outside the authorised bot/repository/base boundary');
+            }
+            if (pr.head.sha !== process.env.EVENT_HEAD) {
+              console.log('Superseded event; latest head event owns the queue request');
+              return;
+            }
+            if (pr.draft) {
+              const title = pr.title.replace(/^(?:WIP:|Draft:|\[WIP\])\s*/i, '');
+              const ready = await api(path, 'PATCH', { title });
+              if (ready.draft) throw new Error('PR remains draft');
+            }
+            await api(path + '/merge', 'POST', {
+              do: 'squash', head_commit_id: pr.head.sha,
+              merge_when_checks_succeed: true, force_merge: false,
+            });
+            console.log(`PR #${number} queued; required CI and reviewer checks still apply`);
+          }
+          main().catch(error => { console.error(error.message); process.exitCode = 1; });
+          JS
