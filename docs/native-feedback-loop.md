@@ -4,6 +4,52 @@ Every Arcadia app build, launch and test runs in a disposable macOS VM. Reuse th
 
 **Operate in the background by default.** Do not open Screen Sharing, a VNC viewer, Xcode or the guest desktop during ordinary agent work. Inspect saved app-window screenshots and logs. Live viewing is opt-in and requires an explicit user request; it is not a completion requirement for the normal loop.
 
+## Prepared development template and readiness
+
+The mini's development default is `arcadia-native-toolchain-27-1-v1`: Xcode
+27.1 build 27A9275, Mint 0.18.0 and compiled SwiftLint matching `Mintfile`.
+CI retains its existing separately validated Fastlane templates and cache owners.
+Do not boot or modify a shared template during ordinary work.
+
+A local template must have a host certificate at
+`~/.cache/arcadia-native-toolchains/<template>.json`. Before cloning, `start`
+checks its identity and the exact Mintfile/formatter configuration against that
+certificate. Drift fails immediately. Guest startup then checks the pinned
+versions, runs cached SwiftLint with `--no-install`, and parses/lints the actual
+formatter configuration. It installs nothing and writes `toolchain.json` evidence.
+A readiness failure is an infrastructure blocker: retain diagnostics and report
+it. Do not install tools in an app task or edit app formatting configuration to
+make an incompatible template pass.
+
+Maintainers prepare a **new** clone of the existing Fastlane image. Inside that
+private guest, with an allowlisted checkout and an existing compiled Mint seed
+mounted read-only, run:
+
+```sh
+./scripts/native-provision-toolchain /path/to/checkout /path/to/mint-seed
+```
+
+The explicit `--bootstrap-lint` alternative permits a one-time seed build only
+during provisioning. It is never part of ordinary task startup. Stop the candidate
+before recording its identity. Validate a fresh clone, then publish its certificate:
+
+```sh
+./scripts/native-loop --host paseo-host start template-smoke --template arcadia-native-toolchain-27-1-v1 --validate-template
+./scripts/native-loop --host paseo-host lint template-smoke
+./scripts/native-loop --host paseo-host build template-smoke
+./scripts/native-loop --host paseo-host test template-smoke --only-testing ArcadiaUITests/FeedbackLoopTests/testEmpty
+./scripts/native-loop --host paseo-host finish template-smoke
+./scripts/native-loop --host paseo-host certify template-smoke
+```
+
+`--validate-template` is a maintainer-only bootstrap path; it skips only the
+host certificate lookup, never guest checks. `certify` requires successful
+preflight, lint, build and a behavioral test against the same source, complete
+evidence export/VM cleanup, and an unchanged template. The receipt is invalidated
+by image or contract changes. `NATIVE_LOOP_TEMPLATE` or `--template` selects an
+explicit alternative; it must be certified too. Never fall back silently to an
+older/raw Xcode image.
+
 ## Start and iterate
 
 Prerequisites on the VM host: Tart with the pinned official image cached, Python 3.9+, a logged-in guest GUI session and Tart Guest Agent. For remote execution, use an existing trusted SSH alias with noninteractive authentication. The repository's existing mini is `paseo-host`.

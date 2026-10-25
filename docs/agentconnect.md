@@ -12,6 +12,36 @@ AgentConnect automation is enabled for `jj/arcadia` on the durable home Mac work
 
 The implementer and reviewer are separate agent roles, but shared bot reviews are **not independent human approval**. The configured reviewer status is an automated merge gate, not a claim of human approval.
 
+## Task execution contract
+
+For each labeled issue, work from current `main` in an isolated worktree and keep
+implementation and verification in that issue session. Do not move the entire
+job into a self-delegated background session that makes the visible task look
+finished while work is still running. Report concrete milestones and blockers;
+do not post duplicate acknowledgements for opened/labeled deliveries.
+
+Before native work, read the prepared-template section of
+[native-feedback-loop.md](native-feedback-loop.md#prepared-development-template-and-readiness).
+Use `arcadia-native-toolchain-27-1-v1` on `paseo-host`; normal `start` checks its
+certificate before allocating a VM and checks tools again inside the fresh clone.
+The worker currently runs Codex and the checkout on the MacBook Pro; the mini
+hosts AgentConnect/Gitea, CI and every native task VM. Do not confuse worker
+placement with native execution placement.
+
+If readiness fails, stop native work, retain diagnostics and report the template
+failure. Never install Mint/SwiftLint during feature work, bootstrap tools from
+scratch, bypass certification with `--validate-template`, select a raw/older image,
+or change app formatter configuration merely to accommodate a broken template.
+Intentional formatting-policy changes need explicit issue scope and recertification.
+Maintainers own template provisioning and certification.
+
+Use `iterate` for fast current-frame visual feedback, targeted behavior tests
+while editing, and the relevant final verification before creating a ready PR.
+Preserve source/run/hash receipts for genuine before/after images. Keep generated
+evidence outside Git; attach reviewed images/logs to the PR. Finish only after
+verified increments are pushed, owned VM cleanup/evidence export succeeds and
+the PR is ready for required CI/reviewer checks and guarded automatic merging.
+
 ## Native work on the durable worker
 
 Read the maintained [native feedback-loop runbook](native-feedback-loop.md) and `./scripts/native-loop --help` before choosing commands. Use the existing background `scripts/native-loop --host paseo-host` interface for native builds, launches and tests. Do not open a host viewer, guest desktop or Xcode for ordinary automated work; inspect exported screenshots and logs.

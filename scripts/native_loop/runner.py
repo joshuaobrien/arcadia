@@ -21,7 +21,9 @@ import time
 import uuid
 from dependencies import cache_key as dependency_cache_key
 from screenshots import capture as capture_screenshot
+from toolchain import contract_hash, require_certificate
 
+DEFAULT_TEMPLATE = 'arcadia-native-toolchain-27-1-v1'
 IMAGE = 'ghcr.io/cirruslabs/macos-tahoe-xcode@sha256:61f6e857a3d65dd2f8daf9c51c7b837fa458bcc9181ae8556e645b534dab6bf6'
 TOOLS = Path(__file__).resolve().parent
 OWNER = 'arcadia-native-loop-v1'
@@ -203,7 +205,7 @@ class Task:
 
     def load(self):
         self.manifest = owned_manifest(self.directory)
-        if self.manifest.get('state') == 'finished' and self.args.operation not in {'export', 'status', 'finish'}:
+        if self.manifest.get('state') == 'finished' and self.args.operation not in {'export', 'status', 'finish', 'certify'}:
             raise LoopError('Task is finished; start a new task name for a fresh VM')
 
     def guest(self, operation, *arguments, timeout=2400):
@@ -296,6 +298,8 @@ class Task:
                 if not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_.-]*', template):
                     raise LoopError('Template must be a local VM name')
                 base = Path.home() / '.tart/vms' / template
+                if not base.is_dir():
+                    raise LoopError('Prepared native template is missing on the VM host; see docs/native-feedback-loop.md')
                 files = ['config.json', 'nvram.bin']
                 identity = {name: fingerprint(base / name) for name in files}
                 disk = (base / 'disk.img').stat()
@@ -303,6 +307,7 @@ class Task:
                 guests = json.loads(run([self.tart, 'list', '--format', 'json'], capture_output=True, text=True).stdout)
                 if any(g.get('Name') == template and (g.get('State') == 'running' or g.get('Running')) for g in guests):
                     raise LoopError('Template must be stopped')
+                self.manifest['template_name'] = template
                 self.manifest['template_identity'] = identity
                 self.manifest['image'] = 'local:' + template + '@sha256:' + hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
                 self.save()
@@ -319,11 +324,17 @@ class Task:
             self.manifest['mint_cache'] = str(cache)
             seed = cache if cache.is_dir() else cache_root
             # Import the old CI cache once; never copy keyed caches recursively.
-            if not template and (seed / 'packages').is_dir():
+            if (seed / 'packages').is_dir() and (not template or cache.is_dir()):
                 for name in ['packages', 'bin']:
                     if (seed / name).is_dir():
                         shutil.copytree(seed / name, self.directory / 'mint' / name, symlinks=True)
             self.save()
+            if template and not getattr(self.args, 'validate_template', False):
+                try:
+                    require_certificate(Path.home() / '.cache/arcadia-native-toolchains' / (template + '.json'),
+                                        self.manifest['image'], contract_hash(self.directory / 'source/source.tgz'))
+                except RuntimeError as error:
+                    raise LoopError(str(error)) from error
             progress('VM clone')
             run_with_progress([self.tart, 'clone', template or self.args.image, self.manifest['vm']], 'VM clone', 900)
             with (self.directory / 'vm.log').open('w') as log:
@@ -524,7 +535,39 @@ class Task:
         self.manifest['lint_verification'] = {'key': key, 'run_id': self.manifest['runs'][-1]['id'], 'source_sha256': self.manifest['source_sha256']}
         self.save()
 
+    def certify_template(self):
+        template = self.manifest.get('template_name')
+        if not template or self.manifest.get('state') != 'finished':
+            raise LoopError('Certification requires a finished local-template smoke task')
+        required = {'preflight', 'lint', 'build', 'test'}
+        latest = {r['operation']: r for r in self.manifest['runs'] if r['operation'] in required}
+        if not required <= latest.keys() or any(
+                r.get('status') != 'passed' or r.get('source_sha256') != self.manifest['source_sha256']
+                for r in latest.values()):
+            raise LoopError('Certification requires passing preflight, lint, build and behavioral test on the same source')
+        guests = json.loads(run([self.tart, 'list', '--format', 'json'], capture_output=True, text=True).stdout)
+        if any(g.get('Name') == template and (g.get('Running') or g.get('State') == 'running') for g in guests):
+            raise LoopError('Template must be stopped before certification')
+        base = Path.home() / '.tart/vms' / template
+        identity = {name: fingerprint(base / name) for name in ['config.json', 'nvram.bin']}
+        disk = (base / 'disk.img').stat()
+        identity['disk'] = [disk.st_size, disk.st_mtime_ns, disk.st_ino]
+        if identity != self.manifest['template_identity']:
+            raise LoopError('Template changed during smoke verification; recertify the new image')
+        certificate = {'ready': True, 'image': self.manifest['image'],
+                       'contract_sha256': contract_hash(self.directory / 'source/source.tgz'),
+                       'smoke_task': self.args.task, 'revision': self.manifest.get('source_revision'),
+                       'verified_operations': sorted(required), 'verified_at': time.time()}
+        path = Path.home() / '.cache/arcadia-native-toolchains' / (template + '.json')
+        path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_json(path, certificate)
+        progress('template certified: ' + template)
+
     def execute(self):
+        if self.args.operation == 'certify':
+            self.load()
+            self.certify_template()
+            return
         if self.args.operation == 'capture':
             self.args.operation = 'test'
             self.execute()
@@ -637,6 +680,8 @@ def remote(args):
         arguments += ['--platform', args.platform, '--state', args.state, '--data-mode', args.data_mode, '--scenario', args.scenario]
     if args.operation == 'start':
         arguments += ['--image', args.image]
+        if args.validate_template:
+            arguments += ['--validate-template']
         if args.template:
             arguments += ['--template', args.template]
         if args.mint_seed:
@@ -681,7 +726,7 @@ def remote(args):
             stop_viewer(args)
         if incoming:
             run(ssh + [shlex.join(['rm', '-f', incoming])])
-        if args.operation in {'start', 'export', 'finish', 'test', 'oracle', 'lint', 'build', 'release', 'review', 'integration', 'compare', 'capture', 'iterate'}:
+        if args.operation in {'start', 'certify', 'export', 'finish', 'test', 'oracle', 'lint', 'build', 'release', 'review', 'integration', 'compare', 'capture', 'iterate'}:
             destination = Path(args.artifacts or f'.native-loop/{args.task}').resolve()
             destination.mkdir(parents=True, exist_ok=True)
             archive_name = 'evidence.tgz' if args.operation == 'export' else 'review.tgz'
@@ -771,7 +816,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--host', default=os.environ.get('NATIVE_LOOP_HOST'))
     parser.add_argument('--root', default=f'/tmp/arcadia-native-loop-{os.getuid()}')
-    parser.add_argument('operation', choices=['start', 'build', 'test', 'oracle', 'review', 'view', 'integration', 'lint', 'release', 'export', 'finish', 'status', 'compare', 'capture', 'iterate'])
+    parser.add_argument('operation', choices=['start', 'build', 'test', 'oracle', 'review', 'view', 'integration', 'lint', 'release', 'export', 'finish', 'status', 'compare', 'capture', 'iterate', 'certify'])
     parser.add_argument('task')
     parser.add_argument('--source', default=os.getcwd())
     parser.add_argument('--artifacts')
@@ -781,6 +826,7 @@ def main():
     parser.add_argument('--data-mode', choices=['fixtures', 'jellyfin'], default='fixtures')
     parser.add_argument('--scenario', choices=['success', 'empty', 'failure', 'two-page'], default='success')
     parser.add_argument('--template', help='Clone a stopped local Xcode template; its identity is recorded for this task.')
+    parser.add_argument('--validate-template', action='store_true', help='Maintainer-only smoke task for an uncertified candidate; never bypass guest readiness')
     parser.add_argument('--image', default=os.environ.get('TART_IMAGE', IMAGE))
     parser.add_argument('--integration', action='store_true')
     parser.add_argument('--live-review', action='store_true', help='Opt-in bounded interactive guest session; review is background by default')
@@ -795,9 +841,13 @@ def main():
     parser.add_argument('--revision', help=argparse.SUPPRESS)
     parser.add_argument('--integration-source', help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if not args.template and '--image' not in sys.argv and not os.environ.get('TART_IMAGE'):
+        args.template = os.environ.get('NATIVE_LOOP_TEMPLATE', DEFAULT_TEMPLATE)
     os.environ['PATH'] = '/opt/homebrew/bin:/usr/local/bin:' + os.environ.get('PATH', '/usr/bin:/bin')
     validate_task(args.task)
     try:
+        if args.validate_template and args.operation != 'start':
+            raise LoopError('--validate-template is only for maintainer smoke-task startup')
         if args.no_dependency_cache and args.operation != 'start':
             raise LoopError('--no-dependency-cache is a task startup setting; use it with start')
         if args.only_testing and args.integration:
