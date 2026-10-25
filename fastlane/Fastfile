@@ -35,7 +35,7 @@ lane :mac_ci do
     result_bundle: true, result_bundle_path: "/tmp/arcadia-ci-tests.xcresult",
     output_directory: "/Volumes/My Shared Files/evidence", output_types: "junit",
     buildlog_path: "/Volumes/My Shared Files/evidence", xcodebuild_formatter: "",
-    disable_slide_to_type: false, skip_detect_devices: true, skip_open_summary: true
+    disable_slide_to_type: false, skip_detect_devices: true
   )
   export_derived_data("debug")
 end
@@ -49,7 +49,7 @@ lane :ios_compile do
     xcargs: "-skipMacroValidation -onlyUsePackageVersionsFromResolvedFile CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=",
     output_directory: "/Volumes/My Shared Files/artifacts", output_types: "",
     buildlog_path: "/Volumes/My Shared Files/artifacts", xcodebuild_formatter: "",
-    disable_slide_to_type: false, skip_open_summary: true
+    disable_slide_to_type: false
   )
   export_derived_data("ios")
 end
