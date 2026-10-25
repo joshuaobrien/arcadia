@@ -1,6 +1,6 @@
 # Warm development-loop validation
 
-Date: 2026-10-25. Based on main ba22251, task `warm-loop-validation`, background clone of `arcadia-mobile-xcode-27-1-fastlane-2-241-1` on the mini. No host viewer opened. CI and the human Jellyfin launcher were unchanged.
+Date: 2026-10-25. Based on main ba22251, task `warm-loop-validation`, background clone of `arcadia-mobile-xcode-27-1-fastlane-2-241-1` on the mini. No host viewer opened. CI workflows/checks and the human Jellyfin launcher were unchanged. Final CI exposed an existing early-cancellation cleanup race; the PR includes its minimal idempotence fix and a deterministic public-command regression.
 
 ## Observations
 
@@ -23,6 +23,6 @@ The source-edit probe temporarily changed `The First Song` to the equal-length `
 - Direct simulator screenshots were not accepted when they lacked the marker. Device Hub initially kept showing the previous iPhone during a Duo request, and the command failed. The final implementation restarts the guest-only viewer and sets the observed Xcode27.1 selection preference; the Duo screenshot then showed the actual Duo and Artists page. A future incompatible viewer change fails closed through the marker gate.
 - Two initial long SSH calls disconnected after successful builds but before a complete receipt. They were failures, not accepted images. Subsequent warm calls passed. A guest workspace lock prevents a disconnected iteration from overlapping a later source sync; explicit guest interruption terminates the owned build group. The original transport cause was not established.
 - Standards/Spec reviews prompted selected-page loading readiness, settled Jellyfin restoration, current-run-only routine evidence export and process-group cleanup. Reviews then reported no remaining blockers; the final Device Hub selection correction was verified on the genuine Duo.
-- The first PR CI attempt found two lint violations, corrected in the final increment. Its iOS job also refused capacity while the development VM occupied a slot. Final CI runs follow task cleanup, without capacity/configuration changes.
+- The first PR CI attempt found two lint violations, corrected in the final increment. Its iOS job also refused capacity while the development VM occupied a slot. Final CI runs follow task cleanup, without capacity/configuration changes. They exposed an existing cancellation between private-path assignment and directory creation: cleanup incorrectly treated the absent directory as an error. A deterministic filesystem-boundary interruption reproduced exit1 before the fix; idempotent cleanup preserves the intended exit130 and ownership evidence.
 
 Screenshots prove visual freshness and state presentation, not playback, navigation or queue behavior. Existing behavioral CI checks remain separate. The validation VM is discarded after complete evidence export; full task receipts/logs/images are retained in the evidence archive.

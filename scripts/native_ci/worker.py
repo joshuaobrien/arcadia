@@ -380,6 +380,9 @@ def main(argv=None):
             if private_root and absent:
                 try:
                     shutil.rmtree(private_root)
+                except FileNotFoundError:
+                    # Cancellation can land between assigning this path and mkdir.
+                    pass
                 except OSError as error:
                     cleanup.append('Private input cleanup: ' + str(error))
                     status = 1
