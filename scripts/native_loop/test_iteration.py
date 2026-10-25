@@ -9,7 +9,7 @@ import unittest
 
 
 class IterationCommand(unittest.TestCase):
-    def run_command(self, bad_run=False, bad_source=False, bad_image=False):
+    def run_command(self, bad_run=False, bad_source=False, bad_image=False, extra=()):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             source = root / 'checkout'
@@ -48,7 +48,7 @@ image=b'controlled provider image';(output/'screenshot.png').write_bytes(image)
                 env['BAD_IMAGE'] = '1'
             command = [sys.executable, str(Path(__file__).with_name('runner.py')),
                        '--root', str(root / 'tasks'), 'iterate', 'example',
-                       '--source', str(source), '--platform', 'mac', '--state', 'albums']
+                       '--source', str(source), '--platform', 'mac', '--state', 'albums', *extra]
             result = subprocess.run(command, env=env, capture_output=True, text=True)
             return result, json.loads((task / 'manifest.json').read_text())
 
@@ -75,6 +75,11 @@ image=b'controlled provider image';(output/'screenshot.png').write_bytes(image)
         result, manifest = self.run_command(bad_image=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(manifest['runs'][-1]['status'], 'failed')
+
+    def test_visual_iteration_rejects_test_filter(self):
+        result, manifest = self.run_command(extra=('--only-testing', 'ArcadiaUITests/FeedbackLoopTests/testEmpty'))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(manifest['runs'], [])
 
 
 if __name__ == '__main__':

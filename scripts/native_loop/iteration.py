@@ -1,4 +1,5 @@
 """Warm guest iteration; VM lifetime and evidence export belong to native-loop."""
+import fcntl
 import hashlib
 import json
 import os
@@ -64,6 +65,7 @@ def sync_source(archive):
             elif not destination.is_file() or digest(path) != digest(destination):
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(path, destination)
+        return {str(p.relative_to(staged)): digest(p) for p in staged.rglob('*') if p.is_file()}
 
 
 def prepare_device(platform, state):
@@ -93,9 +95,18 @@ def prepare_device(platform, state):
     return device
 
 
-def capture(helper, pids, output, marker):
+def capture(helper, pids, output, marker, device=None):
     deadline = time.monotonic() + 30
     attempt = output.with_name('capture-attempt.png')
+    if device:
+        result = subprocess.run(['xcrun', 'simctl', 'io', device, 'screenshot', str(attempt)],
+                                capture_output=True, timeout=15)
+        if result.returncode == 0:
+            inspected = subprocess.run([str(helper), 'inspect', str(attempt), marker],
+                                       capture_output=True, text=True, timeout=20)
+            if inspected.returncode == 0 and json.loads(inspected.stdout)['matched']:
+                attempt.replace(output)
+                return 'simulator-display'
     while time.monotonic() < deadline:
         for pid in pids():
             windows = json.loads(command(helper, 'windows', str(pid)))
@@ -108,7 +119,7 @@ def capture(helper, pids, output, marker):
                                         capture_output=True, text=True, timeout=20)
                 if result.returncode == 0 and json.loads(result.stdout)['matched']:
                     attempt.replace(output)
-                    return
+                    return 'app-window' if device is None else 'simulator-window'
         time.sleep(.2)
     raise RuntimeError('No visible frame with this run marker; stale/black images rejected')
 
@@ -119,6 +130,17 @@ def main():
         raise RuntimeError('Invalid iteration platform/screen')
     ROOT.mkdir(exist_ok=True)
     WORKSPACE.mkdir(exist_ok=True)
+    # The guest owns the build lifetime even if a host SSH client disconnects.
+    # An orphaned command must finish before another edit touches its workspace.
+    task_lock = (ROOT / 'iteration.lock').open('a')
+    try:
+        fcntl.flock(task_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        raise RuntimeError('An iteration is still running in this guest; wait or finish the task')
+    def interrupted(signum, frame):
+        raise KeyboardInterrupt('Iteration interrupted')
+    signal.signal(signal.SIGTERM, interrupted)
+    signal.signal(signal.SIGINT, interrupted)
     output = EXCHANGE / run_id
     output.mkdir(exist_ok=True)
     record = {'captured': False, 'run_id': run_id, 'source_sha256': os.environ['ARCADIA_SOURCE_SHA256'],
@@ -130,7 +152,7 @@ def main():
         print('[native-loop] ' + name, flush=True)
     try:
         phase('source synchronization')
-        sync_source(Path(os.environ['ARCADIA_SOURCE_ARCHIVE']))
+        inputs = sync_source(Path(os.environ['ARCADIA_SOURCE_ARCHIVE']))
         helper_source = Path(__file__).with_name('frame.swift')
         helper = ROOT / ('frame-' + digest(helper_source)[:16])
         if not helper.exists():
@@ -152,16 +174,31 @@ def main():
                 'CODE_SIGN_STYLE=Manual', 'DEVELOPMENT_TEAM=', 'PRODUCT_BUNDLE_IDENTIFIER=' + identity, 'build']
         # Keep the incremental build log separate from image verification.
         build = subprocess.Popen([sys.executable, str(Path(__file__).with_name('progress.py')),
-                                  str(output / 'build.log'), *args], start_new_session=True)
+                                  str(output / 'build.log'), *args], start_new_session=True,
+                                  pass_fds=(task_lock.fileno(),))
         try:
             if build.wait(timeout=1800):
                 raise RuntimeError('Build failed; inspect build.log')
         except BaseException:
             try:
                 os.killpg(build.pid, signal.SIGTERM)
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline:
+                    build.poll()
+                    try:
+                        os.killpg(build.pid, 0)
+                    except ProcessLookupError:
+                        break
+                    time.sleep(.1)
+                else:
+                    os.killpg(build.pid, signal.SIGKILL)
+                build.wait()
             except ProcessLookupError:
                 pass
             raise
+        if any(not (WORKSPACE / name).is_file() or digest(WORKSPACE / name) != sha
+               for name, sha in inputs.items()):
+            raise RuntimeError('Build changed source inputs; no image accepted')
         phase('launch selected state')
         product = derived / 'Build/Products' / ('Debug' if device is None else 'Debug-iphonesimulator') / 'Arcadia.app'
         command('/usr/bin/codesign', '--verify', '--deep', '--strict', product)
@@ -199,7 +236,7 @@ def main():
         phase('capture current frame')
         marker = 'FRAME' + run_id[-8:].upper()
         image = output / 'screenshot.png'
-        capture(helper, pids, image, marker)
+        record['capture_method'] = capture(helper, pids, image, marker, device)
         record.update(captured=True, image_sha256=digest(image), marker=marker)
         phase('fresh image verified')
     finally:

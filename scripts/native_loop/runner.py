@@ -441,7 +441,12 @@ class Task:
                 return None
             return info
         with tarfile.open(temporary_review, 'w:gz') as output:
-            output.add(self.directory / 'artifacts', arcname='artifacts', filter=review_files)
+            if self.args.operation == 'iterate':
+                latest = next(r for r in reversed(self.manifest['runs']) if r['operation'] == 'iterate')
+                output.add(self.directory / 'artifacts' / latest['id'],
+                           arcname='artifacts/' + latest['id'], filter=review_files)
+            else:
+                output.add(self.directory / 'artifacts', arcname='artifacts', filter=review_files)
             output.add(self.path, arcname='manifest.json')
             if (self.directory / 'comparison').exists():
                 output.add(self.directory / 'comparison', arcname='comparison')
@@ -800,7 +805,7 @@ def main():
         if args.only_testing:
             for identifier in args.only_testing:
                 validate_test(identifier)
-            if args.operation not in {'test', 'compare', 'capture', 'iterate'} or args.integration:
+            if args.operation not in {'test', 'compare', 'capture'} or args.integration:
                 raise LoopError('Test filters are only supported for fixture test/compare, not integration')
         if args.operation in {'compare', 'capture'} and (not args.only_testing or len(args.only_testing) != 1 or args.only_testing[0].count('/') != 2 or not args.label):
             raise LoopError('capture/compare requires one --only-testing identifier and --label before/after')

@@ -12,6 +12,9 @@ import SwiftUI
 struct ArcadiaApp: App {
   @State private var connection: SourceConnectionModel?
   @State private var fixtureSession: ListeningSession?
+  #if DEBUG
+    @State private var visualStateReady = false
+  #endif
   private let configuration: Result<AppConfiguration, Error>
 
   init() {
@@ -59,8 +62,11 @@ struct ArcadiaApp: App {
         }
       }
       #if DEBUG
+        .onPreferenceChange(DevelopmentFrameReady.self) { visualStateReady = $0 }
         .overlay(alignment: .topLeading) {
-          if let run = ProcessInfo.processInfo.environment["ARCADIA_VISUAL_RUN_ID"] {
+          if let run = ProcessInfo.processInfo.environment["ARCADIA_VISUAL_RUN_ID"],
+            visualStateReady
+          {
             Text("FRAME " + run.suffix(8).uppercased())
             .font(.system(size: 24, weight: .bold, design: .monospaced))
             .foregroundStyle(.black)
@@ -77,3 +83,10 @@ struct ArcadiaApp: App {
     }
   }
 }
+
+#if DEBUG
+  struct DevelopmentFrameReady: PreferenceKey {
+    static let defaultValue = false
+    static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
+  }
+#endif
