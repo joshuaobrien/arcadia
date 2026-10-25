@@ -32,7 +32,7 @@ DerivedData metadata. No private build database decoding or rewriting is used.
 
 Host job paths are unique; the action restores `.ci-derived/<variant>` in that
 job's checkout. Tart exposes it through a private `derived` mount. Fastlane uses
-native `cp -a` into stable guest-local DerivedData paths, builds/tests, then exports
+native `cp -aX` into stable guest-local DerivedData paths, builds/tests, then exports
 back through the same mount. Source archives use native POSIX/PAX tar end to end.
 Python still validates iOS archive members before native extraction; it no longer
 serializes/extracts metadata through floating-point timestamps.

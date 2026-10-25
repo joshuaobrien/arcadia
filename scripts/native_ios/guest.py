@@ -45,7 +45,7 @@ def main():
         command = ['/usr/bin/env', *[key + '=' + env[key] for key in
                    ['DEVELOPER_DIR', 'PATH', 'BUNDLE_GEMFILE', 'BUNDLE_PATH',
                     'BUNDLE_FROZEN', 'FASTLANE_SKIP_UPDATE_CHECK', 'FASTLANE_OPT_OUT_USAGE', 'FASTLANE_HIDE_CHANGELOG']],
-                   'bundle', 'exec', 'fastlane', '--fastfile', str(source / 'fastlane/Fastfile'), 'ios_compile']
+                   'bundle', 'exec', 'fastlane', 'ios_compile']
         print('==> iOS app and UI-test bundle compilation', flush=True)
         os.chdir(source)
         status = execute(str(artifacts / 'build.log'), command)

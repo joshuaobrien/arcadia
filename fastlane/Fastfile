@@ -14,7 +14,7 @@ def restore_derived_data(variant)
   destination = derived_data(variant)
   shared = "/Volumes/My Shared Files/derived/#{variant}"
   FileUtils.mkdir_p(destination)
-  sh("/bin/cp", "-a", "#{shared}/.", destination) if File.directory?(shared)
+  sh("/bin/cp", "-aX", "#{shared}/.", destination) if File.directory?(shared)
   destination
 end
 
@@ -22,7 +22,7 @@ def export_derived_data(variant)
   shared = "/Volumes/My Shared Files/derived/#{variant}"
   FileUtils.rm_rf(shared)
   FileUtils.mkdir_p(shared)
-  sh("/bin/cp", "-a", "#{derived_data(variant)}/.", shared)
+  sh("/bin/cp", "-aX", "#{derived_data(variant)}/.", shared)
 end
 
 lane :mac_ci do
