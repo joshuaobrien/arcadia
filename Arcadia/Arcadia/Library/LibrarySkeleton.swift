@@ -57,7 +57,9 @@ struct LibrarySkeleton: View {
   private static let track = Track(
     id: "loading", relativePath: nil, title: "A familiar song", artists: ["An artist"],
     trackNumber: 1, discNumber: 1, durationSeconds: 180, format: "FLAC",
-    albumReference: AlbumReference(id: "loading", title: "A familiar record", artworkURL: nil, albumArtist: "An artist")
+    albumReference: AlbumReference(
+      id: "loading", title: "A familiar record", artworkURL: nil, albumArtist: "An artist"),
+    artistReferences: [Artist(id: "loading", name: "An artist", artworkURL: nil)]
   )
 }
 

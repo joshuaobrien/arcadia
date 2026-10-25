@@ -111,11 +111,22 @@ final class SongArtistBrowseTests: XCTestCase {
     XCTAssertGreaterThan(loading.frame.height, 240, "Loading reserves several real row heights")
     XCTAssertFalse(app.buttons["track.loading.play"].exists, "Placeholders expose no fake playback actions")
     let reservedTop = loading.frame.minY
+    // Six placeholders are separated by the same 12-point stack gap as real rows.
+    let reservedRowPitch = (loading.frame.height + 12) / 6
     capture(app, "Songs - loading")
     XCTAssertTrue(app.buttons["track.fixture-1-track-1.play"].waitForExistence(timeout: 10))
-    XCTAssertEqual(app.buttons["track.fixture-1-track-1.play"].frame.minY, reservedTop + 4, accuracy: 6)
-    XCTAssertFalse(loading.exists)
     capture(app, "Songs - loaded")
+    let firstRow = app.descendants(matching: .any).matching(identifier: "track.fixture-1-track-1").firstMatch
+    let secondRow = app.descendants(matching: .any).matching(identifier: "track.fixture-1-track-2").firstMatch
+    let geometry = XCTAttachment(
+      string: "Reserved top: \(reservedTop); pitch: \(reservedRowPitch); first: \(firstRow.frame); second: \(secondRow.frame)")
+    geometry.name = "Loading and loaded song-row geometry"
+    geometry.lifetime = .keepAlways
+    add(geometry)
+    XCTAssertEqual(firstRow.frame.minY, reservedTop, accuracy: 6, "The first row stays in its reserved position")
+    XCTAssertEqual(secondRow.frame.minY - firstRow.frame.minY, reservedRowPitch, accuracy: 6,
+                   "Loaded row spacing matches the skeleton's row pitch")
+    XCTAssertFalse(loading.exists)
     app.staticTexts["library.destination.artists"].click()
     XCTAssertTrue(
       app.descendants(matching: .any).matching(identifier: "artists.loading").firstMatch.waitForExistence(timeout: 5))
@@ -126,8 +137,7 @@ final class SongArtistBrowseTests: XCTestCase {
 
   @MainActor
   func testLoadingAlbumsAndTracksReservesContentUntilSuccess() {
-    let app = launch("delayed-library")
-    app.staticTexts["library.destination.albums"].click()
+    let app = launch("delayed-library", destination: "albums")
     let loading = app.descendants(matching: .any).matching(identifier: "albums.loading").firstMatch
     XCTAssertTrue(loading.waitForExistence(timeout: 5))
     XCTAssertTrue(app.staticTexts["albums.count"].exists, "The count and grid remain in place while loading")
@@ -149,14 +159,18 @@ final class SongArtistBrowseTests: XCTestCase {
   }
 
   @MainActor
-  private func launch(_ scenario: String) -> XCUIApplication {
+  private func launch(_ scenario: String, destination: String? = nil) -> XCUIApplication {
     let app = XCUIApplication()
     app.launchArguments = ["-ApplePersistenceIgnoreState", "YES"]
     app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
     app.launchEnvironment["ARCADIA_FIXTURE_SCENARIO"] = scenario
     app.launchEnvironment["ARCADIA_RUN_ID"] =
       ProcessInfo.processInfo.environment["ARCADIA_RUN_ID"] ?? "songs-artists-ui"
-    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
+    let namespace = UUID().uuidString
+    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = namespace
+    if let destination {
+      app.launchArguments += ["-arcadia.library.destination.\(namespace)", destination]
+    }
     app.launch()
     return app
   }
