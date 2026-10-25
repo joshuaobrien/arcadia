@@ -36,6 +36,8 @@ jobs:
           restore-keys: arcadia-established-v1-xcode26-5-mac-debug-${{ hashFiles('Gemfile.lock', 'fastlane/Fastfile', 'Arcadia/**/Package.resolved', 'Arcadia/Arcadia.xcodeproj/project.pbxproj') }}-
           deriveddata-directory: .ci-derived/debug
           sourcepackages-directory: .ci-derived/debug/SourcePackages
+          swiftpm-package-resolved-file: Arcadia/Arcadia.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+          swiftpm-cache-key: arcadia-established-sourcepackages-${{ hashFiles('Arcadia/Arcadia.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-mtime-targets: |
             Arcadia/**/*
             !**/xcuserdata/**
@@ -48,6 +50,8 @@ jobs:
           restore-keys: arcadia-established-v1-xcode26-5-mac-release-${{ hashFiles('Gemfile.lock', 'fastlane/Fastfile', 'Arcadia/**/Package.resolved', 'Arcadia/Arcadia.xcodeproj/project.pbxproj') }}-
           deriveddata-directory: .ci-derived/release
           sourcepackages-directory: .ci-derived/release/SourcePackages
+          swiftpm-package-resolved-file: Arcadia/Arcadia.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+          swiftpm-cache-key: arcadia-established-sourcepackages-${{ hashFiles('Arcadia/Arcadia.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-mtime-targets: |
             Arcadia/**/*
             !**/xcuserdata/**
