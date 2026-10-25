@@ -75,4 +75,3 @@ if __name__ == '__main__':
     parser.add_argument('output', type=Path)
     args = parser.parse_args()
     raise SystemExit(0 if check(args.source, args.output) else 1)
-
