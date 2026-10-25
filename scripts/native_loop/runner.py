@@ -174,12 +174,12 @@ class Task:
         self.directory = Path(args.root).resolve() / args.task
         self.path = self.directory / 'manifest.json'
         self.manifest = None
-        self.tart = shutil.which('tart') or '/opt/homebrew/bin/tart'
+        self.tart = os.environ.get('TART_BIN') or shutil.which('tart') or '/opt/homebrew/bin/tart'
 
     def sync_tools(self):
         target = self.directory / 'tools'
         target.mkdir(exist_ok=True)
-        files = sorted(path for path in TOOLS.iterdir() if path.is_file() and path.suffix in {'.py', '.sh'})
+        files = sorted(path for path in TOOLS.iterdir() if path.is_file() and path.suffix in {'.py', '.sh', '.swift'})
         self.tools_digest = hashlib.sha256(b''.join(path.name.encode() + b'\0' + path.read_bytes() for path in files)).hexdigest()[:24]
         bundle = target / self.tools_digest
         if not bundle.exists():
@@ -235,6 +235,18 @@ class Task:
             raise
         else:
             evidence_path = self.directory / 'artifacts' / run_id / 'verification.json'
+            if operation == 'iterate':
+                self.manifest['runs'][-1]['status'] = 'failed'
+                if not evidence_path.exists():
+                    raise LoopError('No fresh image receipt')
+                evidence = json.loads(evidence_path.read_text())
+                image = evidence_path.with_name('screenshot.png')
+                if (not evidence.get('captured') or evidence.get('run_id') != run_id
+                        or evidence.get('source_sha256') != self.manifest['source_sha256']
+                        or not image.is_file() or evidence.get('image_sha256') != fingerprint(image)):
+                    self.manifest['runs'][-1]['status'] = 'failed'
+                    raise LoopError('Image receipt does not match this run/source/image')
+                self.manifest['runs'][-1].update(evidence)
             if operation in {'test', 'review', 'oracle'}:
                 if not evidence_path.exists():
                     self.manifest['runs'][-1]['status'] = 'failed'
@@ -279,7 +291,22 @@ class Task:
                          'image': self.args.image, 'state': 'starting', 'runs': [], 'created': time.time(), 'tools_sha256': self.tools_digest}
         self.save()
         try:
-            if '@sha256:' not in self.args.image:
+            template = getattr(self.args, 'template', None)
+            if template:
+                if not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_.-]*', template):
+                    raise LoopError('Template must be a local VM name')
+                base = Path.home() / '.tart/vms' / template
+                files = ['config.json', 'nvram.bin']
+                identity = {name: fingerprint(base / name) for name in files}
+                disk = (base / 'disk.img').stat()
+                identity['disk'] = [disk.st_size, disk.st_mtime_ns, disk.st_ino]
+                guests = json.loads(run([self.tart, 'list', '--format', 'json'], capture_output=True, text=True).stdout)
+                if any(g.get('Name') == template and (g.get('State') == 'running' or g.get('Running')) for g in guests):
+                    raise LoopError('Template must be stopped')
+                self.manifest['template_identity'] = identity
+                self.manifest['image'] = 'local:' + template + '@sha256:' + hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+                self.save()
+            elif '@sha256:' not in self.args.image:
                 raise LoopError('TART_IMAGE must be pinned by digest')
             version = run([self.tart, '--version'], capture_output=True, text=True).stdout.strip()
             self.manifest['tart_version'] = version
@@ -288,17 +315,17 @@ class Task:
                 mintfile = archive.extractfile('Mintfile').read()
             cache_root = Path(self.args.mint_seed).expanduser() if self.args.mint_seed else Path.home() / '.cache/arcadia-ci-mint'
             self.manifest['mint_cache_root'] = str(cache_root)
-            cache = cache_root / 'native-loop' / mint_cache_key(self.args.image, mintfile)
+            cache = cache_root / 'native-loop' / mint_cache_key(self.manifest['image'], mintfile)
             self.manifest['mint_cache'] = str(cache)
             seed = cache if cache.is_dir() else cache_root
             # Import the old CI cache once; never copy keyed caches recursively.
-            if (seed / 'packages').is_dir():
+            if not template and (seed / 'packages').is_dir():
                 for name in ['packages', 'bin']:
                     if (seed / name).is_dir():
                         shutil.copytree(seed / name, self.directory / 'mint' / name, symlinks=True)
             self.save()
             progress('VM clone')
-            run_with_progress([self.tart, 'clone', self.args.image, self.manifest['vm']], 'VM clone', 900)
+            run_with_progress([self.tart, 'clone', template or self.args.image, self.manifest['vm']], 'VM clone', 900)
             with (self.directory / 'vm.log').open('w') as log:
                 process = subprocess.Popen([self.tart, 'run', '--no-graphics', '--no-audio', '--no-clipboard',
                     '--dir=source:' + str(self.directory / 'source') + ':ro', '--dir=artifacts:' + str(self.directory / 'artifacts'), '--dir=tools:' + str(self.directory / 'tools') + ':ro',
@@ -324,7 +351,8 @@ class Task:
             else:
                 raise LoopError('Tart guest agent did not become ready within 180s')
             self.guest('preflight', timeout=60)
-            self.prepare_dependencies()
+            if not template:
+                self.prepare_dependencies()
             self.manifest['state'] = 'ready'
             self.save()
             self.export()
@@ -398,7 +426,7 @@ class Task:
         self.save()
 
     def export(self):
-        if self.manifest.get('state') == 'ready':
+        if self.manifest.get('state') == 'ready' and self.args.operation != 'iterate':
             try:
                 self.guest('export', timeout=180)
             except LoopError as error:
@@ -506,6 +534,15 @@ class Task:
         operation = self.args.operation
         if self.manifest['state'] != 'ready' and operation not in {'export', 'status', 'finish'}:
             raise LoopError('Task VM is not ready; inspect status/export and start a fresh task')
+        if operation == 'iterate':
+            self.sync_snapshot()
+            self.manifest.pop('last_verification', None)
+            self.save()
+            try:
+                self.guest('iterate', self.args.platform, self.args.state, self.args.data_mode, self.args.scenario)
+            finally:
+                self.export()
+            return
         if operation in {'build', 'test', 'oracle', 'lint', 'release', 'review'}:
             self.sync_snapshot()
             self.manifest.pop('last_verification', None)
@@ -580,9 +617,9 @@ def remote(args):
     remote_tools = f'/tmp/arcadia-native-tools-{tools_hash}'
     progress('remote setup and source transfer')
     run(ssh + [shlex.join(['mkdir', '-p', remote_tools])])
-    run(['scp', '-q', *[str(p) for p in TOOLS.glob('*') if p.is_file() and p.suffix in {'.py', '.sh'}], f'{args.host}:{remote_tools}/'])
+    run(['scp', '-q', *[str(p) for p in TOOLS.glob('*') if p.is_file() and p.suffix in {'.py', '.sh', '.swift'}], f'{args.host}:{remote_tools}/'])
     arguments = ['python3', remote_tools + '/runner.py', '--root', args.root, args.operation, args.task]
-    if args.operation in {'start', 'build', 'test', 'oracle', 'lint', 'release', 'review', 'capture'}:
+    if args.operation in {'start', 'build', 'test', 'oracle', 'lint', 'release', 'review', 'capture', 'iterate'}:
         with tempfile.TemporaryDirectory(prefix='arcadia-source-') as temporary:
             archive = Path(temporary) / 'source.tgz'
             snapshot(Path(args.source).resolve(), archive)
@@ -591,8 +628,12 @@ def remote(args):
         arguments += ['--snapshot', incoming, '--revision', source_revision(Path(args.source).resolve())]
     else:
         incoming = None
+    if args.operation == 'iterate':
+        arguments += ['--platform', args.platform, '--state', args.state, '--data-mode', args.data_mode, '--scenario', args.scenario]
     if args.operation == 'start':
         arguments += ['--image', args.image]
+        if args.template:
+            arguments += ['--template', args.template]
         if args.mint_seed:
             arguments += ['--mint-seed', args.mint_seed]
     if getattr(args, 'only_testing', None):
@@ -635,7 +676,7 @@ def remote(args):
             stop_viewer(args)
         if incoming:
             run(ssh + [shlex.join(['rm', '-f', incoming])])
-        if args.operation in {'start', 'export', 'finish', 'test', 'oracle', 'lint', 'build', 'release', 'review', 'integration', 'compare', 'capture'}:
+        if args.operation in {'start', 'export', 'finish', 'test', 'oracle', 'lint', 'build', 'release', 'review', 'integration', 'compare', 'capture', 'iterate'}:
             destination = Path(args.artifacts or f'.native-loop/{args.task}').resolve()
             destination.mkdir(parents=True, exist_ok=True)
             archive_name = 'evidence.tgz' if args.operation == 'export' else 'review.tgz'
@@ -725,11 +766,16 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--host', default=os.environ.get('NATIVE_LOOP_HOST'))
     parser.add_argument('--root', default=f'/tmp/arcadia-native-loop-{os.getuid()}')
-    parser.add_argument('operation', choices=['start', 'build', 'test', 'oracle', 'review', 'view', 'integration', 'lint', 'release', 'export', 'finish', 'status', 'compare', 'capture'])
+    parser.add_argument('operation', choices=['start', 'build', 'test', 'oracle', 'review', 'view', 'integration', 'lint', 'release', 'export', 'finish', 'status', 'compare', 'capture', 'iterate'])
     parser.add_argument('task')
     parser.add_argument('--source', default=os.getcwd())
     parser.add_argument('--artifacts')
     parser.add_argument('--mint-seed', default=os.environ.get('MINT_CACHE'), help='Read-only seed copied into the private task Mint cache (path on VM host)')
+    parser.add_argument('--platform', choices=['mac', 'iphone', 'duo'], default='mac')
+    parser.add_argument('--state', choices=['songs', 'artists', 'albums', 'playlists', 'search'], default='songs')
+    parser.add_argument('--data-mode', choices=['fixtures', 'jellyfin'], default='fixtures')
+    parser.add_argument('--scenario', choices=['success', 'empty', 'failure', 'two-page'], default='success')
+    parser.add_argument('--template', help='Clone a stopped local Xcode template; its identity is recorded for this task.')
     parser.add_argument('--image', default=os.environ.get('TART_IMAGE', IMAGE))
     parser.add_argument('--integration', action='store_true')
     parser.add_argument('--live-review', action='store_true', help='Opt-in bounded interactive guest session; review is background by default')
@@ -754,7 +800,7 @@ def main():
         if args.only_testing:
             for identifier in args.only_testing:
                 validate_test(identifier)
-            if args.operation not in {'test', 'compare', 'capture'} or args.integration:
+            if args.operation not in {'test', 'compare', 'capture', 'iterate'} or args.integration:
                 raise LoopError('Test filters are only supported for fixture test/compare, not integration')
         if args.operation in {'compare', 'capture'} and (not args.only_testing or len(args.only_testing) != 1 or args.only_testing[0].count('/') != 2 or not args.label):
             raise LoopError('capture/compare requires one --only-testing identifier and --label before/after')
