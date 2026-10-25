@@ -20,4 +20,5 @@ test-results/
 
 # Native task evidence (may contain private backend diagnostics)
 .native-loop/
+/docs/evidence/
 __pycache__/
