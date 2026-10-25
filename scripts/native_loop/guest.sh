@@ -63,6 +63,13 @@ case "$operation" in
   sync) sync_source ;;
   preflight)
     test "$(stat -f %Su /dev/console)" = "$(id -un)" || { echo 'GUI session is not logged in as guest user'; exit 1; }
+    sync_source
+    export MINT_PATH='/Volumes/My Shared Files/mint/packages' MINT_LINK_PATH='/Volumes/My Shared Files/mint/bin'
+    # A prepared image contains a compiled fallback; every task owns its copy.
+    if [[ ! -d "$MINT_PATH" && -d "$HOME/.cache/arcadia-native-mint/packages" ]]; then
+      cp -R "$HOME/.cache/arcadia-native-mint/packages" "$MINT_PATH"
+    fi
+    python3 "$tools/toolchain.py" "$workspace" "$artifacts/toolchain.json"
     xcodebuild -version > "$artifacts/xcode.txt"
     sw_vers > "$artifacts/macos.txt"
     touch "$artifacts/write-probe"
@@ -160,8 +167,8 @@ PYTHON
       lint)
         cd "$workspace"
         export MINT_PATH='/Volumes/My Shared Files/mint/packages' MINT_LINK_PATH='/Volumes/My Shared Files/mint/bin'
-        MINT_NO_TTY=1 logged "$artifacts/mint.log" mint bootstrap
-        logged "$artifacts/lint.log" mint run swiftlint swiftlint lint --strict
+        # Readiness/provisioning owns tool installation, never a feature task.
+        MINT_NO_TTY=1 logged "$artifacts/lint.log" mint run --no-install swiftlint swiftlint lint --strict
         logged "$artifacts/format.log" xcrun swift-format lint --configuration .swift-format --recursive --strict Arcadia/Arcadia
         ;;
       release)

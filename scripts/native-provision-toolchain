@@ -1,0 +1,18 @@
+#!/bin/bash
+# Run once INSIDE a private template clone, never during an app task.
+set -euo pipefail
+source="${1:?Pass the native checkout directory}"
+seed="${2:?Pass an existing compiled Mint seed directory, or --bootstrap-lint for explicit one-time provisioning}"
+[[ -d '/Volumes/My Shared Files' ]] || { echo 'Run inside a disposable Tart template clone'; exit 1; }
+export PATH="/opt/homebrew/bin:$PATH" HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1
+brew install mint
+[[ "$(mint --version)" == 'Version: 0.18.0' ]] || { echo 'Unexpected Mint version; update provisioning deliberately'; exit 1; }
+export MINT_PATH="$HOME/.cache/arcadia-native-mint/packages" MINT_LINK_PATH="$HOME/.cache/arcadia-native-mint/bin"
+mkdir -p "$(dirname "$MINT_PATH")"
+if [[ "$seed" == --bootstrap-lint ]]; then
+  (cd "$source" && MINT_NO_TTY=1 mint bootstrap)
+elif [[ ! -d "$MINT_PATH" ]]; then
+  cp -R "$seed/packages" "$MINT_PATH"
+fi
+python3 "$source/scripts/native_loop/toolchain.py" "$source" "$HOME/.cache/arcadia-native-mint/toolchain.json"
+sync
