@@ -228,11 +228,32 @@ def main():
             viewer = developer.parent / 'Applications/DeviceHub.app'
             if not viewer.exists():
                 viewer = developer / 'Applications/Simulator.app'
-            command('/usr/bin/open', '-a', viewer, '--args', '-CurrentDeviceUDID', device)
             name = viewer.stem
             def pids():
                 result = subprocess.run(['/usr/bin/pgrep', '-x', name], capture_output=True, text=True)
                 return [int(p) for p in result.stdout.split()]
+            # Launch arguments are ignored by an already-running Device Hub.
+            # Restart only this guest's viewer, preserving its booted simulators.
+            previous = pids()
+            for pid in previous:
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+            deadline = time.monotonic() + 5
+            while set(pids()).intersection(previous) and time.monotonic() < deadline:
+                time.sleep(.1)
+            for pid in set(pids()).intersection(previous):
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            if name == 'DeviceHub':
+                # Xcode27.1 Device Hub stores a JSON-encoded device ID as Data;
+                # the older Simulator launch flag does not select its sidebar.
+                command('/usr/bin/defaults', 'write', 'com.apple.dt.Devices',
+                        'lastSelectedDeviceIdentifier', '-data', json.dumps(device).encode().hex())
+            command('/usr/bin/open', '-a', viewer, '--args', '-CurrentDeviceUDID', device)
         phase('capture current frame')
         marker = 'FRAME' + run_id[-8:].upper()
         image = output / 'screenshot.png'

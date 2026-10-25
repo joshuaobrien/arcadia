@@ -78,19 +78,6 @@ struct AppView: View {
 
   }
 
-  #if DEBUG
-    private var developmentFrameReady: Bool {
-      switch AppSection(rawValue: destination) ?? .songs {
-      case .songs: libraryModel.songs.hasOpened && !libraryModel.songs.isLoading
-      case .artists: libraryModel.artists.hasOpened && !libraryModel.artists.isLoading
-      case .playlists: libraryModel.playlists.hasOpened && !libraryModel.playlists.isLoading
-      case .albums:
-        if case .loaded = albumsModel.loadState { true } else { false }
-      case .search: true
-      }
-    }
-  #endif
-
   @ViewBuilder
   private var platformShell: some View {
     #if os(iOS)
@@ -297,3 +284,18 @@ struct AppView: View {
   }
 
 }
+
+#if DEBUG
+  extension AppView {
+    private var developmentFrameReady: Bool {
+      switch AppSection(rawValue: destination) ?? .songs {
+      case .songs: libraryModel.songs.hasOpened && !libraryModel.songs.isLoading
+      case .artists: libraryModel.artists.hasOpened && !libraryModel.artists.isLoading
+      case .playlists: libraryModel.playlists.hasOpened && !libraryModel.playlists.isLoading
+      case .albums:
+        if case .loaded = albumsModel.loadState { true } else { false }
+      case .search: true
+      }
+    }
+  }
+#endif
