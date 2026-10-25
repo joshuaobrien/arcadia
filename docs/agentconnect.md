@@ -2,15 +2,15 @@
 
 AgentConnect automation is enabled for `jj/arcadia` on the durable home Mac worker. The worker keeps the agent checkout and execution context available beyond an interactive session; native app execution still belongs in disposable task VMs. This runbook describes the enabled workflow, not a claim that every recovery path has been verified end to end. [Issue #25](https://joshs-mac-mini.tail81f644.ts.net/jj/arcadia/issues/25) is the first end-to-end readiness task on this worker.
 
-## Issue to human approval
+## Issue to verified merge
 
 1. Create an issue in [Gitea issues](https://joshs-mac-mini.tail81f644.ts.net/jj/arcadia/issues), or use an existing issue. State the problem, acceptance criteria and relevant verification. Adding the `agent` label starts implementation.
 2. Human comments on a labeled issue can continue the work: add corrections, constraints or follow-up instructions in that issue's discussion. Keep the issue focused so the agent can work on one branch and one PR based on current `main`.
 3. The implementer makes the change, runs relevant checks, pushes verified work and opens a linked [Gitea pull request](https://joshs-mac-mini.tail81f644.ts.net/jj/arcadia/pulls). The PR records the problem, solution, actual test results, evidence and remaining limitations. The daemon posts the agent's issue reply; the agent does not duplicate it.
 4. New and updated PRs trigger a separate reviewer that checks **Standards** (repository guidance) and **Spec** (the originating issue's acceptance criteria). Review findings belong with the PR and its current revision.
-5. The PR stops for human review and approval. No automatic merging is enabled. Agents do not merge, enable auto-merge or change repository protections.
+5. Completed agent PRs are ready, not drafts. Gitea queues bot-authored PRs for squash merge after the required macOS CI, iOS CI and AgentConnect review checks pass. Agents must not bypass checks or change repository protections.
 
-The implementer and reviewer are separate agent roles, but shared bot reviews are **not independent human approval**. A bot approval does not replace a person's decision to approve and merge.
+The implementer and reviewer are separate agent roles, but shared bot reviews are **not independent human approval**. The configured reviewer status is an automated merge gate, not a claim of human approval.
 
 ## Native work on the durable worker
 
@@ -53,3 +53,18 @@ These runner tests need no VM and do not prove native app behavior or AgentConne
 Automated review-to-fix, restart recovery and native orchestration have **not been fully proven end to end** on this durable worker. Enabled hooks and existing native-loop tooling are not evidence that those paths all succeed. Record what actually ran, its outcome and any blocker; do not describe an unexercised path as verified.
 
 If work stalls, inspect the issue/PR discussion, current revision, logs and task status before continuing. For native work, use the existing `status`, evidence export and owned-task cleanup paths from the native runbook. Report real blockers with evidence rather than silently restarting, claiming success or reclaiming another task's resources. A later human comment on the labeled issue can continue work, but successful automatic recovery remains something to demonstrate.
+
+
+## Automatic merge policy
+
+Completed agent PRs are ready for review, not drafts. The first-party Gitea merge
+queue squash-merges bot-authored PRs to `main` only after the required macOS CI,
+iOS CI and `agentconnect/arcadia-reviewer` status checks pass. The main protection
+rule also blocks rejected reviews; no administrative override is used.
+
+`.gitea/workflows/auto-merge.yml` queues PRs opened by `arcadia-pilot-bot` from
+this repository, without checking out or executing PR code. It uses the private
+`AGENTCONNECT_MERGE_TOKEN` Actions secret and checks the event's exact head.
+Superseded events are ignored. Human-authored PRs are not enrolled automatically.
+The reviewer reports its verdict independently; the implementer must not bypass
+checks or merge directly.
