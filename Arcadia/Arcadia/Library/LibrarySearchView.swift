@@ -133,6 +133,5 @@ private struct SearchEmptyCategoryView: View {
 
 @MainActor
 private func searchCount(_ page: PagedLibrary<LibrarySearchResult>?) -> String {
-  let count = page?.items.count ?? 0
-  return "\(count)\(page?.nextCursor == nil ? "" : "+")"
+  page?.countText ?? "0"
 }

@@ -1,0 +1,267 @@
+{
+  "requested_tests": [
+    "ArcadiaTests",
+    "ArcadiaUITests/FeedbackLoopTests"
+  ],
+  "executed_tests": [
+    "ArcadiaTests/AlbumPaginationTests/testAlbumTotalIncludesUnloadedPagesAndSurvivesPagination",
+    "ArcadiaTests/AlbumPaginationTests/testFilteredSearchCarriesMatchingTotalInsteadOfLibraryOrLoadedCount",
+    "ArcadiaTests/AlbumPaginationTests/testLibraryTotalSurvivesFailedNextPageAndRetry",
+    "ArcadiaTests/AlbumPaginationTests/testOverlappingPagesKeepFirstAlbumOrderAndConsumeTheSourceCursor",
+    "ArcadiaTests/AlbumPaginationTests/testSongAndArtistCountsIncludeUnloadedItems",
+    "ArcadiaTests/AlbumPaginationTests/testUnknownTotalsShowIncompleteCountUntilFinalPage",
+    "ArcadiaTests/AlbumsModelTests/appendsAlbumsWhenLoadingNextPageSucceeds",
+    "ArcadiaTests/AlbumsModelTests/clearsErrorAfterRetrySucceeds",
+    "ArcadiaTests/AlbumsModelTests/errorsWhenLoadingFails",
+    "ArcadiaTests/AlbumsModelTests/preservesExistingAlbumsWhenLoadingNextPageFails",
+    "ArcadiaTests/AlbumsModelTests/reportsWhetherAnotherPageIsAvailable",
+    "ArcadiaTests/AlbumsModelTests/storesReturnedAlbumsWhenLoadingSucceeds",
+    "ArcadiaTests/AppConfigurationTests/explicitModesNeverFallBack",
+    "ArcadiaTests/AppConfigurationTests/fixturesNeedNoBackend",
+    "ArcadiaTests/AppConfigurationTests/invalidBackend(_:)",
+    "ArcadiaTests/AppConfigurationTests/twoPagesHaveUniqueIDs",
+    "ArcadiaTests/ArcadiaTests/example",
+    "ArcadiaTests/JellyfinSourceTests/testRealSourceContract",
+    "ArcadiaTests/PlaybackInterruptionTests/testAnInterruptionPreservesTheQueueAndExplicitPausePreventsAutomaticResume",
+    "ArcadiaTests/PlaybackInterruptionTests/testAudioActivationFailureKeepsTheChosenQueueAndShowsSafePlaybackFailure",
+    "ArcadiaTests/PlaybackLifecycleTests/testActiveInterruptionRejectsAPlaylistPreparedBeforeTheInterruption",
+    "ArcadiaTests/PlaybackLifecycleTests/testMediaServicesResetKeepsQueueAndPositionPausedUntilDeliberateFreshResolution",
+    "ArcadiaTests/PlaybackLifecycleTests/testReleasedTransportRejectsAPlaylistPreparedBeforeSessionTeardown",
+    "ArcadiaTests/PlaybackLifecycleTests/testRouteLossRejectsAPlaylistPreparedBeforeTheRouteChanged",
+    "ArcadiaTests/PlaybackLifecycleTests/testStopRejectsAPlaylistPreparedBeforeSessionTeardown",
+    "ArcadiaTests/PlaybackPersistenceTests/testDifferentSourceAndCorruptSnapshotDoNotReplaceTheCurrentQueue",
+    "ArcadiaTests/PlaybackPersistenceTests/testExplicitPlaybackWinsOverAnOldRestorationRequest",
+    "ArcadiaTests/PlaybackPersistenceTests/testRestorePreservesOccurrencesAndManualQueueWithoutRequestingPlayback",
+    "ArcadiaTests/PlaybackPersistenceTests/testUnavailableRestoredMusicKeepsRecoverableQueueAndDoesNotAutoplay",
+    "ArcadiaTests/PlaylistSourceTests/testRealPlaylistsKeepSourceOrderAndDuplicateSongsAcrossPages",
+    "ArcadiaTests/PreviousPlaybackTests/testBelowThreeSecondsReturnsToThePreviousOccurrence",
+    "ArcadiaTests/PreviousPlaybackTests/testExactlyThreeSecondsRestartsTheCurrentOccurrenceAndPreservesPause",
+    "ArcadiaTests/PreviousPlaybackTests/testFirstEntryRestartsAndEmptyQueueDoesNothing",
+    "ArcadiaTests/PreviousPlaybackTests/testPreviousKeepsPlayingIntentAndResolvedAudioResumesAtTheBeginning",
+    "ArcadiaTests/PreviousPlaybackTests/testPreviousReturnsToThePrecedingDuplicateOccurrenceWithoutStartingPausedPlayback",
+    "ArcadiaTests/PreviousPlaybackTests/testReadySongRestartsAndResumesWhenMusicSourceBecomesUnavailable",
+    "ArcadiaTests/QueueTests/testAddingToEmptyQueueWaitsForExplicitPlaybackAndKeepsItsOrder",
+    "ArcadiaTests/QueueTests/testReplacementRequiresConfirmationOnlyForManualUpcomingEntries",
+    "ArcadiaTests/QueueTests/testUndoRemovesOnlyAddedUpcomingOccurrencesAndNeverCurrentSong",
+    "ArcadiaTests/QueueTests/testUpcomingDuplicateEditsPreserveCurrentOccurrence",
+    "ArcadiaTests/RestoredMetadataTests/testPausedRestoreHydratesOnlyTheCurrentOccurrenceAndKeepsURLsOutOfSnapshots",
+    "ArcadiaTests/RestoredMetadataTests/testPausedRestoreIgnoresMetadataForAnotherSong",
+    "ArcadiaTests/SongArtistSourceTests/testRealSongsArtistsAndReleaseRelationships",
+    "ArcadiaUITests/FeedbackLoopTests/testEmpty",
+    "ArcadiaUITests/FeedbackLoopTests/testFailure",
+    "ArcadiaUITests/FeedbackLoopTests/testInitialPageCountIncludesUnloadedAlbums",
+    "ArcadiaUITests/FeedbackLoopTests/testIntegrationBrowse",
+    "ArcadiaUITests/FeedbackLoopTests/testRetryRecovers",
+    "ArcadiaUITests/FeedbackLoopTests/testReviewSession",
+    "ArcadiaUITests/FeedbackLoopTests/testSuccess",
+    "ArcadiaUITests/FeedbackLoopTests/testTwoPage"
+  ],
+  "results": [
+    {
+      "identifier": "ArcadiaUITests/FeedbackLoopTests/testEmpty",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaUITests/FeedbackLoopTests/testFailure",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaUITests/FeedbackLoopTests/testInitialPageCountIncludesUnloadedAlbums",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaUITests/FeedbackLoopTests/testIntegrationBrowse",
+      "result": "Skipped"
+    },
+    {
+      "identifier": "ArcadiaUITests/FeedbackLoopTests/testRetryRecovers",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaUITests/FeedbackLoopTests/testReviewSession",
+      "result": "Skipped"
+    },
+    {
+      "identifier": "ArcadiaUITests/FeedbackLoopTests/testSuccess",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaUITests/FeedbackLoopTests/testTwoPage",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/AlbumPaginationTests/testAlbumTotalIncludesUnloadedPagesAndSurvivesPagination",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/AlbumPaginationTests/testFilteredSearchCarriesMatchingTotalInsteadOfLibraryOrLoadedCount",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/AlbumPaginationTests/testLibraryTotalSurvivesFailedNextPageAndRetry",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/AlbumPaginationTests/testOverlappingPagesKeepFirstAlbumOrderAndConsumeTheSourceCursor",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/AlbumPaginationTests/testSongAndArtistCountsIncludeUnloadedItems",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/AlbumPaginationTests/testUnknownTotalsShowIncompleteCountUntilFinalPage",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/PlaybackLifecycleTests/testActiveInterruptionRejectsAPlaylistPreparedBeforeTheInterruption",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/PlaybackLifecycleTests/testMediaServicesResetKeepsQueueAndPositionPausedUntilDeliberateFreshResolution",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/PlaybackLifecycleTests/testReleasedTransportRejectsAPlaylistPreparedBeforeSessionTeardown",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/PlaybackLifecycleTests/testRouteLossRejectsAPlaylistPreparedBeforeTheRouteChanged",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/PlaybackLifecycleTests/testStopRejectsAPlaylistPreparedBeforeSessionTeardown",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/JellyfinSourceTests/testRealSourceContract",
+      "result": "Skipped"
+    },
+    {
+      "identifier": "ArcadiaTests/PlaylistSourceTests/testRealPlaylistsKeepSourceOrderAndDuplicateSongsAcrossPages",
+      "result": "Skipped"
+    },
+    {
+      "identifier": "ArcadiaTests/PlaybackInterruptionTests/testAnInterruptionPreservesTheQueueAndExplicitPausePreventsAutomaticResume",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/PlaybackInterruptionTests/testAudioActivationFailureKeepsTheChosenQueueAndShowsSafePlaybackFailure",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/RestoredMetadataTests/testPausedRestoreHydratesOnlyTheCurrentOccurrenceAndKeepsURLsOutOfSnapshots",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/RestoredMetadataTests/testPausedRestoreIgnoresMetadataForAnotherSong",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/SongArtistSourceTests/testRealSongsArtistsAndReleaseRelationships",
+      "result": "Skipped"
+    },
+    {
+      "identifier": "ArcadiaTests/PreviousPlaybackTests/testBelowThreeSecondsReturnsToThePreviousOccurrence",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/PreviousPlaybackTests/testExactlyThreeSecondsRestartsTheCurrentOccurrenceAndPreservesPause",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/PreviousPlaybackTests/testFirstEntryRestartsAndEmptyQueueDoesNothing",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/PreviousPlaybackTests/testPreviousKeepsPlayingIntentAndResolvedAudioResumesAtTheBeginning",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/PreviousPlaybackTests/testPreviousReturnsToThePrecedingDuplicateOccurrenceWithoutStartingPausedPlayback",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/PreviousPlaybackTests/testReadySongRestartsAndResumesWhenMusicSourceBecomesUnavailable",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/PlaybackPersistenceTests/testDifferentSourceAndCorruptSnapshotDoNotReplaceTheCurrentQueue",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/PlaybackPersistenceTests/testExplicitPlaybackWinsOverAnOldRestorationRequest",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/PlaybackPersistenceTests/testRestorePreservesOccurrencesAndManualQueueWithoutRequestingPlayback",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/PlaybackPersistenceTests/testUnavailableRestoredMusicKeepsRecoverableQueueAndDoesNotAutoplay",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/QueueTests/testAddingToEmptyQueueWaitsForExplicitPlaybackAndKeepsItsOrder",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/QueueTests/testReplacementRequiresConfirmationOnlyForManualUpcomingEntries",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/QueueTests/testUndoRemovesOnlyAddedUpcomingOccurrencesAndNeverCurrentSong",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/QueueTests/testUpcomingDuplicateEditsPreserveCurrentOccurrence",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/AppConfigurationTests/invalidBackend(_:)",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/AppConfigurationTests/twoPagesHaveUniqueIDs",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/AppConfigurationTests/explicitModesNeverFallBack",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/AppConfigurationTests/fixturesNeedNoBackend",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/ArcadiaTests/example",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/AlbumsModelTests/errorsWhenLoadingFails",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/AlbumsModelTests/appendsAlbumsWhenLoadingNextPageSucceeds",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/AlbumsModelTests/storesReturnedAlbumsWhenLoadingSucceeds",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/AlbumsModelTests/preservesExistingAlbumsWhenLoadingNextPageFails",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/AlbumsModelTests/reportsWhetherAnotherPageIsAvailable",
+      "result": "Passed"
+    },
+    {
+      "identifier": "ArcadiaTests/AlbumsModelTests/clearsErrorAfterRetrySucceeds",
+      "result": "Passed"
+    }
+  ],
+  "source_sha256": "010c5993944be5fab1464e7284c5738a76365423356556179a55f1a0fccc95d1",
+  "verified": true
+}

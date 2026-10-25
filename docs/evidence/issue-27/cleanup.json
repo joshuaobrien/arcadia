@@ -1,0 +1,11 @@
+{
+  "task": "issue-27-counts-1025",
+  "state": "finished",
+  "owned_vm": "arcadia-loop-issue-27-counts-1025-d04cf745",
+  "owned_vm_absent": true,
+  "archive_sha256": "b21e687af256f42a288a3cc2a40f7ef912a9873f3c50149376d3dafc767aef06",
+  "archive_members_read": 1025,
+  "host_archive": "paseo-host:/tmp/arcadia-native-loop-501/issue-27-counts-1025/evidence.tgz",
+  "local_archive": ".native-loop/issue-27-counts-1025/evidence.tgz",
+  "native_source_archive_sha256": "010c5993944be5fab1464e7284c5738a76365423356556179a55f1a0fccc95d1"
+}

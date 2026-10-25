@@ -1,0 +1,41 @@
+{
+  "captured": true,
+  "run_id": "issue-27-counts-1025-iterate-9883fb34",
+  "source_sha256": "ea4f2a0ff80e5fc2080a1a0da3cae4de6d5aea6693bc08890800640052d1f970",
+  "platform": "duo",
+  "state": "albums",
+  "data_mode": "fixtures",
+  "scenario": "two-page",
+  "behavior_verified": false,
+  "phases": [
+    {
+      "name": "source synchronization",
+      "seconds": 0.0
+    },
+    {
+      "name": "task simulator readiness",
+      "seconds": 0.061
+    },
+    {
+      "name": "incremental duo build",
+      "seconds": 98.429
+    },
+    {
+      "name": "launch selected state",
+      "seconds": 183.103
+    },
+    {
+      "name": "capture current frame",
+      "seconds": 202.347
+    },
+    {
+      "name": "fresh image verified",
+      "seconds": 210.187
+    }
+  ],
+  "simulator": "263698ED-441E-45DD-9DEE-7C1D4E9E8CBB",
+  "capture_method": "simulator-window",
+  "image_sha256": "db7e8cc02491432991ff6f740efce52f0ba08afe4a99b95a30d52e4453474498",
+  "marker": "FRAME9883FB34",
+  "seconds": 210.187
+}

@@ -1,0 +1,16 @@
+{
+  "requested_tests": [
+    "ArcadiaUITests/FeedbackLoopTests/testSuccess"
+  ],
+  "executed_tests": [
+    "ArcadiaUITests/FeedbackLoopTests/testSuccess"
+  ],
+  "results": [
+    {
+      "identifier": "ArcadiaUITests/FeedbackLoopTests/testSuccess",
+      "result": "Passed"
+    }
+  ],
+  "source_sha256": "010c5993944be5fab1464e7284c5738a76365423356556179a55f1a0fccc95d1",
+  "verified": true
+}

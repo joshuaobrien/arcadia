@@ -22,6 +22,8 @@ final class AlbumsModel {
   }
 
   var albums: [Album] = []
+  private(set) var totalCount: Int?
+  var countText: String { libraryCountText(total: totalCount, loaded: albums.count, hasMore: hasNextPage) }
   private var nextCursor: String?
   var loadState = LoadMode.initial
   var errorText: String?
@@ -67,6 +69,7 @@ final class AlbumsModel {
     if mode == .nextPage && (loadState != .loaded || nextCursor == nil) { return }
     if mode == .initial {
       albums = []
+      totalCount = nil
       nextCursor = nil
     }
     AppDiagnostics.event(mode == .nextPage ? "albums.next-page.loading" : "albums.initial.loading")
@@ -83,6 +86,7 @@ final class AlbumsModel {
 
       var identities = Set(albums.map(\.id))
       albums.append(contentsOf: response.albums.filter { identities.insert($0.id).inserted })
+      totalCount = response.totalCount ?? totalCount
       nextCursor = response.nextCursor
       AppDiagnostics.event("albums.loaded")
     } catch {

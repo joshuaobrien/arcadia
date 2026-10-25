@@ -83,7 +83,7 @@ final class SearchDiscoveryTests: XCTestCase {
     let app = launchSearch(scenario: "two-page", query: "Fixture Album")
     let albums = app.buttons["search.show.albums"]
     XCTAssertTrue(albums.waitForExistence(timeout: 10))
-    XCTAssertEqual(albums.label, "Show Albums (20+)")
+    XCTAssertEqual(albums.label, "Show Albums (23)")
     XCTAssertTrue(app.staticTexts["search.songs.empty"].exists)
     XCTAssertFalse(app.staticTexts["search.all.empty"].exists)
     albums.click()

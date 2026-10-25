@@ -23,6 +23,20 @@ struct AlbumReference: Codable, Identifiable, Hashable {
 struct LibraryPage<Item> {
   let items: [Item]
   let nextCursor: String?
+  // Total matching this request, including items on pages not yet loaded.
+  let totalCount: Int?
+
+  init(items: [Item], nextCursor: String?, totalCount: Int? = nil) {
+    self.items = items
+    self.nextCursor = nextCursor
+    self.totalCount = totalCount
+  }
+}
+
+// Unknown totals stay visibly incomplete until the final page arrives.
+func libraryCountText(total: Int?, loaded: Int, hasMore: Bool) -> String {
+  if let total { return String(total) }
+  return "\(loaded)\(hasMore ? "+" : "")"
 }
 
 struct SongBrowseRequest {

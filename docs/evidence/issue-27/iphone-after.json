@@ -1,0 +1,41 @@
+{
+  "captured": true,
+  "run_id": "issue-27-counts-1025-iterate-4e748883",
+  "source_sha256": "010c5993944be5fab1464e7284c5738a76365423356556179a55f1a0fccc95d1",
+  "platform": "iphone",
+  "state": "albums",
+  "data_mode": "fixtures",
+  "scenario": "two-page",
+  "behavior_verified": false,
+  "phases": [
+    {
+      "name": "source synchronization",
+      "seconds": 0.0
+    },
+    {
+      "name": "task simulator readiness",
+      "seconds": 0.041
+    },
+    {
+      "name": "incremental iphone build",
+      "seconds": 0.476
+    },
+    {
+      "name": "launch selected state",
+      "seconds": 8.148
+    },
+    {
+      "name": "capture current frame",
+      "seconds": 16.388
+    },
+    {
+      "name": "fresh image verified",
+      "seconds": 18.914
+    }
+  ],
+  "simulator": "76BFB417-A1F1-46D5-9AAD-E29ADC9EDE35",
+  "capture_method": "simulator-display",
+  "image_sha256": "bb674e7d671a33063c990de7c9d575f8028d4e38913763964054ce86075c259f",
+  "marker": "FRAME4E748883",
+  "seconds": 18.914
+}

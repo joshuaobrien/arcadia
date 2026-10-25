@@ -4,6 +4,7 @@ struct AlbumGridView: View {
 
   let albumService: AlbumService
 
+  let countText: String
   let albums: [Album]
   let hasNextPage: Bool
   let isLoadingNextPage: Bool
@@ -11,7 +12,7 @@ struct AlbumGridView: View {
 
   var body: some View {
     ScrollView {
-      Text("\(albums.count) albums")
+      Text("\(countText) albums")
         .font(.caption)
         .foregroundStyle(.secondary)
         .accessibilityIdentifier("albums.count")

@@ -106,7 +106,7 @@ final class AlbumClient: MusicSource {
 
       return FetchAlbumsResponse(
         albums: response.items,
-        nextCursor: response.nextCursor
+        nextCursor: response.nextCursor, totalCount: response.total
       )
 
     } catch {
@@ -144,4 +144,12 @@ struct FetchAlbumsRequest {
 struct FetchAlbumsResponse {
   let albums: [Album]
   let nextCursor: String?
+  // Total matching this request, including items on pages not yet loaded.
+  let totalCount: Int?
+
+  init(albums: [Album], nextCursor: String?, totalCount: Int? = nil) {
+    self.albums = albums
+    self.nextCursor = nextCursor
+    self.totalCount = totalCount
+  }
 }

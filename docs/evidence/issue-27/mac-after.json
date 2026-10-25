@@ -1,0 +1,37 @@
+{
+  "captured": true,
+  "run_id": "issue-27-counts-1025-iterate-ed67a03b",
+  "source_sha256": "010c5993944be5fab1464e7284c5738a76365423356556179a55f1a0fccc95d1",
+  "platform": "mac",
+  "state": "albums",
+  "data_mode": "fixtures",
+  "scenario": "two-page",
+  "behavior_verified": false,
+  "phases": [
+    {
+      "name": "source synchronization",
+      "seconds": 0.0
+    },
+    {
+      "name": "incremental mac build",
+      "seconds": 0.047
+    },
+    {
+      "name": "launch selected state",
+      "seconds": 10.037
+    },
+    {
+      "name": "capture current frame",
+      "seconds": 10.134
+    },
+    {
+      "name": "fresh image verified",
+      "seconds": 11.982
+    }
+  ],
+  "pid": 5863,
+  "capture_method": "app-window",
+  "image_sha256": "d3027a119e0b587f6d1a3312e55549b0941ddfc7d156ac03e78ae8e3a282fb63",
+  "marker": "FRAMEED67A03B",
+  "seconds": 11.982
+}
