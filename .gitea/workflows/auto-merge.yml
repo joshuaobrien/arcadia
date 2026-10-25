@@ -26,8 +26,14 @@ jobs:
               signal: AbortSignal.timeout(30000),
             });
             const body = await response.text();
+            const result = body ? JSON.parse(body) : null;
+            // Gitea returns 409 for a duplicate schedule; that is already the desired state.
+            const scheduled = /^pull request is already scheduled to auto merge when checks succeed \[pull_id: \d+\]$/;
+            if (response.status === 409 && method === 'POST' && path.endsWith('/merge') && scheduled.test(result?.message ?? '')) {
+              return { alreadyQueued: true };
+            }
             if (!response.ok) throw new Error(`Gitea ${method} ${path}: HTTP ${response.status}`);
-            return body ? JSON.parse(body) : null;
+            return result;
           }
           async function main() {
             if (!process.env.MERGE_TOKEN) throw new Error('Missing merge token');
