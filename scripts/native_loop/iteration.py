@@ -85,6 +85,13 @@ def prepare_device(platform, state):
     actual = next((d for rows in devices.values() for d in rows if d['udid'] == device), None)
     if actual is None:
         raise RuntimeError('Task simulator disappeared; finish this task and start a fresh one')
+    # One active display per task avoids stale Device Hub surfaces and competing
+    # simulator renderers. Never shut down devices outside this task's inventory.
+    owned = set(state.values()) - {device}
+    for rows in devices.values():
+        for other in rows:
+            if other['udid'] in owned and other['state'] == 'Booted':
+                command('xcrun', 'simctl', 'shutdown', other['udid'])
     if actual['state'] != 'Booted':
         command('xcrun', 'simctl', 'boot', device)
         command('xcrun', 'simctl', 'bootstatus', device, '-b', timeout=180)
@@ -99,9 +106,12 @@ def capture(helper, pids, output, marker, device=None):
     deadline = time.monotonic() + 30
     attempt = output.with_name('capture-attempt.png')
     if device:
-        result = subprocess.run(['xcrun', 'simctl', 'io', device, 'screenshot', str(attempt)],
-                                capture_output=True, timeout=15)
-        if result.returncode == 0:
+        try:
+            result = subprocess.run(['xcrun', 'simctl', 'io', device, 'screenshot', str(attempt)],
+                                    capture_output=True, timeout=15)
+        except subprocess.TimeoutExpired:
+            result = None
+        if result is not None and result.returncode == 0:
             inspected = subprocess.run([str(helper), 'inspect', str(attempt), marker],
                                        capture_output=True, text=True, timeout=20)
             if inspected.returncode == 0 and json.loads(inspected.stdout)['matched']:
