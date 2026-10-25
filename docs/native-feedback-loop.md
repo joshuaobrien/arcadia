@@ -26,6 +26,28 @@ Mint tools persist on the VM host at `~/.cache/arcadia-ci-mint`, preserving the 
 
 Targeted `test --only-testing …`, explicit integration tests, `review` and `oracle` suppress Xcode's expensive post-failure system diagnostics when the installed Xcode advertises `-collect-test-diagnostics`. XCTest result bundles, screenshots, test logs and assertion/accessibility evidence remain enabled. Unsupported Xcode versions retain their normal diagnostics behavior; the runner checks capability rather than assuming a version. Unfiltered test runs retain the normal Xcode policy. Add `--full-diagnostics` to a targeted run when investigating simulator or runner failures; collection can take several minutes. Each run saves `diagnostics-policy.txt` alongside its evidence. This policy does not change Gitea CI.
 
+## Fast visual iteration
+
+For a UI edit, keep one task VM warm and build only the platform you are editing:
+
+```sh
+./scripts/native-loop --host paseo-host start player-layout --template arcadia-mobile-xcode-27-1-fastlane-2-241-1
+./scripts/native-loop --host paseo-host iterate player-layout --platform mac --state songs
+./scripts/native-loop --host paseo-host iterate player-layout --platform iphone --state albums
+./scripts/native-loop --host paseo-host iterate player-layout --platform duo --state artists
+./scripts/native-loop --host paseo-host finish player-layout
+```
+
+Use the same task name and `--artifacts` setting throughout. `--template` clones an existing stopped local template and records its configuration/disk identity; it does not modify the template. Normal CI remains unchanged. The first build and simulator boot are setup costs; subsequent edits reuse the task's build products and its own fresh simulator. Content comparison copies only changed source files, including same-size edits made within one second.
+
+`iterate` defaults to fixtures and the successful library. Select `--scenario empty`, `failure` or `two-page` for other states, or `--data-mode jellyfin` for the connection flow. Supported states are songs, artists, albums, playlists and search. The separate human `native-preview` launcher retains its Jellyfin default.
+
+Each iteration builds, relaunches the selected state, and captures the app window (Mac) or simulator display inside the background guest. If direct simulator capture is black or stale, it falls back to the simulator window. Xcode27.1 Device Hub is restarted and its task-guest selection is set explicitly when changing devices; the current-frame marker remains mandatory. An explicit Debug-only frame marker must match the current run through Apple Vision before an image is accepted. A black, stale or unavailable frame fails the command. The exported verification receipt binds the image to its run and source archive and reports phase timings. No host viewer opens. Screenshots contain the temporary frame marker; ordinary app launches do not. Library captures wait for the selected page to finish its initial load; Jellyfin connection captures wait for saved-session restoration. This readiness gate does not assert that the result is correct. Each `iterate` export contains its current run only; explicit `export` and `finish` retain the complete task history.
+
+Guest iterations also hold a workspace lock. If SSH disconnects, the guest command may continue; another iteration fails as busy rather than changing its source mid-build. Explicit guest interruption terminates the owned build process group. Use `finish` to discard a task that cannot recover.
+
+A visual iteration is **not a behavioral test pass**. Run the existing targeted `test --only-testing …` command when behavior changes, and preserve the normal acceptance checks before merging. SwiftUI component previews are also available for short and long album metadata, for convenient focused layout inspection in Xcode; they are not required for the command loop.
+
 ## Data modes
 
 Debug defaults to `ARCADIA_DATA_MODE=fixtures`, without needing a backend URL. `ARCADIA_FIXTURE_SCENARIO` selects `success`, `empty`, `failure`, `failure-then-success` or `two-page`. Fixtures have stable IDs and bundled artwork; they do not contact a server. Unknown mode/scenario values produce a configuration error.

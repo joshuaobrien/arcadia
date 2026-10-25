@@ -1,6 +1,9 @@
 import SwiftUI
 
 struct SourceConnectionView: View {
+  #if DEBUG
+    @State private var developmentRestored = false
+  #endif
   @State private var model: SourceConnectionModel
 
   init(model: SourceConnectionModel) {
@@ -27,9 +30,17 @@ struct SourceConnectionView: View {
         #endif
       } else {
         connectionForm
+          #if DEBUG
+            .preference(key: DevelopmentFrameReady.self, value: developmentRestored && !model.isConnecting)
+          #endif
       }
     }
-    .task { await model.restore() }
+    .task {
+      await model.restore()
+      #if DEBUG
+        developmentRestored = true
+      #endif
+    }
   }
 
   private var connectionForm: some View {

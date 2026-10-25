@@ -70,6 +70,9 @@ struct AppView: View {
     } message: {
       Text("This will remove the songs you added to Up Next.")
     }
+    #if DEBUG
+      .preference(key: DevelopmentFrameReady.self, value: developmentFrameReady)
+    #endif
     .environment(playerStore)
     .environment(\.musicSource, albumService)
 
@@ -281,3 +284,18 @@ struct AppView: View {
   }
 
 }
+
+#if DEBUG
+  extension AppView {
+    private var developmentFrameReady: Bool {
+      switch AppSection(rawValue: destination) ?? .songs {
+      case .songs: libraryModel.songs.hasOpened && !libraryModel.songs.isLoading
+      case .artists: libraryModel.artists.hasOpened && !libraryModel.artists.isLoading
+      case .playlists: libraryModel.playlists.hasOpened && !libraryModel.playlists.isLoading
+      case .albums:
+        if case .loaded = albumsModel.loadState { true } else { false }
+      case .search: true
+      }
+    }
+  }
+#endif

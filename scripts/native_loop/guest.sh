@@ -57,6 +57,9 @@ logged() {
 }
 
 case "$operation" in
+  iterate)
+    exec /usr/bin/python3 "$tools/iteration.py" "$task" "$run_id" "$@"
+    ;;
   sync) sync_source ;;
   preflight)
     test "$(stat -f %Su /dev/console)" = "$(id -un)" || { echo 'GUI session is not logged in as guest user'; exit 1; }

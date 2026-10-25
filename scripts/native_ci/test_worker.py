@@ -335,6 +335,28 @@ private.symlink_to(held, target_is_directory=True)
         receipt = json.loads((self.root / 'evidence/worker.json').read_text())
         self.assertEqual(receipt['error'], 'Cancelled')
         self.assertTrue(receipt['worker_removed'])
+        self.assertTrue(receipt['private_removed'])
+        self.assertEqual(receipt['cleanup_errors'], [])
+
+    def test_cancellation_before_private_directory_creation_is_idempotent(self):
+        self.provision()
+        hooks = self.root / 'runtime-hooks'
+        hooks.mkdir()
+        # Inject interruption at the filesystem boundary, through the public CLI.
+        (hooks / 'sitecustomize.py').write_text(
+            "import sys\n"
+            "def interrupt(event, args):\n"
+            "    if event == 'os.mkdir' and '/state/private/arcadia-fast-ci-' in str(args[0]):\n"
+            "        raise KeyboardInterrupt()\n"
+            "sys.addaudithook(interrupt)\n")
+        self.env['PYTHONPATH'] = str(hooks)
+        result = self.invoke('--reserve-gib', '0')
+        receipt = json.loads((self.root / 'evidence/worker.json').read_text())
+        self.assertEqual(result.returncode, 130, result.stdout + result.stderr + str(receipt))
+        self.assertEqual(receipt['error'], 'Cancelled')
+        self.assertTrue(receipt['worker_removed'])
+        self.assertTrue(receipt['private_removed'])
+        self.assertEqual(receipt['cleanup_errors'], [])
 
     def test_cancelled_partial_clone_is_removed_and_next_job_can_run(self):
         self.provision()
