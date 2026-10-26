@@ -73,6 +73,9 @@ struct AppView: View {
     #if DEBUG
       .preference(key: DevelopmentFrameReady.self, value: developmentFrameReady)
       .task { await prepareVisualPlayer() }
+      #if os(macOS)
+        .frame(minWidth: usesVisualPlayerFixture ? 1100 : nil, minHeight: usesVisualPlayerFixture ? 760 : nil)
+      #endif
     #endif
     .environment(playerStore)
     .environment(\.musicSource, albumService)
@@ -299,7 +302,7 @@ struct AppView: View {
     private func prepareVisualPlayer() async {
       guard usesVisualPlayerFixture else { return }
       do {
-        let songs = try await albumService.fetchSongs(SongBrowseRequest())
+        let songs = try await albumService.fetchSongs(SongBrowseRequest(cursor: nil, searchTerm: ""))
         playerStore.play(Array(songs.items.prefix(3)))
         playerStore.pause()
         #if os(iOS)
