@@ -20,11 +20,7 @@ struct PlayerBar: View {
               .foregroundStyle(.secondary)
           }
           Spacer()
-          if playerStore.state == .loading { ProgressView().controlSize(.small) }
-          Text(playerStore.state.rawValue.capitalized)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .accessibilityIdentifier("player.state")
+          PlaybackStatusView()
         }
         PlaybackFailureView()
         PlaybackProgressView()
@@ -34,6 +30,34 @@ struct PlayerBar: View {
       .accessibilityElement(children: .contain)
       .accessibilityIdentifier("player.bar")
     }
+  }
+}
+
+// Keep both axes stable as loading resolves or playback intent changes.
+struct PlaybackStatusView: View {
+  @Environment(PlayerStore.self) private var playerStore
+
+  var body: some View {
+    HStack {
+      ProgressView()
+        .controlSize(.small)
+        .opacity(playerStore.state == .loading ? 1 : 0)
+        .accessibilityHidden(true)
+      ZStack(alignment: .trailing) {
+        ForEach(["Idle", "Loading", "Playing", "Paused", "Failed", "Ended"], id: \.self) { state in
+          Text(state).hidden()
+        }
+      }
+      .overlay(alignment: .trailing) {
+        Text(playerStore.state.rawValue.capitalized)
+          .frame(maxWidth: .infinity, alignment: .trailing)
+          .accessibilityIdentifier("player.state")
+      }
+    }
+    .font(.caption)
+    .foregroundStyle(.secondary)
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("player.status")
   }
 }
 

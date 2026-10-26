@@ -15,10 +15,7 @@ struct NowPlayingSidebar: View {
                 .font(.caption.weight(.medium))
                 .tracking(3)
               Spacer()
-              if playerStore.state == .loading { ProgressView().controlSize(.small) }
-              Text(playerStore.state.rawValue.capitalized)
-                .font(.caption)
-                .accessibilityIdentifier("player.state")
+              PlaybackStatusView()
             }
             .foregroundStyle(.secondary)
             AlbumArtwork(artworkURL: track.artworkURL)

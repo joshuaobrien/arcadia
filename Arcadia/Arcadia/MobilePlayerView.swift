@@ -53,12 +53,12 @@ struct ExpandedPlayerView: View {
         .overlay(alignment: .topLeading) {
           if let run = ProcessInfo.processInfo.environment["ARCADIA_VISUAL_RUN_ID"] {
             Text("FRAME " + run.suffix(8).uppercased())
-              .font(.system(size: 24, weight: .bold, design: .monospaced))
-              .foregroundStyle(.black)
-              .padding(4)
-              .background(.yellow)
-              .allowsHitTesting(false)
-              .accessibilityIdentifier("development.frame")
+            .font(.system(size: 24, weight: .bold, design: .monospaced))
+            .foregroundStyle(.black)
+            .padding(4)
+            .background(.yellow)
+            .allowsHitTesting(false)
+            .accessibilityIdentifier("development.frame")
           }
         }
       #endif
@@ -155,13 +155,7 @@ struct ExpandedPlayerView: View {
           NextSongButton(symbolSize: 26)
         }
         .frame(maxWidth: .infinity)
-        HStack {
-          if playerStore.state == .loading { ProgressView().controlSize(.small) }
-          Text(playerStore.state.rawValue.capitalized)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .accessibilityIdentifier("player.state")
-        }
+        PlaybackStatusView()
         PlaybackFailureView()
       }
     }

@@ -4,6 +4,37 @@ import XCTest
 final class MobileListeningTests: XCTestCase {
   override func setUpWithError() throws { continueAfterFailure = false }
   @MainActor
+  func testPlaybackStatusPreservesExpandedPlayerGeometry() {
+    let app = XCUIApplication()
+    app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
+    app.launchEnvironment["ARCADIA_FIXTURE_SCENARIO"] = "delayed-playback"
+    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
+    app.launch()
+    let song = app.buttons["track.fixture-1-track-1.play"]
+    XCTAssertTrue(song.waitForExistence(timeout: 10))
+    song.tap()
+    app.buttons["player.pause"].tap()
+    app.buttons["player.expand"].tap()
+    let status = app.staticTexts["player.state"]
+    XCTAssertTrue(status.waitForExistence(timeout: 5))
+    let region = app.descendants(matching: .any)["player.status"]
+    XCTAssertTrue(region.exists)
+    let paused = region.frame
+    let title = app.staticTexts["player.title"].firstMatch.frame
+    app.buttons["player.resume"].tap()
+    let playing = NSPredicate(format: "label == %@", "Playing")
+    expectation(for: playing, evaluatedWith: status)
+    waitForExpectations(timeout: 10)
+    XCTAssertEqual(region.frame.minX, paused.minX, accuracy: 1)
+    XCTAssertEqual(region.frame.minY, paused.minY, accuracy: 1)
+    XCTAssertEqual(region.frame.width, paused.width, accuracy: 1)
+    XCTAssertEqual(region.frame.height, paused.height, accuracy: 1)
+    XCTAssertEqual(app.staticTexts["player.title"].firstMatch.frame.minY, title.minY, accuracy: 1)
+    app.buttons["player.pause"].tap()
+    XCTAssertEqual(status.label, "Paused")
+  }
+
+  @MainActor
   func testLibraryStartsInSongsAndPlayerPresentationPreservesListening() throws {
     let app = XCUIApplication()
     app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"

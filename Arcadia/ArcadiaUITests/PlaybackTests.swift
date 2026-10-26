@@ -20,6 +20,26 @@ final class PlaybackTests: XCTestCase {
   }
 
   @MainActor
+  func testLoadingStatusPreservesPlayerGeometryWhenPaused() {
+    let app = openFixtureAlbum("delayed-playback")
+    app.buttons["track.fixture-1-track-1.play"].click()
+    let status = app.staticTexts["player.state"]
+    XCTAssertTrue(status.waitForExistence(timeout: 5))
+    XCTAssertEqual(status.value as? String, "Loading")
+    let region = app.descendants(matching: .any)["player.status"]
+    XCTAssertTrue(region.exists)
+    let loading = region.frame
+    let title = app.staticTexts["player.title"].frame
+    app.buttons["player.pause"].click()
+    XCTAssertEqual(status.value as? String, "Paused")
+    XCTAssertEqual(region.frame.minX, loading.minX, accuracy: 1)
+    XCTAssertEqual(region.frame.minY, loading.minY, accuracy: 1)
+    XCTAssertEqual(region.frame.width, loading.width, accuracy: 1)
+    XCTAssertEqual(region.frame.height, loading.height, accuracy: 1)
+    XCTAssertEqual(app.staticTexts["player.title"].frame.minY, title.minY, accuracy: 1)
+  }
+
+  @MainActor
   func testNowPlayingSidebarKeepsTransportVolumeAndQueueAccessible() {
     let app = XCUIApplication()
     app.launchArguments = ["-ApplePersistenceIgnoreState", "YES"]
