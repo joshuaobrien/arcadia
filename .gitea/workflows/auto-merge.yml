@@ -36,6 +36,7 @@ jobs:
             return result;
           }
           let authorisedQueue = false;
+          let inspectedBody;
           async function main() {
             if (!process.env.MERGE_TOKEN) throw new Error('Missing merge token');
             const number = process.env.PR_NUMBER;
@@ -51,6 +52,7 @@ jobs:
               return;
             }
             authorisedQueue = true;
+            inspectedBody = pr.body;
             // Inspect trusted Gitea metadata only; never check out or execute PR code.
             let visual = false;
             for (let page = 1; ; page++) {
@@ -70,6 +72,7 @@ jobs:
               const platforms = evidence.pairs.map(pair => pair.platform).sort();
               if (JSON.stringify(platforms) !== JSON.stringify(['duo', 'iphone', 'mac'])) throw new Error('Native app changes require exactly one Mac, iPhone and Duo comparison');
               const commits = await api(path + '/commits?limit=100');
+              if (evidence.before_ref === pr.head.sha) throw new Error('Before evidence must precede the final implementation');
               if (evidence.before_ref !== pr.merge_base && !commits.some(c => c.sha === evidence.before_ref)) throw new Error('Invalid before-capture baseline');
               async function trees(ref) {
                 async function entries(sha) {
@@ -83,6 +86,7 @@ jobs:
                 return { app_tree_sha: native.Arcadia.sha, project_sha: project['project.pbxproj'].sha };
               }
               const expected = { before: await trees(evidence.before_ref), after: await trees(pr.head.sha) };
+              if (JSON.stringify(expected.before) === JSON.stringify(expected.after)) throw new Error('Before and after must represent different app/project sources');
               const assets = await api(`/issues/${number}/assets`);
               const { createHash } = require('node:crypto');
               for (const pair of evidence.pairs) {
@@ -130,7 +134,14 @@ jobs:
             console.error(error.message);
             process.exitCode = 1;
             if (authorisedQueue && process.env.MERGE_TOKEN) {
-              try { await api(`/pulls/${process.env.PR_NUMBER}/merge`, 'DELETE'); }
+              try {
+                const latest = await api(`/pulls/${process.env.PR_NUMBER}`);
+                if (latest.state === 'open' && latest.head.sha === process.env.EVENT_HEAD && latest.body === inspectedBody) {
+                  await api(`/pulls/${process.env.PR_NUMBER}/merge`, 'DELETE');
+                } else {
+                  console.log('Newer PR source/evidence owns its schedule; leaving it intact');
+                }
+              }
               catch { console.error('Could not clear an existing schedule; required queue status remains failing'); }
             }
           });

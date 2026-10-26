@@ -140,10 +140,14 @@ class Publisher:
         if pr['user']['login'] != 'arcadia-pilot-bot' or pr['head']['repo']['full_name'] != 'jj/arcadia':
             raise ValueError('Evidence publication is restricted to Arcadia bot PRs')
         before_ref = before_ref or pr['merge_base']
+        if before_ref == pr['head']['sha']:
+            raise ValueError('Before capture must precede the final implementation')
         commits = self.api(path + '/commits?limit=100')
         if before_ref != pr['merge_base'] and before_ref not in {c['sha'] for c in commits}:
             raise ValueError('Before reference must be the merge base or a fixture-baseline commit in this PR')
         expected = {'before': self.trusted_trees(before_ref), 'after': self.trusted_trees(pr['head']['sha'])}
+        if expected['before'] == expected['after']:
+            raise ValueError('Before and after must represent different app/project sources')
         # Validate all source bindings before external mutations.
         for platform, before, after in pairs:
             for stage, directory in [('before', before), ('after', after)]:
@@ -178,7 +182,7 @@ class Publisher:
         latest = self.api(path)
         if latest['head']['sha'] != pr['head']['sha']:
             raise ValueError('PR head changed during upload; rerun against current head')
-        section = '\n'.join([START, '### Before and after', *rows,
+        section = '\n'.join([START, '### Before and after', f'Baseline commit: `{before_ref}`; final commit: `{pr["head"]["sha"]}`.', *rows,
                              '<!-- arcadia-visual-evidence:v1', json.dumps(manifest), '-->', END])
         original = latest.get('body') or ''
         pattern = re.compile(re.escape(START) + r'[\s\S]*?' + re.escape(END))

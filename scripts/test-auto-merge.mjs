@@ -28,7 +28,7 @@ async function run(pr = initial, env = {}, errorStatus = 0, mergeError = null, e
       }
       const isPR=url.endsWith('/pulls/28')&&options.method==='GET';
       if(isPR)reads++;
-      const current=evidence.bodyRemoved&&reads>1?{...pr,body:'images removed'}:pr;
+      const current=evidence.newHead&&reads>1?{...pr,head:{...pr.head,sha:'new-head'}}:evidence.bodyRemoved&&reads>1?{...pr,body:'images removed'}:pr;
       const result = treeRef ? trees[treeRef] : url.includes('/commits?') ? [] : url.includes('/files?') ? evidence.files ?? [] : url.endsWith('/assets') ? evidence.assets ?? [] : failedMerge ? { message: mergeError } : options.method === 'GET' ? current : options.method === 'PATCH' ? { ...pr, draft: false } : null;
       return { ok: status < 400, status, text: async () => JSON.stringify(result) };
     },
@@ -71,7 +71,7 @@ test('already scheduled is an idempotent success, other conflicts still fail', a
   assert.equal(duplicate.exitCode, undefined); assert.equal(duplicate.calls.length, 3);
   for (const message of ['head out of date', 'merge push out of date', 'unknown conflict']) {
     const conflict = await run(initial, {}, 0, message);
-    assert.equal(conflict.exitCode, 1); assert.equal(conflict.calls.length, 4);
+    assert.equal(conflict.exitCode, 1); assert.equal(conflict.calls.length, 5);
   }
 });
 
@@ -127,7 +127,7 @@ test('hidden markdown and evidence removal during verification fail closed and c
  for(const mode of ['hidden','removed']) {
   const f=visualFixture();if(mode==='hidden')f.html='';else f.bodyRemoved=true;
   const r=await run(f.pr,{},0,null,f);assert.equal(r.exitCode,1);
-  assert.ok(r.calls.some(c=>c.method==='DELETE'&&c.url.endsWith('/merge')));assert.ok(!r.calls.some(c=>c.method==='POST'));
+  assert.equal(r.calls.some(c=>c.method==='DELETE'&&c.url.endsWith('/merge')),mode==='hidden');assert.ok(!r.calls.some(c=>c.method==='POST'));
  }
 });
 test('native view files without conventional suffixes still require evidence',async()=>{
@@ -135,4 +135,13 @@ test('native view files without conventional suffixes still require evidence',as
   const r=await run(initial,{},0,null,{files:[{filename:`Arcadia/Arcadia/${name}.swift`}]});
   assert.equal(r.exitCode,1);assert.ok(!r.calls.some(c=>c.method==='POST'));
  }
+});
+
+test('superseded verifier preserves the newer head merge schedule',async()=>{
+ const f=visualFixture();f.newHead=true;
+ const r=await run(f.pr,{},0,null,f);assert.equal(r.exitCode,1);assert.ok(!r.calls.some(c=>c.method==='DELETE'||c.method==='POST'));
+});
+test('current-head baseline cannot masquerade as before evidence',async()=>{
+ const f=visualFixture();f.manifest.before_ref='abc';f.update();
+ const r=await run(f.pr,{},0,null,f);assert.equal(r.exitCode,1);assert.ok(!r.calls.some(c=>c.method==='POST'));
 });
