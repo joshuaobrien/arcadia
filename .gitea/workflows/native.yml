@@ -57,7 +57,10 @@ jobs:
             !**/xcuserdata/**
 
       - name: Check CI worker command behavior
-        run: python3 -m unittest discover -s scripts/native_ci -p 'test_*.py'
+        run: |
+          python3 -m unittest discover -s scripts/native_ci -p 'test_*.py'
+          node --test scripts/test-auto-merge.mjs
+          python3 -m unittest discover -s scripts -p test_pr_screenshots.py
 
       - name: Lint, build and test in an ephemeral VM
         env:
