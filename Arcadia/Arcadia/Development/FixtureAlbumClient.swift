@@ -135,7 +135,10 @@
     private func libraryRequest(key: String) async throws {
       if scenario == .loading { try await Task.sleep(for: .seconds(60)) }
       if scenario == .delayedPlaylist && key.hasPrefix("playlist.") { try await Task.sleep(for: .seconds(4)) }
-      if scenario == .delayedLibrary { try await Task.sleep(for: .seconds(2)) }
+      if scenario == .delayedLibrary {
+        // Keep artist-song placeholders visible through XCTest's geometry queries and capture.
+        try await Task.sleep(for: .seconds(key.hasPrefix("songs.fixture-artist-") ? 6 : 2))
+      }
       libraryRequests[key, default: 0] += 1
       if scenario == .failure || (scenario == .failureThenSuccess && libraryRequests[key] == 1) {
         throw FixtureError.requestFailed

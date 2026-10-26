@@ -136,6 +136,29 @@ final class SongArtistBrowseTests: XCTestCase {
   }
 
   @MainActor
+  func testArtistSongLoadingPreservesRowPositions() {
+    let app = launch("delayed-library", destination: "artists")
+    let artist = app.buttons["artist.fixture-artist-1"]
+    XCTAssertTrue(artist.waitForExistence(timeout: 10))
+    artist.click()
+    let loading = app.descendants(matching: .any).matching(identifier: "artist-songs.loading").firstMatch
+    XCTAssertTrue(loading.waitForExistence(timeout: 5))
+    let reservedTop = loading.frame.minY
+    // AX excludes the first/last TrackRow's four-point outer padding.
+    // Restore that padding and one gap to measure six complete 16-point-spaced pitches.
+    let reservedRowPitch = (loading.frame.height + 8 + 16) / 6
+    capture(app, "Artist songs - loading")
+    XCTAssertTrue(app.buttons["track.fixture-1-track-1.play"].waitForExistence(timeout: 10))
+    let firstRow = app.descendants(matching: .any).matching(identifier: "track.fixture-1-track-1").firstMatch
+    let secondRow = app.descendants(matching: .any).matching(identifier: "track.fixture-1-track-2").firstMatch
+    capture(app, "Artist songs - loaded")
+    XCTAssertEqual(firstRow.frame.minY, reservedTop, accuracy: 1)
+    XCTAssertEqual(secondRow.frame.minY - firstRow.frame.minY, reservedRowPitch, accuracy: 1,
+                   "Artist song placeholders reserve the loaded row pitch")
+    XCTAssertFalse(loading.exists)
+  }
+
+  @MainActor
   func testLoadingAlbumsAndTracksReservesContentUntilSuccess() {
     let app = launch("delayed-library", destination: "albums")
     let loading = app.descendants(matching: .any).matching(identifier: "albums.loading").firstMatch

@@ -6,6 +6,7 @@ struct LibrarySkeleton: View {
   var layout: Layout = .songs
   var count = 6
   var showsDividers = false
+  var spacing: CGFloat?
   var label = "Loading songs"
   var identifier = "songs.loading"
 
@@ -14,7 +15,10 @@ struct LibrarySkeleton: View {
       if layout == .albums {
         AlbumCardGrid { placeholders }
       } else {
-        VStack(alignment: .leading, spacing: layout == .tracks ? DesignTokens.Spacing.s : DesignTokens.Spacing.m) {
+        VStack(
+          alignment: .leading,
+          spacing: spacing ?? (layout == .tracks ? DesignTokens.Spacing.s : DesignTokens.Spacing.m)
+        ) {
           placeholders
         }
       }

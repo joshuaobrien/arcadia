@@ -98,7 +98,7 @@ struct ArtistDetail: View {
       LazyVStack(alignment: .leading, spacing: DesignTokens.Spacing.l) {
         Text("Songs").font(.title2.bold()).accessibilityIdentifier("artist.songs.title")
         ForEach(model.songs.items) { TrackRow(track: $0, showsTrackNumber: false) }
-        LibraryPageStatus(model: model.songs, noun: "artist-songs")
+        LibraryPageStatus(model: model.songs, noun: "artist-songs", skeletonSpacing: DesignTokens.Spacing.l)
         Text("Releases").font(.title2.bold()).accessibilityIdentifier("artist.releases.title")
         AlbumCardGrid {
           ForEach(model.releases.items) { album in
@@ -125,6 +125,7 @@ struct ArtistDetail: View {
 struct LibraryPageStatus<Item: Identifiable>: View {
   let model: PagedLibrary<Item>
   let noun: String
+  var skeletonSpacing: CGFloat?
 
   private var skeletonLayout: LibrarySkeleton.Layout {
     switch noun {
@@ -143,6 +144,7 @@ struct LibraryPageStatus<Item: Identifiable>: View {
         LibrarySkeleton(
           layout: skeletonLayout, count: model.items.isEmpty ? 6 : 2,
           showsDividers: noun == "songs" || noun == "artists",
+          spacing: skeletonSpacing,
           label: "Loading \(noun.replacingOccurrences(of: "-", with: " "))", identifier: "\(noun).loading"
         )
       } else if let error = model.errorText {
