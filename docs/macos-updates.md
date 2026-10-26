@@ -62,8 +62,10 @@ Jellyfin server, automatically downloaded build 202 and installed it on normal
 quit. Both apps had the same certificate-pinned designated requirement. The
 client did not trust the certificate. Build 202 passed signature verification
 but encountered a Keychain authorization dialog on session restoration; the
-no-prompt acceptance test failed. This remains a distribution decision, not a
-passing seamless-update claim.
+no-prompt acceptance test failed. The owner accepted normal Keychain approval
+after private updates on 27 October 2026. This is not a seamless-update claim:
+the listener may need to approve Keychain access, but should not need to enter
+Jellyfin credentials again.
 
 The test item's access-control metadata retained the correct certificate
 requirement while its partition remained `cdhash:<build-201-hash>`. Apple's
@@ -78,5 +80,6 @@ The explicit installed-app tests are in `MacUpdateTests`. They require a private
 must install and run the real Release app, use the same isolated session namespace
 across launches, and remove signing trust before either client acceptance test.
 The regular suite skips these tests without that explicit harness. Never export
-the private configuration or approve a dialog and report the no-prompt test as
-passing.
+the private configuration. Approve the expected Keychain dialog normally before
+`testUpdatedReleaseRestoresJellyfinAfterKeychainApproval`; that test verifies
+session restoration after approval, not silent access.

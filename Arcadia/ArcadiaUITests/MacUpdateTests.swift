@@ -26,7 +26,9 @@ final class MacUpdateTests: XCTestCase {
   }
 
   @MainActor
-  func testUpdatedReleaseRestoresJellyfinWithoutSigningIn() throws {
+  // Private signing requires the listener's normal Keychain approval before this check.
+  // That approval is distinct from entering Jellyfin credentials again.
+  func testUpdatedReleaseRestoresJellyfinAfterKeychainApproval() throws {
     let config = try configuration()
     let app = try installedApp(config, build: config.afterBuild)
     XCTAssertTrue(app.buttons["source.disconnect"].waitForExistence(timeout: 20))
