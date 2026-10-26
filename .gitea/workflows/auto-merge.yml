@@ -49,6 +49,43 @@ jobs:
               console.log('Superseded event; latest head event owns the queue request');
               return;
             }
+            // Inspect trusted Gitea metadata only; never check out or execute PR code.
+            let visual = false;
+            for (let page = 1; ; page++) {
+              if (page > 100) throw new Error('PR file inventory exceeds evidence-check bound');
+              const files = await api(path + `/files?limit=100&page=${page}`);
+              if (!Array.isArray(files)) throw new Error('Invalid PR file inventory');
+              const ui = /^Arcadia\/Arcadia\/.*(?:Views?|Row|Card|Artwork|DesignTokens|ContentView|PlayerBar|Albums|AlbumDetail|Skeleton|Layout|Grid|Theme)\.swift$|^Arcadia\/Arcadia\/.*\.xcassets\//;
+              visual ||= files.some(file => ui.test(file.filename) || ui.test(file.previous_filename ?? ''));
+              if (files.length < 100) break;
+            }
+            if (visual) {
+              const marker = /<!-- arcadia-visual-evidence:v1\n([\s\S]*?)\n-->/g;
+              const manifests = [...(pr.body ?? '').matchAll(marker)];
+              if (manifests.length !== 1) throw new Error('Visual PR requires published before/after screenshots; run scripts/pr-screenshots');
+              const evidence = JSON.parse(manifests[0][1]);
+              if (evidence.head_sha !== pr.head.sha || !Array.isArray(evidence.pairs) || !evidence.pairs.length || evidence.pairs.length > 20) throw new Error('Missing or stale visual evidence');
+              const assets = await api(`/issues/${number}/assets`);
+              const { createHash } = require('node:crypto');
+              for (const pair of evidence.pairs) {
+                if (!['mac', 'iphone', 'duo'].includes(pair.platform)) throw new Error('Invalid evidence platform');
+                if (pair.before?.sha256 === pair.after?.sha256) throw new Error('Before and after must be distinct captures');
+                for (const stage of ['before', 'after']) {
+                  const image = pair[stage];
+                  const asset = assets.find(a => a.id === image?.asset_id);
+                  if (!asset || !/^[0-9a-f-]{36}$/.test(asset.uuid) || !/^[a-f0-9]{64}$/.test(image.sha256 ?? '') || !/^[a-f0-9]{64}$/.test(image.source_sha256 ?? '') || typeof image.run_id !== 'string' || !image.run_id) throw new Error('Invalid screenshot attachment/provenance');
+                  const url = `https://joshs-mac-mini.tail81f644.ts.net/attachments/${asset.uuid}`;
+                  if (image.url !== url || !(pr.body ?? '').includes(`![${pair.platform} ${stage}](${url})`)) throw new Error('Screenshot is not embedded in the PR');
+                  if (!(asset.size > 0 && asset.size <= 10485760)) throw new Error('Screenshot size exceeds bound');
+                  const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(30000) });
+                  if (!response.ok) throw new Error('Screenshot is inaccessible');
+                  const bytes = Buffer.from(await response.arrayBuffer());
+                  if (bytes.length > 10485760 || bytes.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a' || createHash('sha256').update(bytes).digest('hex') !== image.sha256) throw new Error('Screenshot content mismatch');
+                }
+              }
+              // A head change during downloads must not inherit this evidence decision.
+              if ((await api(path)).head.sha !== pr.head.sha) throw new Error('PR head changed during evidence verification');
+            }
             if (pr.draft) {
               const title = pr.title.replace(/^(?:WIP:|Draft:|\[WIP\])\s*/i, '');
               const ready = await api(path, 'PATCH', { title });

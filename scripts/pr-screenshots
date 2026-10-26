@@ -1,0 +1,162 @@
+#!/usr/bin/env python3
+"""Publish hash-verified native-loop screenshots as visible Gitea PR evidence."""
+import argparse
+import base64
+import hashlib
+from html.parser import HTMLParser
+import json
+from pathlib import Path
+import re
+import subprocess
+import urllib.error
+import urllib.parse
+import urllib.request
+import uuid
+
+BASE = 'https://joshs-mac-mini.tail81f644.ts.net'
+REPO = '/api/v1/repos/jj/arcadia'
+START = '<!-- arcadia-visual-evidence:start -->'
+END = '<!-- arcadia-visual-evidence:end -->'
+
+
+def read_capture(platform, directory):
+    directory = Path(directory)
+    receipt = json.loads((directory / 'verification.json').read_text())
+    image = directory / 'screenshot.png'
+    data = image.read_bytes()
+    sha = hashlib.sha256(data).hexdigest()
+    if len(data) > 10485760 or data[:8] != b'\x89PNG\r\n\x1a\n':
+        raise ValueError('Evidence must be a PNG no larger than 10 MiB')
+    if receipt.get('captured') is not True or receipt.get('platform') != platform or receipt.get('image_sha256') != sha:
+        raise ValueError('Screenshot does not match its successful platform/run receipt')
+    if not re.fullmatch('[a-f0-9]{64}', receipt.get('source_sha256', '')) or not receipt.get('run_id'):
+        raise ValueError('Screenshot lacks source/run provenance')
+    return data, {'sha256': sha, 'source_sha256': receipt['source_sha256'], 'run_id': receipt['run_id']}
+
+
+def credential(token_file):
+    if token_file:
+        if token_file.stat().st_mode & 0o077:
+            raise ValueError('Token file must be private (mode 0600)')
+        return 'token ' + token_file.read_text().strip()
+    result = subprocess.run(['git', 'credential', 'fill'],
+                            input='protocol=https\nhost=joshs-mac-mini.tail81f644.ts.net\npath=jj/arcadia.git\n\n',
+                            text=True, capture_output=True, timeout=20)
+    if result.returncode:
+        raise ValueError('Existing scoped Git credential helper failed')
+    fields = dict(line.split('=', 1) for line in result.stdout.splitlines() if '=' in line)
+    if not fields.get('username') or not fields.get('password'):
+        raise ValueError('Git credential helper returned no supported credential')
+    return 'Basic ' + base64.b64encode((fields['username'] + ':' + fields['password']).encode()).decode()
+
+
+class Images(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.images = set()
+
+    def handle_starttag(self, tag, attributes):
+        if tag == 'img':
+            item = dict(attributes)
+            self.images.add((item.get('alt'), item.get('src')))
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, message, headers, new_url):
+        return None
+
+
+class Publisher:
+    def __init__(self, authorization, base=BASE):
+        self.authorization = authorization
+        self.base = base
+        self.opener = urllib.request.build_opener(NoRedirect())
+
+    def api(self, path, method='GET', data=None, content_type='application/json'):
+        body = json.dumps(data).encode() if data is not None and content_type == 'application/json' else data
+        request = urllib.request.Request(self.base + REPO + path, data=body, method=method,
+                                         headers={'Authorization': self.authorization, 'Content-Type': content_type})
+        with self.opener.open(request, timeout=30) as response:
+            return json.load(response)
+
+    def download(self, path):
+        with self.opener.open(self.base + path, timeout=30) as response:
+            data = response.read(10485761)
+        if len(data) > 10485760:
+            raise ValueError('Uploaded image exceeds size bound')
+        return data
+
+    def publish(self, number, pairs):
+        path = '/pulls/' + str(number)
+        pr = self.api(path)
+        if pr['user']['login'] != 'arcadia-pilot-bot' or pr['head']['repo']['full_name'] != 'jj/arcadia':
+            raise ValueError('Evidence publication is restricted to Arcadia bot PRs')
+        endpoint = '/issues/' + str(number) + '/assets'
+        assets = {a['name']: a for a in self.api(endpoint)}
+        manifest = {'head_sha': pr['head']['sha'], 'pairs': []}
+        rows = ['| Layout | Before | After |', '| --- | --- | --- |']
+        for platform, before, after in pairs:
+            pair = {'platform': platform}
+            for stage, directory in [('before', before), ('after', after)]:
+                data, record = read_capture(platform, directory)
+                name = f'arcadia-{platform}-{stage}-{record["sha256"]}.png'
+                asset = assets.get(name)
+                if asset is None:
+                    boundary = 'arcadia-' + uuid.uuid4().hex
+                    body = (f'--{boundary}\r\nContent-Disposition: form-data; name="attachment"; filename="{name}"\r\nContent-Type: image/png\r\n\r\n'.encode()
+                            + data + f'\r\n--{boundary}--\r\n'.encode())
+                    asset = self.api(endpoint + '?name=' + name, 'POST', body, 'multipart/form-data; boundary=' + boundary)
+                    assets[name] = asset
+                ident = str(uuid.UUID(asset['uuid']))
+                route = '/attachments/' + ident
+                if hashlib.sha256(self.download(route)).hexdigest() != record['sha256']:
+                    raise ValueError('Uploaded screenshot hash mismatch')
+                pair[stage] = dict(record, asset_id=asset['id'], url=BASE + route)
+            if pair['before']['sha256'] == pair['after']['sha256']:
+                raise ValueError('Before and after must be distinct captures')
+            manifest['pairs'].append(pair)
+            rows.append(f'| {platform} | ![{platform} before]({pair["before"]["url"]}) | ![{platform} after]({pair["after"]["url"]}) |')
+        latest = self.api(path)
+        if latest['head']['sha'] != pr['head']['sha']:
+            raise ValueError('PR head changed during upload; rerun against current head')
+        section = '\n'.join([START, '### Before and after', *rows,
+                             '<!-- arcadia-visual-evidence:v1', json.dumps(manifest), '-->', END])
+        original = latest.get('body') or ''
+        pattern = re.compile(re.escape(START) + r'[\s\S]*?' + re.escape(END))
+        body = pattern.sub(lambda _: section, original) if START in original else original + '\n\n' + section
+        self.api(path, 'PATCH', {'body': body})
+        page = self.download('/jj/arcadia/pulls/' + str(number)).decode()
+        parsed = Images()
+        parsed.feed(page)
+        for pair in manifest['pairs']:
+            for stage in ['before', 'after']:
+                url = pair[stage]['url']
+                if not any(alt == pair['platform'] + ' ' + stage and src and src.endswith(urllib.parse.urlparse(url).path)
+                           for alt, src in parsed.images):
+                    raise ValueError('Published screenshot did not render in PR HTML')
+        print(f'PR #{number}: {len(pairs) * 2} uploaded screenshots verified and rendered')
+        return manifest
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--pr', type=int, required=True)
+    parser.add_argument('--pair', nargs=3, action='append', metavar=('PLATFORM', 'BEFORE_RUN_DIR', 'AFTER_RUN_DIR'), required=True)
+    parser.add_argument('--token-file', type=Path)
+    args = parser.parse_args()
+    if args.pr <= 0 or any(p[0] not in {'mac', 'iphone', 'duo'} for p in args.pair) or len({p[0] for p in args.pair}) != len(args.pair):
+        parser.error('Use a positive PR number and one pair per affected mac/iphone/duo platform')
+    # Validate every local input before any external mutation.
+    for platform, before, after in args.pair:
+        read_capture(platform, before)
+        read_capture(platform, after)
+    Publisher(credential(args.token_file)).publish(args.pr, args.pair)
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (OSError, ValueError, KeyError, subprocess.SubprocessError, urllib.error.HTTPError) as error:
+        detail = str(error) if type(error) is ValueError else type(error).__name__
+        print('Screenshot publication failed: ' + detail)
+        raise SystemExit(1)
