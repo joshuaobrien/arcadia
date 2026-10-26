@@ -305,9 +305,6 @@ struct AppView: View {
         let songs = try await albumService.fetchSongs(SongBrowseRequest(cursor: nil, searchTerm: ""))
         playerStore.play(Array(songs.items.prefix(3)))
         playerStore.pause()
-        #if os(iOS)
-          isPlayerPresented = true
-        #endif
       } catch {
         // A failed fixture cannot satisfy the frame readiness gate below.
       }
