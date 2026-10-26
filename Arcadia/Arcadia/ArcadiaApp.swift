@@ -8,12 +8,19 @@
 import AVFoundation
 import SwiftUI
 
+#if os(macOS)
+  import ArcadiaUpdates
+#endif
+
 @main
 struct ArcadiaApp: App {
   @State private var connection: SourceConnectionModel?
   @State private var fixtureSession: ListeningSession?
   #if DEBUG
     @State private var visualStateReady = false
+  #endif
+  #if os(macOS)
+    private let updates = AppUpdates()
   #endif
   private let configuration: Result<AppConfiguration, Error>
 
@@ -77,6 +84,11 @@ struct ArcadiaApp: App {
       #endif
     }
     .commands {
+      #if os(macOS)
+        CommandGroup(after: .appInfo) {
+          CheckForUpdatesView(updates: updates)
+        }
+      #endif
       PlaybackCommands(player: connection?.listeningSession?.player ?? fixtureSession?.player)
     }
   }

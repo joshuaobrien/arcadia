@@ -61,11 +61,11 @@ lane :mac_release do
     destination: "platform=macOS", derived_data_path: derived,
     skip_codesigning: true, skip_package_pkg: true, skip_package_ipa: true,
     archive_path: "/tmp/arcadia-release.xcarchive", skip_profile_detection: true,
-    xcargs: "-skipMacroValidation CODE_SIGNING_ALLOWED=NO ARCADIA_BASE_URL=#{Shellwords.escape(ENV.fetch("ARCADIA_BASE_URL"))}",
+    xcargs: "-skipMacroValidation CODE_SIGNING_ALLOWED=NO CURRENT_PROJECT_VERSION=#{Integer(ENV.fetch("ARCADIA_BUILD_NUMBER", "1"))} ARCADIA_BASE_URL=#{Shellwords.escape(ENV.fetch("ARCADIA_BASE_URL"))}",
     buildlog_path: "/Volumes/My Shared Files/evidence", xcodebuild_formatter: ""
   )
   app = "/tmp/arcadia-release.xcarchive/Products/Applications/Arcadia.app"
-  sh("/usr/bin/codesign", "--force", "--deep", "--sign", "-", app)
+  sh(File.join(ROOT, "Arcadia/sign-release.sh"), app)
   sh("/usr/bin/codesign", "--verify", "--deep", "--strict", "--verbose=2", app)
   sh("/usr/bin/ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", app,
      "/Volumes/My Shared Files/artifacts/Arcadia.zip")

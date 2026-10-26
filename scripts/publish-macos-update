@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Sparkle owns update verification/installation; this only publishes CI's archive to Gitea.
+set -euo pipefail
+root=$(cd "$(dirname "$0")" && pwd)
+cache="$HOME/Library/Caches/Arcadia/Sparkle-2.10.1"
+mkdir -p "$(dirname "$cache")"
+if [[ ! -x "$cache/bin/sign_update" ]]; then
+  staging=$(mktemp -d)
+  trap 'rm -rf "$staging"' EXIT
+  curl --fail --silent --show-error --location --retry 3 \
+    https://github.com/sparkle-project/Sparkle/releases/download/2.10.1/Sparkle-2.10.1.tar.xz \
+    --output "$staging/sparkle.tar.xz"
+  echo '1a856d2a9edb8e628de88121d7be04cf0e2167f8641650b78fca00b14244cf27  '"$staging/sparkle.tar.xz" | shasum -a 256 --check --status
+  mkdir "$staging/tools"
+  tar xf "$staging/sparkle.tar.xz" -C "$staging/tools"
+  # Concurrent jobs publish identical versioned tool contents, never a partial directory.
+  if ! mv "$staging/tools" "$cache" 2>/dev/null; then test -x "$cache/bin/sign_update"; fi
+fi
+echo '43c249771bafc3aa581228abae00731a012d324691b8292860896635050be76b  '"$cache/bin/sign_update" | shasum -a 256 --check --status
+exec node "$root/publish-macos-update.mjs" "$cache/bin/sign_update" "$@"

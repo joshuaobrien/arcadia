@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		032AA143304454C6007617F6 /* Mockable in Frameworks */ = {isa = PBXBuildFile; productRef = 032AA142304454C6007617F6 /* Mockable */; };
 		032AA145304454C6007617F6 /* Mockable in Frameworks */ = {isa = PBXBuildFile; productRef = 032AA144304454C6007617F6 /* Mockable */; };
+		A71000000000000000000001 /* ArcadiaUpdates in Frameworks */ = {isa = PBXBuildFile; platformFilter = macos; productRef = A71000000000000000000002 /* ArcadiaUpdates */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -46,9 +47,12 @@
 		0309A250303183ED0066F5FE /* Exceptions for "Arcadia" folder in "Arcadia" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				MacUpdates/Package.swift,
+				MacUpdates/Sources/ArcadiaUpdates/AppUpdates.swift,
 				Albums/Tests/AlbumsModelTests.swift,
 				Info.plist,
 				Info-iOS.plist,
+				Arcadia.entitlements,
 			);
 			target = 0309A2003030872F0066F5FE /* Arcadia */;
 		};
@@ -93,6 +97,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A71000000000000000000001 /* ArcadiaUpdates in Frameworks */,
 				032AA145304454C6007617F6 /* Mockable in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -172,6 +177,7 @@
 			);
 			name = Arcadia;
 			packageProductDependencies = (
+				A71000000000000000000002 /* ArcadiaUpdates */,
 				032AA144304454C6007617F6 /* Mockable */,
 			);
 			productName = Arcadia;
@@ -281,6 +287,7 @@
 			mainGroup = 0309A1F83030872F0066F5FE;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				A71000000000000000000003 /* ArcadiaUpdates */,
 				032AA141304454C6007617F6 /* XCRemoteSwiftPackageReference "Mockable" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -507,6 +514,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
+				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = Arcadia/Arcadia.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_APP_SANDBOX = YES;
@@ -555,6 +563,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
+				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = Arcadia/Arcadia.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_APP_SANDBOX = YES;
@@ -761,6 +770,13 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		A71000000000000000000003 /* ArcadiaUpdates */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Arcadia/MacUpdates;
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCRemoteSwiftPackageReference section */
 		032AA141304454C6007617F6 /* XCRemoteSwiftPackageReference "Mockable" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -770,6 +786,7 @@
 				minimumVersion = 0.6.4;
 			};
 		};
+
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -782,6 +799,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 032AA141304454C6007617F6 /* XCRemoteSwiftPackageReference "Mockable" */;
 			productName = Mockable;
+		};
+		A71000000000000000000002 /* ArcadiaUpdates */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A71000000000000000000003 /* ArcadiaUpdates */;
+			productName = ArcadiaUpdates;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
