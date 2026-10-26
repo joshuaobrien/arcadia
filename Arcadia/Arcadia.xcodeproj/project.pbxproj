@@ -9,7 +9,7 @@
 /* Begin PBXBuildFile section */
 		032AA143304454C6007617F6 /* Mockable in Frameworks */ = {isa = PBXBuildFile; productRef = 032AA142304454C6007617F6 /* Mockable */; };
 		032AA145304454C6007617F6 /* Mockable in Frameworks */ = {isa = PBXBuildFile; productRef = 032AA144304454C6007617F6 /* Mockable */; };
-		A71000000000000000000001 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; platformFilter = macos; productRef = A71000000000000000000002 /* Sparkle */; };
+		A71000000000000000000001 /* ArcadiaUpdates in Frameworks */ = {isa = PBXBuildFile; platformFilter = macos; productRef = A71000000000000000000002 /* ArcadiaUpdates */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -47,6 +47,8 @@
 		0309A250303183ED0066F5FE /* Exceptions for "Arcadia" folder in "Arcadia" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				MacUpdates/Package.swift,
+				MacUpdates/Sources/ArcadiaUpdates/AppUpdates.swift,
 				Albums/Tests/AlbumsModelTests.swift,
 				Info.plist,
 				Info-iOS.plist,
@@ -95,7 +97,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A71000000000000000000001 /* Sparkle in Frameworks */,
+				A71000000000000000000001 /* ArcadiaUpdates in Frameworks */,
 				032AA145304454C6007617F6 /* Mockable in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -175,7 +177,7 @@
 			);
 			name = Arcadia;
 			packageProductDependencies = (
-				A71000000000000000000002 /* Sparkle */,
+				A71000000000000000000002 /* ArcadiaUpdates */,
 				032AA144304454C6007617F6 /* Mockable */,
 			);
 			productName = Arcadia;
@@ -285,7 +287,7 @@
 			mainGroup = 0309A1F83030872F0066F5FE;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				A71000000000000000000003 /* Sparkle */,
+				A71000000000000000000003 /* ArcadiaUpdates */,
 				032AA141304454C6007617F6 /* XCRemoteSwiftPackageReference "Mockable" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -768,6 +770,13 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		A71000000000000000000003 /* ArcadiaUpdates */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Arcadia/MacUpdates;
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCRemoteSwiftPackageReference section */
 		032AA141304454C6007617F6 /* XCRemoteSwiftPackageReference "Mockable" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -777,11 +786,7 @@
 				minimumVersion = 0.6.4;
 			};
 		};
-		A71000000000000000000003 /* Sparkle */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/sparkle-project/Sparkle";
-			requirement = {kind = exactVersion; version = 2.10.1; };
-		};
+
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -795,10 +800,10 @@
 			package = 032AA141304454C6007617F6 /* XCRemoteSwiftPackageReference "Mockable" */;
 			productName = Mockable;
 		};
-		A71000000000000000000002 /* Sparkle */ = {
+		A71000000000000000000002 /* ArcadiaUpdates */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = A71000000000000000000003 /* Sparkle */;
-			productName = Sparkle;
+			package = A71000000000000000000003 /* ArcadiaUpdates */;
+			productName = ArcadiaUpdates;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

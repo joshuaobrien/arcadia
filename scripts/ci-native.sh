@@ -125,8 +125,17 @@ vm_run "xcrun xcresulttool get test-results summary --path /tmp/arcadia-ci-tests
 if [[ -n "$ARTIFACT_DIR" ]]; then
   [[ "${ARCADIA_BUILD_NUMBER:-1}" =~ ^[1-9][0-9]*$ ]] || { echo 'Invalid release build number' >&2; exit 1; }
   printf -v ESCAPED_BASE_URL '%q' "$ARCADIA_BASE_URL"
+  if [[ -n "${ARCADIA_MACOS_SIGNING:-}" ]]; then
+    (umask 077; printf '%s' "$ARCADIA_MACOS_SIGNING" > "$WORK/release-signing.json")
+    /usr/bin/expect -f "$WORK/scp.exp" "$WORK/release-signing.json" "$VM_USER" "$IP" /tmp/arcadia-release-signing.json "$VM_PASS"
+    vm_run "chmod 600 /tmp/arcadia-release-signing.json"
+    SIGNING_ENV='export ARCADIA_SIGNING_FILE=/tmp/arcadia-release-signing.json; '
+  else
+    [[ "${ARCADIA_REQUIRE_STABLE_SIGNING:-0}" != 1 ]] || { echo 'Main release requires its stable signing identity' >&2; exit 1; }
+    SIGNING_ENV=''
+  fi
   echo "==> Release build, signing and packaging (Fastlane)"
-  vm_run "export ARCADIA_BASE_URL=$ESCAPED_BASE_URL ARCADIA_BUILD_NUMBER=${ARCADIA_BUILD_NUMBER:-1}; $FASTLANE mac_release"
+  vm_run "${SIGNING_ENV}export ARCADIA_BASE_URL=$ESCAPED_BASE_URL ARCADIA_BUILD_NUMBER=${ARCADIA_BUILD_NUMBER:-1}; $FASTLANE mac_release"
   [[ -f "$ARTIFACT_DIR/Arcadia.zip" ]] || {
     echo "Release artifact was not copied out of the VM" >&2
     exit 1

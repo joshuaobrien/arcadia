@@ -4,11 +4,12 @@
   import SwiftUI
 
   /// Release owns its updater for the lifetime of the app. Development builds never poll the feed.
-  final class AppUpdates: ObservableObject {
-    @Published private(set) var canCheckForUpdates = false
+  @MainActor
+  public final class AppUpdates: ObservableObject {
+    @Published public private(set) var canCheckForUpdates = false
     private let controller: SPUStandardUpdaterController
 
-    init() {
+    public init() {
       #if DEBUG
         let startsAutomatically = false
       #else
@@ -19,15 +20,19 @@
       controller.updater.publisher(for: \.canCheckForUpdates).assign(to: &$canCheckForUpdates)
     }
 
-    func checkForUpdates() {
+    public func checkForUpdates() {
       controller.checkForUpdates(nil)
     }
   }
 
-  struct CheckForUpdatesView: View {
+  public struct CheckForUpdatesView: View {
     @ObservedObject var updates: AppUpdates
 
-    var body: some View {
+    public init(updates: AppUpdates) {
+      self.updates = updates
+    }
+
+    public var body: some View {
       Button("Check for Updates…", action: updates.checkForUpdates)
         .disabled(!updates.canCheckForUpdates)
     }

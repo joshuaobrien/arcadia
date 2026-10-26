@@ -1,7 +1,7 @@
 # Private macOS updates
 
 The installed Release app follows successful `main` builds through Sparkle 2.10.1.
-This is a private, ad-hoc signed distribution, without Apple notarization.
+This is a private distribution signed with a stable self-signed identity, without Apple notarization.
 The first installation may need macOS's normal **Open Anyway** approval. Do not
 turn off Gatekeeper. Updates require access to the mini over Tailscale.
 
@@ -32,9 +32,17 @@ Actions secret; a restricted backup is on the mini at
 publisher uses the existing repository bot's Actions token for Gitea writes.
 Treat the seed as release authority; changing it requires a planned key rotation.
 
+`ARCADIA_MACOS_SIGNING` holds the dedicated private code-signing certificate and
+password. Only main-push Release builds receive it. The packaging helper pins
+its public certificate fingerprint, creates a temporary guest keychain, grants
+code-signing trust for that certificate inside the disposable guest, then removes
+the private keychain. The guest is destroyed after CI. Neither host Mac gains a
+new trust root. The stable identity prevents Keychain reapproval after each update;
+ad-hoc signing does not. A signing backup lives beside the Sparkle seed on the mini.
+
 `Arcadia/sign-release.sh` signs Sparkle's nested services inside out and preserves
 sandbox entitlements. Both Fastlane Release packaging and the task VM use it.
-The iOS build excludes Sparkle and keeps its existing signing configuration.
+The local `ArcadiaUpdates` Swift package declares Sparkle as a macOS-only dependency. The iOS build keeps its existing signing configuration.
 
 ## Recovery
 

@@ -63,15 +63,20 @@ jobs:
           python3 -m unittest discover -s scripts/native_ci -p 'test_*.py'
           node --test scripts/test-auto-merge.mjs scripts/test-publish-macos-update.mjs
           python3 -m unittest discover -s scripts -p test_pr_screenshots.py
+          python3 -m unittest discover -s scripts -p test_sign_release.py
 
       - name: Lint, build and test in an ephemeral VM
         env:
           ARCADIA_CI_TOKEN: ${{ github.token }}
           ARCADIA_CI_DERIVED_DIR: ${{ github.workspace }}/.ci-derived
           ARCADIA_BASE_URL: ${{ vars.ARCADIA_BASE_URL }}
+          ARCADIA_MACOS_SIGNING: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && secrets.ARCADIA_MACOS_SIGNING || '' }}
         run: |
           export ARCADIA_BUILD_NUMBER=$(git rev-list --first-parent --count HEAD)
           if { [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF" = "refs/heads/main" ]; } || [ "${{ inputs.release }}" = "true" ]; then
+            if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF" = "refs/heads/main" ]; then
+              export ARCADIA_REQUIRE_STABLE_SIGNING=1
+            fi
             ARTIFACT_DIR="$PWD/artifacts" ./scripts/ci-native.sh "$PWD"
           else
             ./scripts/ci-native.sh "$PWD"

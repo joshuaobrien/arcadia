@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
-import {mkdtemp, writeFile, rm} from 'node:fs/promises';
+import {mkdtemp, writeFile, rm, symlink} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {join, resolve} from 'node:path';
 import {spawn} from 'node:child_process';
 import {appcast} from './publish-macos-update.mjs';
 
@@ -16,7 +16,7 @@ test('appcast has a monotonic version and signed enclosure, with XML escaping', 
   assert.throws(()=>appcast({version:'0',sha}),/identity/);
 });
 
-for (const scenario of ['publish','superseded','older','conflict','bad-signature','wrong-tag','upload-fails']) {
+for (const scenario of ['publish','private','superseded','older','conflict','bad-signature','wrong-tag','upload-fails']) {
   test('public publishing command: '+scenario, async () => {
     const directory=await mkdtemp(join(tmpdir(),'arcadia-publisher-test-'));
     let feedWrites=0, upload=0, signCalls=0, reads=0;
@@ -27,13 +27,14 @@ for (const scenario of ['publish','superseded','older','conflict','bad-signature
       const body=Buffer.concat(chunks).toString();
       function answer(status,value) {res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify(value));}
       const route=req.url;
+      if (route==='/api') return answer(200,{private:scenario==='private'});
       if (route==='/api/branches/main') return answer(200,{commit:{id:scenario==='superseded'?'b'.repeat(40):sha}});
       if (route==='/api/releases/tags/macos-42') return answer(404,{});
       if (route==='/api/releases' && req.method==='POST') {assert.equal(JSON.parse(body).target_commitish,sha);return answer(201,{id:1});}
       if (route==='/api/git/refs/tags/macos-42') return answer(200,[{ref:'refs/tags/macos-42',object:{sha:scenario==='wrong-tag'?'c'.repeat(40):sha}}]);
       if (route==='/api/releases/1/assets') return answer(200,[]);
-      if (route==='/api/releases/1/assets?name=Arcadia-42.zip') {upload++;return answer(scenario==='upload-fails'?500:201,{id:1,size:7});}
-      if (route==='/releases/download/macos-42/Arcadia-42.zip') {res.end('archive');return;}
+      if (route==='/api/releases/1/assets?name=Arcadia-42.zip') {upload++;return answer(scenario==='upload-fails'?500:201,{id:1,size:7,uuid:'00000000-0000-0000-0000-000000000001'});}
+      if (route==='/attachments/00000000-0000-0000-0000-000000000001') {res.end('archive');return;}
       if (route==='/api/branches/macos-updates') return answer(200,{name:'macos-updates'});
       if (route==='/api/contents/appcast.xml?ref=macos-updates') {
         reads++;
@@ -55,15 +56,16 @@ for (const scenario of ['publish','superseded','older','conflict','bad-signature
       const signer=join(directory,'sign');
       await writeFile(signer, `#!/bin/sh\nread private\n[ "$private" = test-only-secret ] || exit 2\n${scenario==='bad-signature'?'exit 1\n':''}if [ "$3" = -p ]; then echo signature; else echo '<!-- signed-feed -->' >> "$3"; fi\n`,{mode:0o700});
       const url='http://127.0.0.1:'+server.address().port;
-      const child=spawn(process.execPath,['scripts/publish-macos-update.mjs',signer,archive,sha,'42'],{
+      const entry=join(directory,'publisher.mjs');await symlink(resolve('scripts/publish-macos-update.mjs'),entry);
+      const child=spawn(process.execPath,[entry,signer,archive,sha,'42'],{
         env:{...process.env,ARCADIA_UPDATE_API:url+'/api',ARCADIA_UPDATE_PUBLIC_REPO:url,ARCADIA_UPDATE_TOKEN:'test-only-token',ARCADIA_UPDATE_KEY:'test-only-secret'},stdio:['ignore','pipe','pipe']
       });
       let output='';child.stdout.on('data',c=>output+=c);child.stderr.on('data',c=>output+=c);
       const exit=await new Promise(resolve=>child.on('exit',resolve));
       assert.doesNotMatch(output,/test-only-secret|test-only-token/);
-      if(['bad-signature','wrong-tag','upload-fails'].includes(scenario)) {assert.equal(exit,1,output);assert.equal(feedWrites,0);}
+      if(['private','bad-signature','wrong-tag','upload-fails'].includes(scenario)) {assert.equal(exit,1,output);assert.equal(feedWrites,0);}
       else {assert.equal(exit,0,output);assert.equal(feedWrites,scenario==='publish'?1:scenario==='conflict'?2:0);}
-      if(scenario==='superseded') {assert.equal(upload,0);assert.equal(requests.length,1);}
+      if(scenario==='superseded') {assert.equal(upload,0);assert.equal(requests.length,2);}
     } finally {server.closeAllConnections();await new Promise(resolve=>server.close(resolve));await rm(directory,{recursive:true,force:true});}
   });
 }

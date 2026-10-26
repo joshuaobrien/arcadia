@@ -8,6 +8,10 @@
 import AVFoundation
 import SwiftUI
 
+#if os(macOS)
+  import ArcadiaUpdates
+#endif
+
 @main
 struct ArcadiaApp: App {
   @State private var connection: SourceConnectionModel?

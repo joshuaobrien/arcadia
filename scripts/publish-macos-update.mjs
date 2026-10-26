@@ -1,3 +1,4 @@
+import { realpathSync } from 'node:fs';
 import { readFile, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -35,6 +36,8 @@ export async function publish({api, token, archive, sha, version, sign, key, pub
     if (!response.ok) throw Error(`Gitea ${method} ${path.split('?')[0]} failed (${response.status})`);
     return response.status === 204 ? {} : response.json();
   }
+  const repository = await request('');
+  if (repository?.private !== false) throw Error('Sparkle requires an anonymously readable release repository');
   async function mainIsCurrent() {
     const main = await request('/branches/main');
     return main?.commit?.id === sha;
@@ -63,7 +66,9 @@ export async function publish({api, token, archive, sha, version, sign, key, pub
     asset = await response.json();
   }
   // Always sign the bytes Gitea serves, including an earlier successful run of this revision.
-  const url = `${publicURL}/releases/download/${tag}/${name}`;
+  if (!/^[a-f0-9-]{36}$/.test(asset.uuid)) throw Error('Invalid Gitea archive attachment identity');
+  // Canonical HTTPS attachment avoids Gitea ROOT_URL redirects on release downloads.
+  const url = `${new URL(publicURL).origin}/attachments/${asset.uuid}`;
   const served = await fetch(url, {redirect:'error',signal:AbortSignal.timeout(120000)});
   if (!served.ok) throw Error('Published archive is unavailable');
   const servedBytes = Buffer.from(await served.arrayBuffer());
@@ -105,7 +110,7 @@ export async function publish({api, token, archive, sha, version, sign, key, pub
   } finally { await rm(directory, {recursive:true,force:true}); }
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const [sign, archive, sha, version] = process.argv.slice(2);
   try {
     await publish({api:process.env.ARCADIA_UPDATE_API || publicRepo.replace('/jj/arcadia','/api/v1/repos/jj/arcadia'),
