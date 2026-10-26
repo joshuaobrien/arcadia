@@ -3,6 +3,7 @@ import SwiftUI
 struct NowPlayingSidebar: View {
   @Environment(PlayerStore.self) private var playerStore
   let showQueue: () -> Void
+  private let lavender = Color(red: 0.65, green: 0.55, blue: 0.85)
 
   var body: some View {
     GeometryReader { geometry in
@@ -26,18 +27,18 @@ struct NowPlayingSidebar: View {
               .overlay {
                 RoundedRectangle(cornerRadius: 16).strokeBorder(.primary.opacity(0.15))
               }
-              .shadow(color: .green.opacity(0.2), radius: 24)
+              .shadow(color: lavender.opacity(0.2), radius: 24)
               .frame(maxWidth: .infinity)
               .accessibilityHidden(true)
             metadata(track)
             PlaybackProgressView()
-              .tint(.green)
+              .tint(lavender)
             HStack {
               PreviousSongButton(symbolSize: 24)
               Spacer(minLength: 12)
               PlaybackToggleButton(symbolSize: 28)
                 .padding(8)
-                .overlay { Circle().strokeBorder(.green, lineWidth: 2).allowsHitTesting(false) }
+                .overlay { Circle().strokeBorder(lavender, lineWidth: 2).allowsHitTesting(false) }
               Spacer(minLength: 12)
               NextSongButton(symbolSize: 24)
             }
@@ -64,7 +65,7 @@ struct NowPlayingSidebar: View {
         }
       }
       .background(alignment: .top) {
-        LinearGradient(colors: [.green.opacity(0.12), .clear], startPoint: .top, endPoint: .bottom)
+        LinearGradient(colors: [lavender.opacity(0.12), .clear], startPoint: .top, endPoint: .bottom)
       }
       .background(.bar)
       .accessibilityIdentifier("player.bar")
@@ -101,7 +102,7 @@ struct NowPlayingSidebar: View {
         value: Binding(get: { playerStore.volume }, set: { playerStore.setVolume($0) }),
         in: 0...1
       )
-      .tint(.green)
+      .tint(lavender)
       .accessibilityLabel("Volume")
       .accessibilityIdentifier("player.volume")
       Image(systemName: "speaker.wave.3.fill").accessibilityHidden(true)
