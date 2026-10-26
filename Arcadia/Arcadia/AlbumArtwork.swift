@@ -15,26 +15,37 @@ struct AlbumArtwork: View {
   @State private var isLoading = false
 
   var body: some View {
-    Group {
-      if let image {
-        decodedImage(image)
-          .resizable()
-          .scaledToFill()
-          .accessibilityLabel("Album artwork")
-          .accessibilityIdentifier("artwork.loaded")
-      } else {
-        artworkPlaceholder {
-          if isLoading {
-            Rectangle().fill(.quaternary).skeletonPulse().accessibilityLabel("Loading artwork")
+    // Let the caller's frame determine layout; decoded image dimensions must
+    // only affect the crop, including while artwork replaces its placeholder.
+    Color.clear
+      .overlay {
+        Group {
+          if let image {
+            decodedImage(image)
+              .resizable()
+              .scaledToFill()
           } else {
-            Image(systemName: "opticaldisc")
-              .font(.largeTitle)
-              .foregroundStyle(.secondary)
+            artworkPlaceholder {
+              if isLoading {
+                Rectangle().fill(.quaternary).skeletonPulse().accessibilityLabel("Loading artwork")
+              } else {
+                Image(systemName: "opticaldisc")
+                  .font(.largeTitle)
+                  .foregroundStyle(.secondary)
+              }
+            }
           }
         }
       }
-    }
-    .task(id: artworkURL) { await load() }
+      .clipped()
+      .contentShape(Rectangle())
+      .accessibilityElement(children: .ignore)
+      .accessibilityAddTraits(.isImage)
+      .accessibilityLabel(
+        image != nil ? "Album artwork" : (isLoading ? "Loading artwork" : "Album artwork unavailable")
+      )
+      .accessibilityIdentifier(image != nil ? "artwork.loaded" : "artwork.placeholder")
+      .task(id: artworkURL) { await load() }
   }
 
   private func decodedImage(_ image: ArtworkImage) -> Image {

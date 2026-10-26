@@ -6,6 +6,24 @@ final class FeedbackLoopTests: XCTestCase {
   }
 
   @MainActor
+  func testNonSquareArtworkStaysInsideAlbumCards() {
+    let app = launch("two-page")
+    let first = app.buttons["album.fixture-1"]
+    let second = app.buttons["album.fixture-2"]
+    XCTAssertTrue(first.waitForExistence(timeout: 10))
+    XCTAssertTrue(second.waitForExistence(timeout: 10))
+    let loaded = NSPredicate(format: "label CONTAINS 'Album artwork'")
+    expectation(for: loaded, evaluatedWith: first)
+    expectation(for: loaded, evaluatedWith: second)
+    waitForExpectations(timeout: 10)
+    capture(app, "Mixed aspect ratios - album grid")
+    XCTAssertEqual(first.frame.width, second.frame.width, accuracy: 2)
+    XCTAssertEqual(first.frame.height, second.frame.height, accuracy: 2)
+    XCTAssertLessThanOrEqual(first.frame.maxX, second.frame.minX)
+    XCTAssertEqual(first.frame.minY, second.frame.minY, accuracy: 2)
+  }
+
+  @MainActor
   private func launch(_ scenario: String) -> XCUIApplication {
     let app = XCUIApplication()
     app.launchArguments = ["-ApplePersistenceIgnoreState", "YES"]

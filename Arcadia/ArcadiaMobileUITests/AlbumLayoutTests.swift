@@ -4,6 +4,30 @@ final class AlbumLayoutTests: XCTestCase {
   override func setUpWithError() throws { continueAfterFailure = false }
 
   @MainActor
+  func testNonSquareArtworkStaysInsideAlbumCards() {
+    let app = XCUIApplication()
+    app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
+    app.launchEnvironment["ARCADIA_FIXTURE_SCENARIO"] = "two-page"
+    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
+    app.launch()
+    XCTAssertTrue(app.segmentedControls.buttons["Albums"].waitForExistence(timeout: 10))
+    app.segmentedControls.buttons["Albums"].tap()
+    let first = app.buttons["album.fixture-1"]
+    let second = app.buttons["album.fixture-2"]
+    XCTAssertTrue(first.waitForExistence(timeout: 10))
+    XCTAssertTrue(second.waitForExistence(timeout: 10))
+    let loaded = NSPredicate(format: "label CONTAINS 'Album artwork'")
+    expectation(for: loaded, evaluatedWith: first)
+    expectation(for: loaded, evaluatedWith: second)
+    waitForExpectations(timeout: 10)
+    capture(app, "Mixed aspect ratios - album grid")
+    XCTAssertEqual(first.frame.width, second.frame.width, accuracy: 2)
+    XCTAssertEqual(first.frame.height, second.frame.height, accuracy: 2)
+    XCTAssertLessThanOrEqual(first.frame.maxX, second.frame.minX)
+    XCTAssertEqual(first.frame.minY, second.frame.minY, accuracy: 2)
+  }
+
+  @MainActor
   func testPhoneShowsTwoAlbumsAcrossWithoutLosingNavigationOrListening() {
     let app = XCUIApplication()
     app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"

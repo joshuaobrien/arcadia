@@ -193,6 +193,14 @@
       return try Data(contentsOf: url)
     }
 
+    private func albumArtworkURL(_ number: Int) -> URL? {
+      let resource =
+        scenario == .twoPage
+        ? ["FixtureArtworkLandscape", "FixtureArtworkPortrait", "FixtureArtwork"][(number - 1) % 3]
+        : "FixtureArtwork"
+      return Bundle.main.url(forResource: resource, withExtension: "png")
+    }
+
     private func albums(_ numbers: ClosedRange<Int>) -> [Album] {
       numbers.map { number in
         Album(
@@ -202,7 +210,7 @@
             : (number == 1 ? "Hyperballad" : "Fixture Album \(number)"),
           albumArtist: scenario == .longAlbumMetadata
             ? "The Northern Lights Orchestra with The Evening Choir" : "Bjork", year: 1996, trackCount: 3,
-          artworkURL: Bundle.main.url(forResource: "FixtureArtwork", withExtension: "png")
+          artworkURL: albumArtworkURL(number)
         )
       }
     }
