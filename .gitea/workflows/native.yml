@@ -24,6 +24,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -59,7 +61,7 @@ jobs:
       - name: Check CI worker command behavior
         run: |
           python3 -m unittest discover -s scripts/native_ci -p 'test_*.py'
-          node --test scripts/test-auto-merge.mjs
+          node --test scripts/test-auto-merge.mjs scripts/test-publish-macos-update.mjs
           python3 -m unittest discover -s scripts -p test_pr_screenshots.py
 
       - name: Lint, build and test in an ephemeral VM
@@ -68,13 +70,22 @@ jobs:
           ARCADIA_CI_DERIVED_DIR: ${{ github.workspace }}/.ci-derived
           ARCADIA_BASE_URL: ${{ vars.ARCADIA_BASE_URL }}
         run: |
+          export ARCADIA_BUILD_NUMBER=$(git rev-list --first-parent --count HEAD)
           if { [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF" = "refs/heads/main" ]; } || [ "${{ inputs.release }}" = "true" ]; then
             ARTIFACT_DIR="$PWD/artifacts" ./scripts/ci-native.sh "$PWD"
           else
             ./scripts/ci-native.sh "$PWD"
           fi
 
-      - name: Upload unsigned app
+      - name: Publish signed macOS update
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          ARCADIA_UPDATE_TOKEN: ${{ secrets.AGENTCONNECT_MERGE_TOKEN }}
+          ARCADIA_UPDATE_KEY: ${{ secrets.ARCADIA_SPARKLE_PRIVATE_KEY }}
+        run: |
+          ./scripts/publish-macos-update artifacts/Arcadia.zip "$GITHUB_SHA" "$(git rev-list --first-parent --count HEAD)"
+
+      - name: Upload macOS app
         timeout-minutes: 2
         if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || inputs.release == true
         uses: actions/upload-artifact@v3

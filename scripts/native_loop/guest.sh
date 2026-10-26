@@ -183,7 +183,7 @@ PYTHON
       release)
         release_url="${1:?Release base URL required}"
         logged "$artifacts/release.log" xcodebuild -project Arcadia.xcodeproj -scheme Arcadia -configuration Release -destination 'platform=macOS' -derivedDataPath "$derived/release" -skipMacroValidation CODE_SIGNING_ALLOWED=NO "ARCADIA_BASE_URL=$release_url" build
-        codesign --force --deep --sign - "$derived/release/Build/Products/Release/Arcadia.app"
+        "$workspace/Arcadia/sign-release.sh" "$derived/release/Build/Products/Release/Arcadia.app"
         codesign --verify --deep --strict "$derived/release/Build/Products/Release/Arcadia.app"
         ditto -c -k --sequesterRsrc --keepParent "$derived/release/Build/Products/Release/Arcadia.app" "$exchange/Arcadia.zip"
         ;;

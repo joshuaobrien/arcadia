@@ -15,6 +15,9 @@ struct ArcadiaApp: App {
   #if DEBUG
     @State private var visualStateReady = false
   #endif
+  #if os(macOS)
+    private let updates = AppUpdates()
+  #endif
   private let configuration: Result<AppConfiguration, Error>
 
   init() {
@@ -77,6 +80,11 @@ struct ArcadiaApp: App {
       #endif
     }
     .commands {
+      #if os(macOS)
+        CommandGroup(after: .appInfo) {
+          CheckForUpdatesView(updates: updates)
+        }
+      #endif
       PlaybackCommands(player: connection?.listeningSession?.player ?? fixtureSession?.player)
     }
   }

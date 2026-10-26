@@ -123,9 +123,10 @@ vm_run "xcrun xcresulttool get test-results summary --path /tmp/arcadia-ci-tests
 [[ "$TEST_STATUS" == 0 ]] || exit "$TEST_STATUS"
 
 if [[ -n "$ARTIFACT_DIR" ]]; then
+  [[ "${ARCADIA_BUILD_NUMBER:-1}" =~ ^[1-9][0-9]*$ ]] || { echo 'Invalid release build number' >&2; exit 1; }
   printf -v ESCAPED_BASE_URL '%q' "$ARCADIA_BASE_URL"
   echo "==> Release build, signing and packaging (Fastlane)"
-  vm_run "export ARCADIA_BASE_URL=$ESCAPED_BASE_URL; $FASTLANE mac_release"
+  vm_run "export ARCADIA_BASE_URL=$ESCAPED_BASE_URL ARCADIA_BUILD_NUMBER=${ARCADIA_BUILD_NUMBER:-1}; $FASTLANE mac_release"
   [[ -f "$ARTIFACT_DIR/Arcadia.zip" ]] || {
     echo "Release artifact was not copied out of the VM" >&2
     exit 1
