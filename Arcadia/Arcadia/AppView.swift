@@ -73,9 +73,9 @@ struct AppView: View {
     #if DEBUG
       .preference(key: DevelopmentFrameReady.self, value: developmentFrameReady)
       .task { await prepareVisualPlayer() }
-      #if os(macOS)
-        .frame(minWidth: usesVisualPlayerFixture ? 1100 : nil, minHeight: usesVisualPlayerFixture ? 760 : nil)
-      #endif
+        #if os(macOS)
+          .frame(minWidth: usesVisualPlayerFixture ? 1100 : nil, minHeight: usesVisualPlayerFixture ? 760 : nil)
+        #endif
     #endif
     .environment(playerStore)
     .environment(\.musicSource, albumService)
@@ -87,26 +87,7 @@ struct AppView: View {
     #if os(iOS)
       phoneShell
     #else
-      VStack(spacing: 0) {
-        NavigationSplitView {
-          List(AppSection.allCases, selection: selectionBinding) { section in
-            Text(section.rawValue.capitalized)
-              .accessibilityIdentifier("library.destination.\(section.rawValue)")
-          }
-        } detail: {
-          retainedSections(AppSection.allCases)
-        }
-        PlayerBar()
-      }
-      .navigationTitle(activeLibraryTitle ?? selection.rawValue.capitalized)
-      .onPreferenceChange(ActiveLibraryTitle.self) { activeLibraryTitle = $0 }
-      .inspector(isPresented: $isQueuePresented) {
-        QueueView(scrollPosition: $queueScrollPosition, scrollOffset: $queueScrollOffset)
-      }
-      .toolbar {
-        Button("Queue", systemImage: "list.bullet") { isQueuePresented.toggle() }
-          .accessibilityIdentifier("queue.toggle")
-      }
+      macShell
     #endif
   }
 
@@ -329,6 +310,40 @@ struct AppView: View {
           false
         }
       case .search: true
+      }
+    }
+  }
+#endif
+
+#if os(macOS)
+  extension AppView {
+    private var macShell: some View {
+      VStack(spacing: 0) {
+        NavigationSplitView {
+          List(AppSection.allCases, selection: selectionBinding) { section in
+            Text(section.rawValue.capitalized)
+              .accessibilityIdentifier("library.destination.\(section.rawValue)")
+          }
+        } detail: {
+          HStack(spacing: 0) {
+            retainedSections(AppSection.allCases)
+              .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if playerStore.currentTrack != nil {
+              Divider()
+              NowPlayingSidebar { isQueuePresented.toggle() }
+                .frame(width: 300)
+            }
+          }
+        }
+      }
+      .navigationTitle(activeLibraryTitle ?? selection.rawValue.capitalized)
+      .onPreferenceChange(ActiveLibraryTitle.self) { activeLibraryTitle = $0 }
+      .inspector(isPresented: $isQueuePresented) {
+        QueueView(scrollPosition: $queueScrollPosition, scrollOffset: $queueScrollOffset)
+      }
+      .toolbar {
+        Button("Queue", systemImage: "list.bullet") { isQueuePresented.toggle() }
+          .accessibilityIdentifier("queue.toggle")
       }
     }
   }

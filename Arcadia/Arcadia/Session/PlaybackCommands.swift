@@ -22,6 +22,14 @@ struct PlaybackCommands: Commands {
 extension PlayerStore {
   enum State: String { case idle, loading, playing, paused, failed, ended }
 
+  var needsReplacementConfirmation: Bool { pendingReplacement != nil }
+  var canAdvance: Bool { currentIndex.map { queue.indices.contains($0 + 1) } ?? false }
+  var upcoming: [QueueEntry] {
+    guard let currentIndex else { return queue }
+    return Array(queue.dropFirst(currentIndex + 1))
+  }
+  var currentIndex: Int? { queue.firstIndex { $0.id == currentEntryID } }
+
   var currentEntry: QueueEntry? { queue.first { $0.id == currentEntryID } }
   var currentTrack: Track? { currentEntry?.track }
   var isPlaying: Bool { state == .playing }

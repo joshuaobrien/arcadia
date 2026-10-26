@@ -53,7 +53,9 @@ final class PlaybackLifecycleTests: XCTestCase {
     let activationCount = activations
     let requestsBefore = await source.resourceRequestCount()
 
+    player.setVolume(0.25)
     player.resetAudioServices()
+    XCTAssertEqual(player.volume, 0.25)
     try await Task.sleep(for: .milliseconds(150))
     XCTAssertEqual(player.queue.map(\.id), queue)
     XCTAssertEqual(player.currentEntryID, occurrence)
