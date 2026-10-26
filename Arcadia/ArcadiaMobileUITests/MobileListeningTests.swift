@@ -53,16 +53,26 @@ final class MobileListeningTests: XCTestCase {
     XCTAssertGreaterThan(
       resume.frame.minY, seek.frame.maxY,
       "Expanded transport must have its own prominent row below seeking")
+    // Duo's display transform can report a 44pt bound a few floating-point ULPs below 44.
+    let geometryTolerance = 0.000_001
     for identifier in ["player.previous", "player.resume", "player.next"] {
       let button = app.buttons[identifier]
       XCTAssertTrue(button.isHittable)
-      XCTAssertGreaterThanOrEqual(button.frame.width, 44)
-      XCTAssertGreaterThanOrEqual(button.frame.height, 44)
+      XCTAssertGreaterThanOrEqual(button.frame.width + geometryTolerance, 44)
+      XCTAssertGreaterThanOrEqual(button.frame.height + geometryTolerance, 44)
     }
     capture(app, "Expanded player - readable metadata, seeking and dedicated transport")
     app.buttons["queue.toggle"].tap()
     XCTAssertTrue(app.staticTexts["queue.heading"].waitForExistence(timeout: 5))
-    app.navigationBars.buttons["Now Playing"].tap()
+    let navigationBack = app.navigationBars.buttons["Now Playing"]
+    if navigationBack.exists {
+      navigationBack.tap()
+    } else {
+      // Duo places native navigation in its rail rather than the phone navigation bar.
+      let railBack = app.buttons["BackButton"]
+      XCTAssertTrue(railBack.exists)
+      railBack.tap()
+    }
     XCTAssertEqual(title.label, "The First Song")
     XCTAssertTrue(resume.isHittable)
   }
