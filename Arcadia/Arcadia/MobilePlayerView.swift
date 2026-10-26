@@ -49,6 +49,19 @@ struct ExpandedPlayerView: View {
 
   var body: some View {
     presentation
+      #if DEBUG
+        .overlay(alignment: .topLeading) {
+          if let run = ProcessInfo.processInfo.environment["ARCADIA_VISUAL_RUN_ID"] {
+            Text("FRAME " + run.suffix(8).uppercased())
+              .font(.system(size: 24, weight: .bold, design: .monospaced))
+              .foregroundStyle(.black)
+              .padding(4)
+              .background(.yellow)
+              .allowsHitTesting(false)
+              .accessibilityIdentifier("development.frame")
+          }
+        }
+      #endif
       .accessibilityElement(children: .contain)
       .accessibilityIdentifier("player.expanded")
   }
