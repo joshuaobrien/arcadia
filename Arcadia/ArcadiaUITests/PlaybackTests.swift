@@ -21,14 +21,20 @@ final class PlaybackTests: XCTestCase {
 
   @MainActor
   func testNowPlayingSidebarKeepsTransportVolumeAndQueueAccessible() {
-    let app = openFixtureAlbum()
-    app.buttons["album.play"].click()
+    let app = XCUIApplication()
+    app.launchArguments = ["-ApplePersistenceIgnoreState", "YES"]
+    app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
+    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
+    app.launch()
+    let song = app.buttons["track.fixture-1-track-1.play"]
+    XCTAssertTrue(song.waitForExistence(timeout: 10))
+    song.click()
     XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 10))
     app.buttons["player.pause"].click()
     let title = app.staticTexts["player.title"]
     XCTAssertEqual(title.value as? String, "The First Song")
     XCTAssertEqual(app.staticTexts["player.album"].value as? String, "Hyperballad")
-    XCTAssertGreaterThan(title.frame.minX, app.buttons["album.play"].frame.maxX)
+    XCTAssertGreaterThan(title.frame.minX, song.frame.maxX)
     let sidebar = app.scrollViews["player.bar"]
     let volume = app.sliders["player.volume"]
     for _ in 0..<5 {

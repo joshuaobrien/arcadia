@@ -37,7 +37,7 @@ struct NowPlayingSidebar: View {
               Spacer(minLength: 12)
               PlaybackToggleButton(symbolSize: 28)
                 .padding(8)
-                .overlay { Circle().strokeBorder(.green, lineWidth: 2) }
+                .overlay { Circle().strokeBorder(.green, lineWidth: 2).allowsHitTesting(false) }
               Spacer(minLength: 12)
               NextSongButton(symbolSize: 24)
             }
@@ -67,7 +67,6 @@ struct NowPlayingSidebar: View {
         LinearGradient(colors: [.green.opacity(0.12), .clear], startPoint: .top, endPoint: .bottom)
       }
       .background(.bar)
-      .accessibilityElement(children: .contain)
       .accessibilityIdentifier("player.bar")
     }
   }

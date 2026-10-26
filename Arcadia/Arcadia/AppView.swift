@@ -318,22 +318,19 @@ struct AppView: View {
 #if os(macOS)
   extension AppView {
     private var macShell: some View {
-      VStack(spacing: 0) {
+      HStack(spacing: 0) {
         NavigationSplitView {
           List(AppSection.allCases, selection: selectionBinding) { section in
             Text(section.rawValue.capitalized)
               .accessibilityIdentifier("library.destination.\(section.rawValue)")
           }
         } detail: {
-          HStack(spacing: 0) {
-            retainedSections(AppSection.allCases)
-              .frame(maxWidth: .infinity, maxHeight: .infinity)
-            if playerStore.currentTrack != nil {
-              Divider()
-              NowPlayingSidebar { isQueuePresented.toggle() }
-                .frame(width: 300)
-            }
-          }
+          retainedSections(AppSection.allCases)
+        }
+        if playerStore.currentTrack != nil {
+          Divider()
+          NowPlayingSidebar { isQueuePresented.toggle() }
+            .frame(width: 300)
         }
       }
       .navigationTitle(activeLibraryTitle ?? selection.rawValue.capitalized)
