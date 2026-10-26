@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><!-- sparkle-sign-warning:
+IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
+--><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0"><channel>
+<title>Arcadia for macOS</title><link>https://joshs-mac-mini.tail81f644.ts.net/jj/arcadia</link><description>Main builds</description>
+<item><title>Arcadia 141</title><description>Build e8e067244a0d964b3b6a46038b66f60bf2224a9b</description>
+<sparkle:version>141</sparkle:version><sparkle:shortVersionString>1.0 (141)</sparkle:shortVersionString>
+<sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+<enclosure url="https://joshs-mac-mini.tail81f644.ts.net/attachments/bbe4b4b6-a1a2-44f1-b4a9-ccae04a0b55f" length="2247366" type="application/octet-stream" sparkle:edSignature="675YMYXueMvsziht/xcZgHE5/r9EVF//6l18swk3RkuWQB2IhVxwejs7nqLYlO8Sikoksn/FH+26qQ9ERYIuAA=="></enclosure>
+</item></channel></rss><!-- sparkle-signatures:
+edSignature: yFNcitpSnhnLYqQPLt1HfDslQ6KzRrONT1Ol8pzyKv+EWJYqo55gydNHsz8L/dNa/SwFNElA+fNSfOWbC3FLDQ==
+length: 1103
+-->
