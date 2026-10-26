@@ -72,6 +72,7 @@ struct AppView: View {
     }
     #if DEBUG
       .preference(key: DevelopmentFrameReady.self, value: developmentFrameReady)
+      .task { await prepareVisualPlayer() }
     #endif
     .environment(playerStore)
     .environment(\.musicSource, albumService)
@@ -287,7 +288,30 @@ struct AppView: View {
 
 #if DEBUG
   extension AppView {
+    // Visual-loop runs use a frozen, paused fixture queue; normal launches and tests stay untouched.
+    private var usesVisualPlayerFixture: Bool {
+      let environment = ProcessInfo.processInfo.environment
+      return environment["ARCADIA_VISUAL_RUN_ID"] != nil
+        && environment["ARCADIA_DATA_MODE"] == "fixtures"
+        && environment["ARCADIA_FIXTURE_SCENARIO"] == "success"
+    }
+
+    private func prepareVisualPlayer() async {
+      guard usesVisualPlayerFixture else { return }
+      do {
+        let songs = try await albumService.fetchSongs(SongBrowseRequest())
+        playerStore.play(Array(songs.items.prefix(3)))
+        playerStore.pause()
+        #if os(iOS)
+          isPlayerPresented = true
+        #endif
+      } catch {
+        // A failed fixture cannot satisfy the frame readiness gate below.
+      }
+    }
+
     private var developmentFrameReady: Bool {
+      if usesVisualPlayerFixture && playerStore.state != .paused { return false }
       let capturingLoading = ProcessInfo.processInfo.environment["ARCADIA_FIXTURE_SCENARIO"] == "loading"
       return switch AppSection(rawValue: destination) ?? .songs {
       case .songs:
