@@ -35,6 +35,7 @@ jobs:
             if (!response.ok) throw new Error(`Gitea ${method} ${path}: HTTP ${response.status}`);
             return result;
           }
+          let authorisedQueue = false;
           async function main() {
             if (!process.env.MERGE_TOKEN) throw new Error('Missing merge token');
             const number = process.env.PR_NUMBER;
@@ -49,13 +50,14 @@ jobs:
               console.log('Superseded event; latest head event owns the queue request');
               return;
             }
+            authorisedQueue = true;
             // Inspect trusted Gitea metadata only; never check out or execute PR code.
             let visual = false;
             for (let page = 1; ; page++) {
               if (page > 100) throw new Error('PR file inventory exceeds evidence-check bound');
               const files = await api(path + `/files?limit=100&page=${page}`);
               if (!Array.isArray(files)) throw new Error('Invalid PR file inventory');
-              const ui = /^Arcadia\/Arcadia\/.*(?:Views?|Row|Card|Artwork|DesignTokens|ContentView|PlayerBar|Albums|AlbumDetail|Skeleton|Layout|Grid|Theme)\.swift$|^Arcadia\/Arcadia\/.*\.xcassets\//;
+              const ui = /^Arcadia\/Arcadia\/.*\.swift$|^Arcadia\/Arcadia\/.*\.xcassets\//;
               visual ||= files.some(file => ui.test(file.filename) || ui.test(file.previous_filename ?? ''));
               if (files.length < 100) break;
             }
@@ -65,6 +67,22 @@ jobs:
               if (manifests.length !== 1) throw new Error('Visual PR requires published before/after screenshots; run scripts/pr-screenshots');
               const evidence = JSON.parse(manifests[0][1]);
               if (evidence.head_sha !== pr.head.sha || !Array.isArray(evidence.pairs) || !evidence.pairs.length || evidence.pairs.length > 20) throw new Error('Missing or stale visual evidence');
+              const platforms = evidence.pairs.map(pair => pair.platform).sort();
+              if (JSON.stringify(platforms) !== JSON.stringify(['duo', 'iphone', 'mac'])) throw new Error('Native app changes require exactly one Mac, iPhone and Duo comparison');
+              const commits = await api(path + '/commits?limit=100');
+              if (evidence.before_ref !== pr.merge_base && !commits.some(c => c.sha === evidence.before_ref)) throw new Error('Invalid before-capture baseline');
+              async function trees(ref) {
+                async function entries(sha) {
+                  const result = await api('/git/trees/' + sha);
+                  if (result.truncated) throw new Error('Truncated source tree inventory');
+                  return Object.fromEntries(result.tree.map(e => [e.path, e]));
+                }
+                const root = await entries(ref);
+                const native = await entries(root.Arcadia.sha);
+                const project = await entries(native['Arcadia.xcodeproj'].sha);
+                return { app_tree_sha: native.Arcadia.sha, project_sha: project['project.pbxproj'].sha };
+              }
+              const expected = { before: await trees(evidence.before_ref), after: await trees(pr.head.sha) };
               const assets = await api(`/issues/${number}/assets`);
               const { createHash } = require('node:crypto');
               for (const pair of evidence.pairs) {
@@ -72,6 +90,7 @@ jobs:
                 if (pair.before?.sha256 === pair.after?.sha256) throw new Error('Before and after must be distinct captures');
                 for (const stage of ['before', 'after']) {
                   const image = pair[stage];
+                  if (!image || Object.entries(expected[stage]).some(([key, value]) => image[key] !== value)) throw new Error('Capture source does not match declared Git source');
                   const asset = assets.find(a => a.id === image?.asset_id);
                   if (!asset || !/^[0-9a-f-]{36}$/.test(asset.uuid) || !/^[a-f0-9]{64}$/.test(image.sha256 ?? '') || !/^[a-f0-9]{64}$/.test(image.source_sha256 ?? '') || typeof image.run_id !== 'string' || !image.run_id) throw new Error('Invalid screenshot attachment/provenance');
                   const url = `https://joshs-mac-mini.tail81f644.ts.net/attachments/${asset.uuid}`;
@@ -83,8 +102,18 @@ jobs:
                   if (bytes.length > 10485760 || bytes.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a' || createHash('sha256').update(bytes).digest('hex') !== image.sha256) throw new Error('Screenshot content mismatch');
                 }
               }
-              // A head change during downloads must not inherit this evidence decision.
-              if ((await api(path)).head.sha !== pr.head.sha) throw new Error('PR head changed during evidence verification');
+              // Check Gitea's rendered HTML, not Markdown hidden in a comment/code block.
+              const rendered = await fetch(`https://joshs-mac-mini.tail81f644.ts.net/jj/arcadia/pulls/${number}`, { redirect: 'error', signal: AbortSignal.timeout(30000) });
+              if (!rendered.ok) throw new Error('PR HTML is inaccessible');
+              const html = await rendered.text();
+              for (const pair of evidence.pairs) for (const stage of ['before', 'after']) {
+                const image = pair[stage];
+                const tags = html.match(/<img\b[^>]*>/g) ?? [];
+                if (!tags.some(tag => tag.includes(`alt="${pair.platform} ${stage}"`) && tag.includes(`/attachments/${image.url.split('/').at(-1)}`))) throw new Error('Screenshot is not rendered visibly in PR HTML');
+              }
+              // Same-head edits can remove evidence too; reject that race.
+              const final = await api(path);
+              if (final.head.sha !== pr.head.sha || final.body !== pr.body) throw new Error('PR source or evidence changed during verification');
             }
             if (pr.draft) {
               const title = pr.title.replace(/^(?:WIP:|Draft:|\[WIP\])\s*/i, '');
@@ -97,5 +126,12 @@ jobs:
             });
             console.log(`PR #${number} queued; required CI and reviewer checks still apply`);
           }
-          main().catch(error => { console.error(error.message); process.exitCode = 1; });
+          main().catch(async error => {
+            console.error(error.message);
+            process.exitCode = 1;
+            if (authorisedQueue && process.env.MERGE_TOKEN) {
+              try { await api(`/pulls/${process.env.PR_NUMBER}/merge`, 'DELETE'); }
+              catch { console.error('Could not clear an existing schedule; required queue status remains failing'); }
+            }
+          });
           JS

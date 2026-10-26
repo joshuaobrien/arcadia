@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import re
 import subprocess
+import tarfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -17,6 +18,39 @@ BASE = 'https://joshs-mac-mini.tail81f644.ts.net'
 REPO = '/api/v1/repos/jj/arcadia'
 START = '<!-- arcadia-visual-evidence:start -->'
 END = '<!-- arcadia-visual-evidence:end -->'
+
+
+def git_object(kind, data):
+    return hashlib.sha1(kind.encode() + b' ' + str(len(data)).encode() + b'\0' + data).hexdigest()
+
+
+def source_trees(archive):
+    root = {}
+    project = None
+    with tarfile.open(archive) as source:
+        for item in source:
+            if not item.isfile():
+                continue
+            if item.name == 'Arcadia/Arcadia.xcodeproj/project.pbxproj':
+                project = git_object('blob', source.extractfile(item).read())
+            if not item.name.startswith('Arcadia/Arcadia/'):
+                continue
+            parts = item.name.removeprefix('Arcadia/Arcadia/').split('/')
+            if any(p in {'', '.', '..'} for p in parts):
+                raise ValueError('Unsafe source archive entry')
+            node = root
+            for part in parts[:-1]:
+                node = node.setdefault(part, {})
+            node[parts[-1]] = ('100755' if item.mode & 0o111 else '100644', git_object('blob', source.extractfile(item).read()))
+    def tree(node):
+        entries = []
+        for name, value in node.items():
+            mode, sha = ('40000', tree(value)) if isinstance(value, dict) else value
+            entries.append((name + ('/' if mode == '40000' else ''), mode.encode() + b' ' + name.encode() + b'\0' + bytes.fromhex(sha)))
+        return git_object('tree', b''.join(data for _, data in sorted(entries)))
+    if not root or project is None:
+        raise ValueError('Capture archive lacks native app/project sources')
+    return {'app_tree_sha': tree(root), 'project_sha': project}
 
 
 def read_capture(platform, directory):
@@ -31,7 +65,10 @@ def read_capture(platform, directory):
         raise ValueError('Screenshot does not match its successful platform/run receipt')
     if not re.fullmatch('[a-f0-9]{64}', receipt.get('source_sha256', '')) or not receipt.get('run_id'):
         raise ValueError('Screenshot lacks source/run provenance')
-    return data, {'sha256': sha, 'source_sha256': receipt['source_sha256'], 'run_id': receipt['run_id']}
+    archive = directory.parent.parent / 'source' / ('source-' + receipt['source_sha256'] + '.tgz')
+    if hashlib.sha256(archive.read_bytes()).hexdigest() != receipt['source_sha256']:
+        raise ValueError('Capture source archive fingerprint mismatch')
+    return data, dict(source_trees(archive), sha256=sha, source_sha256=receipt['source_sha256'], run_id=receipt['run_id'])
 
 
 def credential(token_file):
@@ -86,14 +123,36 @@ class Publisher:
             raise ValueError('Uploaded image exceeds size bound')
         return data
 
-    def publish(self, number, pairs):
+    def trusted_trees(self, ref):
+        def entries(sha):
+            result = self.api('/git/trees/' + sha)
+            if result.get('truncated'):
+                raise ValueError('Git tree inventory is truncated')
+            return {e['path']: e for e in result['tree']}
+        top = entries(ref)['Arcadia']['sha']
+        native = entries(top)
+        project = entries(native['Arcadia.xcodeproj']['sha'])['project.pbxproj']['sha']
+        return {'app_tree_sha': native['Arcadia']['sha'], 'project_sha': project}
+
+    def publish(self, number, pairs, before_ref=None):
         path = '/pulls/' + str(number)
         pr = self.api(path)
         if pr['user']['login'] != 'arcadia-pilot-bot' or pr['head']['repo']['full_name'] != 'jj/arcadia':
             raise ValueError('Evidence publication is restricted to Arcadia bot PRs')
+        before_ref = before_ref or pr['merge_base']
+        commits = self.api(path + '/commits?limit=100')
+        if before_ref != pr['merge_base'] and before_ref not in {c['sha'] for c in commits}:
+            raise ValueError('Before reference must be the merge base or a fixture-baseline commit in this PR')
+        expected = {'before': self.trusted_trees(before_ref), 'after': self.trusted_trees(pr['head']['sha'])}
+        # Validate all source bindings before external mutations.
+        for platform, before, after in pairs:
+            for stage, directory in [('before', before), ('after', after)]:
+                _, record = read_capture(platform, directory)
+                if any(record[k] != v for k, v in expected[stage].items()):
+                    raise ValueError(stage + ' capture does not match its declared Git app/project source; commit fixture baseline before capture')
         endpoint = '/issues/' + str(number) + '/assets'
         assets = {a['name']: a for a in self.api(endpoint)}
-        manifest = {'head_sha': pr['head']['sha'], 'pairs': []}
+        manifest = {'head_sha': pr['head']['sha'], 'before_ref': before_ref, 'pairs': []}
         rows = ['| Layout | Before | After |', '| --- | --- | --- |']
         for platform, before, after in pairs:
             pair = {'platform': platform}
@@ -143,6 +202,7 @@ def main():
     parser.add_argument('--pr', type=int, required=True)
     parser.add_argument('--pair', nargs=3, action='append', metavar=('PLATFORM', 'BEFORE_RUN_DIR', 'AFTER_RUN_DIR'), required=True)
     parser.add_argument('--token-file', type=Path)
+    parser.add_argument('--before-ref', help='Committed fixture baseline in this PR; default merge base')
     args = parser.parse_args()
     if args.pr <= 0 or any(p[0] not in {'mac', 'iphone', 'duo'} for p in args.pair) or len({p[0] for p in args.pair}) != len(args.pair):
         parser.error('Use a positive PR number and one pair per affected mac/iphone/duo platform')
@@ -150,7 +210,7 @@ def main():
     for platform, before, after in args.pair:
         read_capture(platform, before)
         read_capture(platform, after)
-    Publisher(credential(args.token_file)).publish(args.pr, args.pair)
+    Publisher(credential(args.token_file)).publish(args.pr, args.pair, args.before_ref)
 
 
 if __name__ == '__main__':

@@ -7,18 +7,29 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 const workflow = readFileSync(new URL('../.gitea/workflows/auto-merge.yml', import.meta.url), 'utf8');
 const source = ('const base =' + workflow.split('          const base =')[1].split('\n          JS')[0]).replace(/^          /gm, '');
-const initial = { state: 'open', merged: false, draft: false, title: 'Ready change', user: { login: 'arcadia-pilot-bot' }, base: { ref: 'main' }, head: { sha: 'abc', repo: { full_name: 'jj/arcadia' } } };
+const initial = { merge_base: 'before', state: 'open', merged: false, draft: false, title: 'Ready change', user: { login: 'arcadia-pilot-bot' }, base: { ref: 'main' }, head: { sha: 'abc', repo: { full_name: 'jj/arcadia' } } };
 async function run(pr = initial, env = {}, errorStatus = 0, mergeError = null, evidence = {}) {
   const calls = [];
+  let reads = 0;
   const process = { env: { MERGE_TOKEN: 'test-only', PR_NUMBER: '28', EVENT_HEAD: 'abc', ...env } };
   await vm.runInNewContext(source, {
     process, require, Buffer, console: { log() {}, error() {} }, AbortSignal,
-    fetch: async (url, options) => {
+    fetch: async (url, options = {}) => {
       calls.push({ url, method: options.method, body: options.body && JSON.parse(options.body) });
       const failedMerge = options.method === 'POST' && mergeError;
       const status = failedMerge ? 409 : errorStatus || 200;
-      if (url.includes('/attachments/')) return {ok: !evidence.inaccessible, arrayBuffer: async () => evidence.bytes ?? (url.endsWith('1') ? Buffer.concat([imageBytes,Buffer.from('before')]) : imageBytes)};
-      const result = url.includes('/files?') ? evidence.files ?? [] : url.endsWith('/assets') ? evidence.assets ?? [] : failedMerge ? { message: mergeError } : options.method === 'GET' ? pr : options.method === 'PATCH' ? { ...pr, draft: false } : null;
+      if (url.includes('/attachments/')) return {ok: !evidence.inaccessible, arrayBuffer: async () => evidence.bytes ?? (parseInt(url.at(-1),16)%2 ? Buffer.concat([imageBytes,Buffer.from('before')]) : imageBytes)};
+      if (!url.includes('/api/') && url.includes('/jj/arcadia/pulls/')) return {ok:true,text:async()=>evidence.html ?? evidence.manifest?.pairs.flatMap(p=>['before','after'].map(stage=>`<img alt="${p.platform} ${stage}" src="${p[stage].url}">`)).join('') ?? ''};
+      const treeRef=url.split('/git/trees/')[1];
+      const trees={abc:{tree:[{path:'Arcadia',sha:'native-after'}]},before:{tree:[{path:'Arcadia',sha:'native-before'}]}};
+      for(const stage of ['before','after']) {
+        trees['native-'+stage]={tree:[{path:'Arcadia',sha:'app-'+stage},{path:'Arcadia.xcodeproj',sha:'project-'+stage}]};
+        trees['project-'+stage]={tree:[{path:'project.pbxproj',sha:'config-'+stage}]};
+      }
+      const isPR=url.endsWith('/pulls/28')&&options.method==='GET';
+      if(isPR)reads++;
+      const current=evidence.bodyRemoved&&reads>1?{...pr,body:'images removed'}:pr;
+      const result = treeRef ? trees[treeRef] : url.includes('/commits?') ? [] : url.includes('/files?') ? evidence.files ?? [] : url.endsWith('/assets') ? evidence.assets ?? [] : failedMerge ? { message: mergeError } : options.method === 'GET' ? current : options.method === 'PATCH' ? { ...pr, draft: false } : null;
       return { ok: status < 400, status, text: async () => JSON.stringify(result) };
     },
   });
@@ -60,18 +71,26 @@ test('already scheduled is an idempotent success, other conflicts still fail', a
   assert.equal(duplicate.exitCode, undefined); assert.equal(duplicate.calls.length, 3);
   for (const message of ['head out of date', 'merge push out of date', 'unknown conflict']) {
     const conflict = await run(initial, {}, 0, message);
-    assert.equal(conflict.exitCode, 1); assert.equal(conflict.calls.length, 3);
+    assert.equal(conflict.exitCode, 1); assert.equal(conflict.calls.length, 4);
   }
 });
 
 const imageBytes = Buffer.from('89504e470d0a1a0a00000000', 'hex');
 function visualFixture() {
-  const assets = [1,2].map(id => ({id, uuid:`00000000-0000-0000-0000-00000000000${id}`,size:imageBytes.length}));
-  const pair={platform:'mac'};
-  for(const [i,stage] of ['before','after'].entries()) pair[stage]={asset_id:i+1,url:`https://joshs-mac-mini.tail81f644.ts.net/attachments/${assets[i].uuid}`,sha256:createHash('sha256').update(i===0?Buffer.concat([imageBytes,Buffer.from('before')]):imageBytes).digest('hex'),source_sha256:'b'.repeat(64),run_id:stage};
-  const manifest={head_sha:'abc',pairs:[pair]};
-  const pr={...initial,body:`<!-- arcadia-visual-evidence:v1\n${JSON.stringify(manifest)}\n-->\n![mac before](${pair.before.url})\n![mac after](${pair.after.url})`};
-  return {pr,manifest,pair,files:[{filename:'Arcadia/Arcadia/AlbumArtwork.swift'}],assets};
+  const assets = Array.from({length:6},(_,i)=>({id:i+1,uuid:`00000000-0000-0000-0000-00000000000${i+1}`,size:imageBytes.length}));
+  const pairs=['mac','iphone','duo'].map((platform,index)=>{
+    const pair={platform};
+    for(const [i,stage] of ['before','after'].entries()) {
+      const asset=assets[index*2+i];
+      pair[stage]={asset_id:asset.id,url:`https://joshs-mac-mini.tail81f644.ts.net/attachments/${asset.uuid}`,sha256:createHash('sha256').update(i===0?Buffer.concat([imageBytes,Buffer.from('before')]):imageBytes).digest('hex'),source_sha256:'b'.repeat(64),run_id:stage,app_tree_sha:'app-'+stage,project_sha:'config-'+stage};
+    }
+    return pair;
+  });
+  const manifest={head_sha:'abc',before_ref:'before',pairs};
+  const pr={...initial};
+  const update=()=>{pr.body=`<!-- arcadia-visual-evidence:v1\n${JSON.stringify(manifest)}\n-->\n`+pairs.flatMap(pair=>['before','after'].map(stage=>`![${pair.platform} ${stage}](${pair[stage].url})`)).join('\n');};
+  update();
+  return {pr,manifest,pair:pairs[0],files:[{filename:'Arcadia/Arcadia/AlbumArtwork.swift'}],assets,update};
 }
 test('visual PR without embedded evidence is never queued',async()=>{
  const f=visualFixture();const r=await run(initial,{},0,null,f);
@@ -94,4 +113,26 @@ test('changed attachment content cannot pass',async()=>{
 test('valid embedded, downloadable screenshots allow guarded queue',async()=>{
  const f=visualFixture();const r=await run(f.pr,{},0,null,f);
  assert.equal(r.exitCode,undefined);assert.ok(r.calls.some(c=>c.method==='POST'&&c.body.force_merge===false));
+});
+
+test('shared native changes require all three platforms',async()=>{
+ const f=visualFixture();f.manifest.pairs.splice(1);f.update();
+ const r=await run(f.pr,{},0,null,f);assert.equal(r.exitCode,1);assert.ok(!r.calls.some(c=>c.method==='POST'));
+});
+test('old capture source cannot be relabelled with the new head',async()=>{
+ const f=visualFixture();f.pair.after.app_tree_sha='old-app';f.update();
+ const r=await run(f.pr,{},0,null,f);assert.equal(r.exitCode,1);assert.ok(!r.calls.some(c=>c.method==='POST'));
+});
+test('hidden markdown and evidence removal during verification fail closed and clear schedule',async()=>{
+ for(const mode of ['hidden','removed']) {
+  const f=visualFixture();if(mode==='hidden')f.html='';else f.bodyRemoved=true;
+  const r=await run(f.pr,{},0,null,f);assert.equal(r.exitCode,1);
+  assert.ok(r.calls.some(c=>c.method==='DELETE'&&c.url.endsWith('/merge')));assert.ok(!r.calls.some(c=>c.method==='POST'));
+ }
+});
+test('native view files without conventional suffixes still require evidence',async()=>{
+ for(const name of ['CurrentPlaybackIndicator','LibraryPresentation','SongActions']) {
+  const r=await run(initial,{},0,null,{files:[{filename:`Arcadia/Arcadia/${name}.swift`}]});
+  assert.equal(r.exitCode,1);assert.ok(!r.calls.some(c=>c.method==='POST'));
+ }
 });
