@@ -74,10 +74,24 @@ def sign(app, configuration=None):
             command('Verify signed release', 'codesign', '--verify', '--deep', '--strict', str(app))
             print('Release signature verified: ' + ('stable private identity' if configuration else 'ad-hoc development artifact'))
         finally:
-            if search_list is not None:
-                command('Restore keychain search list', 'security', 'list-keychains', '-d', 'user', '-s', *search_list)
-            if keychain:
-                command('Remove private signing keychain', 'security', 'delete-keychain', str(keychain))
+            original_failure = sys.exc_info()[0] is not None
+            cleanup_errors = []
+            for label, arguments in [
+                ('Restore keychain search list', ['security', 'list-keychains', '-d', 'user', '-s', *(search_list or [])] if search_list is not None else None),
+                ('Remove private signing keychain', ['security', 'delete-keychain', str(keychain)] if keychain else None),
+            ]:
+                if arguments:
+                    try:
+                        command(label, *arguments)
+                    except (OSError, RuntimeError) as error:
+                        cleanup_errors.append(str(error))
+            if cleanup_errors:
+                message = '; '.join(cleanup_errors)
+                if original_failure:
+                    print(message, file=sys.stderr)
+                else:
+                    raise RuntimeError(message)
+
 
 
 if __name__ == '__main__':

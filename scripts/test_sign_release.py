@@ -32,6 +32,7 @@ with open(os.environ['TEST_LOG'],'a') as f:f.write(json.dumps({'tool':name,'op':
 if name=='sysctl':print(os.environ['TEST_MODEL'])
 if name=='security':
  if args[0]=='list-keychains' and '-s' not in args:print('"/tmp/original-test-keychain"')
+ if args[0]=='list-keychains' and '-s' in args and len(args)==5 and os.environ['TEST_FAILURE']=='restore':sys.exit(1)
  if args[0]=='create-keychain':Path(args[-1]).touch()
  if args[0]=='import' and os.environ['TEST_FAILURE']=='import':
   print('test-only-password',file=sys.stderr);sys.exit(1)
@@ -67,6 +68,12 @@ if name=='codesign' and os.environ['TEST_FAILURE']=='codesign':sys.exit(1)
         self.assertEqual(result.returncode,1)
         self.assertEqual(calls[-1]['op'],'delete-keychain')
         self.assertEqual(calls[-2]['op'],'list-keychains')
+
+    def test_restore_failure_still_attempts_private_keychain_removal(self):
+        result,calls=self.run_signing(failure='restore')
+        self.assertEqual(result.returncode,1)
+        self.assertIn('Restore keychain search list failed',result.stderr)
+        self.assertEqual(calls[-1]['op'],'delete-keychain')
 
     def test_success_verifies_signature_and_removes_private_material(self):
         result,calls=self.run_signing()
