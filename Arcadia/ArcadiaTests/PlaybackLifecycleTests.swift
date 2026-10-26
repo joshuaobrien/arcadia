@@ -35,6 +35,7 @@ final class PlaybackLifecycleTests: XCTestCase {
     let source = DelayedPlaylistSource(fixture: fixture, track: tracks[1])
     var activations = 0
     let player = PlayerStore(source: source, activateAudio: { activations += 1 })
+    player.setVolume(0.25)
     player.play(tracks)
     for _ in 0..<100 {
       if player.isPlaying { break }
@@ -54,6 +55,7 @@ final class PlaybackLifecycleTests: XCTestCase {
     let requestsBefore = await source.resourceRequestCount()
 
     player.resetAudioServices()
+    XCTAssertEqual(player.volume, 0.25)
     try await Task.sleep(for: .milliseconds(150))
     XCTAssertEqual(player.queue.map(\.id), queue)
     XCTAssertEqual(player.currentEntryID, occurrence)

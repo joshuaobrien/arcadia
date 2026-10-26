@@ -19,15 +19,14 @@ final class PlayerStore {
   private(set) var errorText: String?
   private(set) var pendingReplacement: [Track]?
   var queueFeedback: QueueFeedbackState.Feedback? { feedback.current }
-  var needsReplacementConfirmation: Bool { pendingReplacement != nil }
 
-  var isPlaybackRequested: Bool { wantsPlayback }
-  var canAdvance: Bool { currentIndex.map { queue.indices.contains($0 + 1) } ?? false }
-  var upcoming: [QueueEntry] {
-    guard let currentIndex else { return queue }
-    return Array(queue.dropFirst(currentIndex + 1))
+  private(set) var volume: Double = 1
+  func setVolume(_ value: Double) {
+    guard value.isFinite else { return }
+    volume = min(1, max(0, value))
+    player.volume = Float(volume)
   }
-  private var currentIndex: Int? { queue.firstIndex { $0.id == currentEntryID } }
+  var isPlaybackRequested: Bool { wantsPlayback }
 
   @ObservationIgnored private let source: any MusicSource
   @ObservationIgnored private let activateAudio: @MainActor () throws -> Void
@@ -374,6 +373,7 @@ extension PlayerStore {
     let position = restoration.position ?? currentTime
     clearTransport()
     player = AVPlayer()
+    player.volume = Float(volume)
     wantsPlayback = false
     errorText = nil
     restoration.cancel()

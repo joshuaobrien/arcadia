@@ -20,6 +20,44 @@ final class PlaybackTests: XCTestCase {
   }
 
   @MainActor
+  func testNowPlayingSidebarKeepsTransportVolumeAndQueueAccessible() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-ApplePersistenceIgnoreState", "YES"]
+    app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
+    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
+    app.launch()
+    let song = app.buttons["track.fixture-1-track-1.play"]
+    XCTAssertTrue(song.waitForExistence(timeout: 10))
+    song.click()
+    XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 10))
+    app.buttons["player.pause"].click()
+    let title = app.staticTexts["player.title"]
+    XCTAssertEqual(title.value as? String, "The First Song")
+    XCTAssertEqual(app.staticTexts["player.album"].value as? String, "Hyperballad")
+    XCTAssertGreaterThan(title.frame.minX, song.frame.maxX)
+    let sidebar = app.scrollViews["player.bar"]
+    let volume = app.sliders["player.volume"]
+    for _ in 0..<5 {
+      if volume.isHittable { break }
+      sidebar.scroll(byDeltaX: 0, deltaY: -150)
+    }
+    XCTAssertTrue(volume.isHittable)
+    volume.adjust(toNormalizedSliderPosition: 0.25)
+    XCTAssertTrue(app.buttons["player.resume"].exists, "Volume must preserve paused intent")
+    let upNext = app.buttons["player.up-next"]
+    for _ in 0..<5 {
+      if upNext.isHittable { break }
+      sidebar.scroll(byDeltaX: 0, deltaY: -150)
+    }
+    XCTAssertTrue(upNext.isHittable)
+    upNext.click()
+    XCTAssertTrue(app.scrollViews["queue.scroll"].waitForExistence(timeout: 5))
+    app.buttons["queue.toggle"].click()
+    XCTAssertEqual(title.value as? String, "The First Song")
+    XCTAssertTrue(app.buttons["player.resume"].exists)
+  }
+
+  @MainActor
   func testAlbumAdvancesNaturallyAndSongPlayReplacesQueue() {
     let app = openFixtureAlbum()
     app.buttons["album.play"].click()

@@ -17,6 +17,7 @@ final class PlaybackPreparation {
   ) -> Task<Void, Never> {
     Task {
       do {
+        try Task.checkCancellation()
         let resource = try await source.playableResource(for: track)
         guard !Task.isCancelled else { return }
         onResult(resource)
