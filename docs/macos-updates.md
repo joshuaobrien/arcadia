@@ -37,8 +37,12 @@ password. Only main-push Release builds receive it. The packaging helper pins
 its public certificate fingerprint, creates a temporary guest keychain, grants
 code-signing trust for that certificate inside the disposable guest, then removes
 the private keychain. The guest is destroyed after CI. Neither host Mac gains a
-new trust root. The stable identity prevents Keychain reapproval after each update;
-ad-hoc signing does not. A signing backup lives beside the Sparkle seed on the mini.
+new trust root. A stable self-signed identity does **not** prevent Keychain
+reapproval after updates: the tested macOS file Keychain also records a
+build-specific code-hash partition. Expect a normal Keychain approval prompt
+when an updated app restores its Jellyfin session. Do not broaden the item's
+access controls or change host trust to suppress that prompt. A signing backup
+lives beside the Sparkle seed on the mini.
 
 `Arcadia/sign-release.sh` signs Sparkle's nested services inside out and preserves
 sandbox entitlements. Both Fastlane Release packaging and the task VM use it.
@@ -50,3 +54,29 @@ A failed build, signature or upload leaves the previous feed available. Fix and
 merge a new main commit rather than reducing build numbers. A previously
 published ZIP can be installed manually if necessary. Deleting releases or the
 channel branch breaks update availability; it does not disable signature checks.
+
+## Acceptance evidence and limitation
+
+The disposable-VM test installed build 201, connected to a disposable real
+Jellyfin server, automatically downloaded build 202 and installed it on normal
+quit. Both apps had the same certificate-pinned designated requirement. The
+client did not trust the certificate. Build 202 passed signature verification
+but encountered a Keychain authorization dialog on session restoration; the
+no-prompt acceptance test failed. This remains a distribution decision, not a
+passing seamless-update claim.
+
+The test item's access-control metadata retained the correct certificate
+requirement while its partition remained `cdhash:<build-201-hash>`. Apple's
+[Security implementation](https://github.com/apple-oss-distributions/Security/blob/main/securityd/src/clientid.cpp)
+classifies recognized Apple developer signatures by team and other signed code
+by code hash. Reusing a self-signed certificate alone therefore does not establish
+an update-stable Keychain partition.
+
+The explicit installed-app tests are in `MacUpdateTests`. They require a private
+`/tmp/arcadia-macos-update-test.json` in the disposable guest with `server`,
+`username`, `password`, `installedApp`, `beforeBuild` and `afterBuild`. The harness
+must install and run the real Release app, use the same isolated session namespace
+across launches, and remove signing trust before either client acceptance test.
+The regular suite skips these tests without that explicit harness. Never export
+the private configuration or approve a dialog and report the no-prompt test as
+passing.
