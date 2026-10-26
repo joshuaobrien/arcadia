@@ -12,7 +12,7 @@ final class FeedbackLoopTests: XCTestCase {
     let second = app.buttons["album.fixture-2"]
     XCTAssertTrue(first.waitForExistence(timeout: 10))
     XCTAssertTrue(second.waitForExistence(timeout: 10))
-    let loaded = NSPredicate(format: "label CONTAINS 'Album artwork'")
+    let loaded = NSPredicate(format: "label BEGINSWITH 'Album artwork, '")
     expectation(for: loaded, evaluatedWith: first)
     expectation(for: loaded, evaluatedWith: second)
     waitForExpectations(timeout: 10)
