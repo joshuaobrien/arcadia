@@ -48,8 +48,8 @@ def progress(phase):
 
 
 def validate_test(identifier):
-    if not re.fullmatch(r'Arcadia(?:UI)?Tests/[A-Za-z][A-Za-z0-9_]*(?:/[A-Za-z][A-Za-z0-9_]*)?', identifier):
-        raise LoopError('Test filter must be ArcadiaTests/Class[/method] or ArcadiaUITests/Class[/method]')
+    if not re.fullmatch(r'Arcadia(?:(?:Mobile)?UI)?Tests/[A-Za-z][A-Za-z0-9_]*(?:/[A-Za-z][A-Za-z0-9_]*)?', identifier):
+        raise LoopError('Test filter must be ArcadiaTests/Class[/method] or ArcadiaUITests/Class[/method] or ArcadiaMobileUITests/Class[/method]')
 
 
 def publish_dependency_cache(source, target):
@@ -215,7 +215,7 @@ class Task:
                                       'driver_sha256': fingerprint(TOOLS / 'guest.sh'), 'tools_sha256': getattr(self, 'tools_digest', None), 'status': 'running'})
         if operation == 'test':
             filters = ['ArcadiaUITests/FeedbackLoopTests/testIntegrationBrowse'] if getattr(self.args, 'integration', False) else getattr(self.args, 'only_testing', None)
-            self.manifest['runs'][-1].update(tests=filters or ['ArcadiaTests', 'ArcadiaUITests/FeedbackLoopTests'], full_suite=False, default_suite=not bool(filters))
+            self.manifest['runs'][-1].update(tests=filters or ['ArcadiaTests', 'ArcadiaUITests/FeedbackLoopTests'], full_suite=False, default_suite=not bool(filters), platform=getattr(self.args, 'platform', 'mac'))
         self.save()
         progress(f'{operation} started')
         try:
@@ -600,7 +600,7 @@ class Task:
                     self.ensure_lint(force=operation == 'lint')
                 if operation == 'lint':
                     return
-                if operation in {'build', 'test', 'review', 'oracle'}:
+                if operation in {'build', 'test', 'review', 'oracle'} and self.args.platform == 'mac':
                     self.prepare_dependencies()
                 arguments = []
                 if self.args.integration:
@@ -617,12 +617,14 @@ class Task:
                     arguments = ['only-testing', *self.args.only_testing]
                 if operation in {'test', 'review', 'oracle'} and getattr(self.args, 'full_diagnostics', False):
                     arguments = ['full-diagnostics', *arguments]
+                if operation == 'test' and self.args.platform != 'mac':
+                    arguments = ['mobile', self.args.platform, *arguments]
                 self.guest(operation, *arguments)
                 verification = self.manifest['runs'][-1]
-                self.manifest['last_verification'] = {'run_id': verification['id'], 'operation': operation, 'tests': verification.get('tests', operation)}
+                self.manifest['last_verification'] = {'run_id': verification['id'], 'operation': operation, 'tests': verification.get('tests', operation), 'platform': self.args.platform}
                 if operation == 'test' and not getattr(self.args, 'only_testing', None) and not self.args.integration:
                     self.manifest['last_default_suite'] = {'run_id': self.manifest['last_verification']['run_id'], 'source_sha256': self.manifest['source_sha256']}
-                if operation in {'build', 'test', 'review'}:
+                if operation in {'build', 'test', 'review'} and self.args.platform == 'mac':
                     self.publish_dependencies()
             finally:
                 self.export()
@@ -630,6 +632,8 @@ class Task:
             verification = self.manifest.get('last_verification', {})
             if verification.get('operation') != 'test' or verification.get('tests') != [self.args.only_testing[0]]:
                 raise LoopError('Run the selected test successfully immediately before compare')
+            if verification.get('platform', 'mac') != self.args.platform:
+                raise LoopError('Comparison platform must match the successful test')
             try:
                 destination = capture_screenshot(self.directory, verification['run_id'], self.args.label, self.args.only_testing[0], self.args.screenshot_name)
             except ValueError as error:
@@ -676,6 +680,8 @@ def remote(args):
         arguments += ['--snapshot', incoming, '--revision', source_revision(Path(args.source).resolve())]
     else:
         incoming = None
+    if args.operation in {'test', 'capture', 'compare'}:
+        arguments += ['--platform', args.platform]
     if args.operation == 'iterate':
         arguments += ['--platform', args.platform, '--state', args.state, '--data-mode', args.data_mode, '--scenario', args.scenario]
     if args.operation == 'start':
@@ -850,6 +856,13 @@ def main():
             raise LoopError('--validate-template is only for maintainer smoke-task startup')
         if args.no_dependency_cache and args.operation != 'start':
             raise LoopError('--no-dependency-cache is a task startup setting; use it with start')
+        if args.platform != 'mac' and args.operation in {'test', 'capture', 'compare'}:
+            if args.integration or not args.only_testing:
+                raise LoopError('Mobile tests require explicit fixture --only-testing selections')
+        if args.only_testing and args.operation in {'test', 'capture', 'compare'}:
+            mobile = args.platform != 'mac'
+            if any(identifier.startswith('ArcadiaMobileUITests/') != mobile for identifier in args.only_testing):
+                raise LoopError('Test target must match --platform')
         if args.only_testing and args.integration:
             raise LoopError('--only-testing and --integration are mutually exclusive')
         if args.only_testing:

@@ -3,6 +3,11 @@
 set -euo pipefail
 export PATH="/opt/homebrew/bin:$PATH"
 operation="$1"; task="$2"; run_id="$3"; shift 3
+platform=mac
+if [[ "$operation" == test && "${1:-}" == mobile ]]; then
+  platform="${2:?Mobile platform required}"; shift 2
+  [[ "$platform" == iphone || "$platform" == duo ]] || exit 2
+fi
 full_diagnostics=0
 if [[ "${1:-}" == full-diagnostics ]]; then full_diagnostics=1; shift; fi
 if [[ "$operation" == test || "$operation" == review || "$operation" == oracle ]]; then
@@ -96,6 +101,10 @@ PYTHON
     ;;
   build|test|oracle|review|lint|release)
     sync_source
+    if [[ "$operation" == test && "$platform" != mac ]]; then
+      export ARCADIA_MOBILE_FULL_DIAGNOSTICS="$full_diagnostics"
+      exec /usr/bin/python3 "$tools/mobile_test.py" "$task" "$run_id" "$platform" "$@"
+    fi
     cd "$workspace/Arcadia"
     case "$operation" in
       build)

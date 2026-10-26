@@ -94,6 +94,21 @@ Guest iterations also hold a workspace lock. If SSH disconnects, the guest comma
 
 A visual iteration is **not a behavioral test pass**. Run the existing targeted `test --only-testing …` command when behavior changes, and preserve the normal acceptance checks before merging. SwiftUI component previews are also available for short and long album metadata, for convenient focused layout inspection in Xcode; they are not required for the command loop.
 
+For fixture UI tests on iPhone or Duo, select the platform and mobile test explicitly:
+
+```sh
+./scripts/native-loop --host paseo-host test artist-layout --platform iphone --only-testing ArcadiaMobileUITests/ArtistLoadingLayoutTests/testArtistSongLoadingPreservesRowPositions
+./scripts/native-loop --host paseo-host test artist-layout --platform duo --only-testing ArcadiaMobileUITests/ArtistLoadingLayoutTests/testArtistSongLoadingPreservesRowPositions
+```
+
+These commands reuse the task's own simulator inventory and warm iOS build directory.
+They retain device/runtime facts, immutable source hashes, source integrity checks,
+XCTest selections, result bundles and screenshot attachments. Mobile tests require
+explicit mobile fixture selections; Mac defaults and integration commands retain
+their existing behavior. Run platforms sequentially. This does not exercise native
+folding, real audio, restoration or background behavior; use the dedicated acceptance
+entrypoints below when those behaviors change.
+
 ## Data modes
 
 Debug defaults to `ARCADIA_DATA_MODE=fixtures`, without needing a backend URL. `ARCADIA_FIXTURE_SCENARIO` selects `success`, `empty`, `failure`, `failure-then-success` or `two-page`. Fixtures have stable IDs and bundled artwork; they do not contact a server. Unknown mode/scenario values produce a configuration error.
