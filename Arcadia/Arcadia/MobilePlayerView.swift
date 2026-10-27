@@ -44,6 +44,7 @@ struct CompactPlayerView: View {
 struct ExpandedPlayerView: View {
   @Environment(PlayerStore.self) private var playerStore
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+  let openLibraryRoute: (LibraryRoute) -> Void
   @Binding var queueScrollPosition: ScrollPosition
   @Binding var queueScrollOffset: CGFloat
 
@@ -127,11 +128,7 @@ struct ExpandedPlayerView: View {
             .font(.title2.bold())
             .fixedSize(horizontal: false, vertical: true)
             .accessibilityIdentifier("player.title")
-          Text(track.artists?.joined(separator: ", ") ?? "Unknown Artist")
-            .font(.title3)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-            .accessibilityIdentifier("player.artist")
+          PlayerMetadataLinks(track: track, open: openLibraryRoute)
         }
         PlaybackProgressView()
         HStack(spacing: 32) {

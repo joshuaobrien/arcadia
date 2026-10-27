@@ -36,7 +36,7 @@ final class PlaybackTests: XCTestCase {
     XCTAssertEqual(app.scrollViews["player.bar"].value as? String, "Paused")
     let title = app.staticTexts["player.title"]
     XCTAssertEqual(title.value as? String, "The First Song")
-    XCTAssertEqual(app.staticTexts["player.album"].value as? String, "Hyperballad")
+    XCTAssertEqual(app.buttons["player.album"].label, "Hyperballad")
     XCTAssertGreaterThan(title.frame.minX, song.frame.maxX)
     let sidebar = app.scrollViews["player.bar"]
     let volume = app.sliders["player.volume"]
@@ -57,6 +57,27 @@ final class PlaybackTests: XCTestCase {
     XCTAssertTrue(app.scrollViews["queue.scroll"].waitForExistence(timeout: 5))
     app.buttons["queue.toggle"].click()
     XCTAssertEqual(title.value as? String, "The First Song")
+    XCTAssertTrue(app.buttons["player.resume"].exists)
+  }
+
+  @MainActor
+  func testPlayerMetadataOpensArtistAndAlbumWithoutChangingPlayback() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-ApplePersistenceIgnoreState", "YES"]
+    app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
+    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
+    app.launch()
+    XCTAssertTrue(app.buttons["track.fixture-1-track-1.play"].waitForExistence(timeout: 10))
+    app.buttons["track.fixture-1-track-1.play"].click()
+    XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 10))
+    app.buttons["player.pause"].click()
+    app.buttons["player.artist.fixture-artist-1"].click()
+    XCTAssertTrue(app.scrollViews["artist.detail.scroll"].waitForExistence(timeout: 10))
+    XCTAssertEqual(app.staticTexts["player.title"].value as? String, "The First Song")
+    XCTAssertTrue(app.buttons["player.resume"].exists)
+    app.buttons["player.album"].click()
+    XCTAssertTrue(app.buttons["album.play"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.buttons["track.fixture-1-track-1.play"].exists)
     XCTAssertTrue(app.buttons["player.resume"].exists)
   }
 

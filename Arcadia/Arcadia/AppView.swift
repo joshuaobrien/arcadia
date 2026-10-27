@@ -228,6 +228,7 @@ struct AppView: View {
         .fullScreenCover(isPresented: $isPlayerPresented) {
           NavigationStack {
             ExpandedPlayerView(
+              openLibraryRoute: openPlayerDestination,
               queueScrollPosition: $queueScrollPosition, queueScrollOffset: $queueScrollOffset
             )
             #if DEBUG
@@ -283,6 +284,13 @@ struct AppView: View {
     return Binding(get: { paths[section] ?? NavigationPath() }, set: { paths[section] = $0 })
   }
 
+}
+
+extension AppView {
+  private func openPlayerDestination(_ route: LibraryRoute) {
+    paths[selection, default: NavigationPath()].append(route)
+    isPlayerPresented = false
+  }
 }
 
 #if DEBUG
@@ -347,8 +355,10 @@ struct AppView: View {
         }
         if playerStore.currentTrack != nil {
           Divider()
-          NowPlayingSidebar { isQueuePresented.toggle() }
-            .frame(width: 300)
+          NowPlayingSidebar(
+            showQueue: { isQueuePresented.toggle() }, openLibraryRoute: openPlayerDestination
+          )
+          .frame(width: 300)
         }
       }
       .navigationTitle(activeLibraryTitle ?? selection.rawValue.capitalized)
