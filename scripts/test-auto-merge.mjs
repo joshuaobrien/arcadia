@@ -145,3 +145,21 @@ test('current-head baseline cannot masquerade as before evidence',async()=>{
  const f=visualFixture();f.manifest.before_ref='abc';f.update();
  const r=await run(f.pr,{},0,null,f);assert.equal(r.exitCode,1);assert.ok(!r.calls.some(c=>c.method==='POST'));
 });
+
+
+test('audio fixture implementation needs behavioral evidence instead of screenshots', async () => {
+  const r = await run(initial, {}, 0, null, { files: [{ filename: 'Arcadia/Arcadia/Development/FixtureAudio.swift' }] });
+  assert.equal(r.exitCode, undefined);
+  assert.ok(r.calls.some(c => c.method === 'POST'));
+});
+test('mixed or renamed visual files retain screenshot requirements', async () => {
+  for (const files of [
+    [{ filename: 'Arcadia/Arcadia/Development/FixtureAudio.swift' }, { filename: 'Arcadia/Arcadia/ContentView.swift' }],
+    [{ filename: 'Arcadia/Arcadia/Development/FixtureAudio.swift', previous_filename: 'Arcadia/Arcadia/ContentView.swift' }],
+    [{ filename: 'Arcadia/Arcadia/Development/FixtureArtwork.swift' }],
+  ]) {
+    const r = await run(initial, {}, 0, null, { files });
+    assert.equal(r.exitCode, 1);
+    assert.ok(!r.calls.some(c => c.method === 'POST'));
+  }
+});
