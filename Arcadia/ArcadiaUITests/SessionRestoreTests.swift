@@ -156,7 +156,7 @@ final class SessionRestoreTests: XCTestCase {
   @MainActor
   private func waitForPlaying(_ app: XCUIApplication) {
     expectation(
-      for: NSPredicate(format: "value == %@", "Playing"), evaluatedWith: app.staticTexts["player.state"])
+      for: NSPredicate(format: "value == %@", "Playing"), evaluatedWith: app.scrollViews["player.bar"])
     waitForExpectations(timeout: 20)
   }
 

@@ -31,6 +31,9 @@ final class PlaybackTests: XCTestCase {
     song.click()
     XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 10))
     app.buttons["player.pause"].click()
+    XCTAssertFalse(app.staticTexts["NOW PLAYING"].exists)
+    XCTAssertFalse(app.staticTexts["player.state"].exists)
+    XCTAssertEqual(app.scrollViews["player.bar"].value as? String, "Paused")
     let title = app.staticTexts["player.title"]
     XCTAssertEqual(title.value as? String, "The First Song")
     XCTAssertEqual(app.staticTexts["player.album"].value as? String, "Hyperballad")
@@ -80,7 +83,7 @@ final class PlaybackTests: XCTestCase {
     let app = openFixtureAlbum("playback-failure")
     app.buttons["album.play"].click()
     XCTAssertTrue(app.staticTexts["player.error"].waitForExistence(timeout: 10))
-    XCTAssertEqual(app.staticTexts["player.state"].value as? String, "Failed")
+    XCTAssertEqual(app.scrollViews["player.bar"].value as? String, "Failed")
     XCTAssertFalse(app.buttons["player.pause"].exists)
     app.buttons["player.retry"].click()
     XCTAssertTrue(app.staticTexts["player.error"].waitForExistence(timeout: 10))
@@ -97,12 +100,12 @@ final class PlaybackTests: XCTestCase {
     XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 5))
     app.buttons["player.pause"].click()  // Cancel autoplay while access is still resolving.
     let paused = NSPredicate(format: "value == %@", "Paused")
-    expectation(for: paused, evaluatedWith: app.staticTexts["player.state"])
+    expectation(for: paused, evaluatedWith: app.scrollViews["player.bar"])
     waitForExpectations(timeout: 5)
     let settled = expectation(description: "Delayed access finishes without autoplay")
     DispatchQueue.main.asyncAfter(deadline: .now() + 3) { settled.fulfill() }
     wait(for: [settled], timeout: 5)
-    XCTAssertEqual(app.staticTexts["player.state"].value as? String, "Paused")
+    XCTAssertEqual(app.scrollViews["player.bar"].value as? String, "Paused")
     XCTAssertEqual(app.staticTexts["player.elapsed"].value as? String, "0:00")
     app.buttons["track.fixture-1-track-1.play"].click()
     // Target the public track viewport explicitly; a clipped button can receive

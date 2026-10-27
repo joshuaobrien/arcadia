@@ -83,7 +83,7 @@ final class JellyfinPlaybackTests: XCTestCase {
 
   @MainActor
   private func waitForState(_ state: String, app: XCUIApplication) {
-    expectation(for: NSPredicate(format: "value == %@", state), evaluatedWith: app.staticTexts["player.state"])
+    expectation(for: NSPredicate(format: "value == %@", state), evaluatedWith: app.scrollViews["player.bar"])
     waitForExpectations(timeout: 15)
   }
 

@@ -10,17 +10,6 @@ struct NowPlayingSidebar: View {
       ScrollView {
         if let track = playerStore.currentTrack {
           VStack(alignment: .leading, spacing: geometry.size.height < 600 ? 12 : 20) {
-            HStack {
-              Text("NOW PLAYING")
-                .font(.caption.weight(.medium))
-                .tracking(3)
-              Spacer()
-              if playerStore.state == .loading { ProgressView().controlSize(.small) }
-              Text(playerStore.state.rawValue.capitalized)
-                .font(.caption)
-                .accessibilityIdentifier("player.state")
-            }
-            .foregroundStyle(.secondary)
             AlbumArtwork(artworkURL: track.artworkURL)
               .frame(width: artworkSize(in: geometry.size), height: artworkSize(in: geometry.size))
               .clipShape(RoundedRectangle(cornerRadius: 16))
@@ -29,6 +18,11 @@ struct NowPlayingSidebar: View {
               }
               .shadow(color: lavender.opacity(0.2), radius: 24)
               .frame(maxWidth: .infinity)
+              .overlay(alignment: .topTrailing) {
+                if playerStore.state == .loading {
+                  ProgressView().controlSize(.small).padding(8)
+                }
+              }
               .accessibilityHidden(true)
             metadata(track)
             PlaybackProgressView()
@@ -68,6 +62,7 @@ struct NowPlayingSidebar: View {
         LinearGradient(colors: [lavender.opacity(0.12), .clear], startPoint: .top, endPoint: .bottom)
       }
       .background(.bar)
+      .accessibilityValue(playerStore.state.rawValue.capitalized)
       .accessibilityIdentifier("player.bar")
     }
   }
