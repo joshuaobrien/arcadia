@@ -4,6 +4,22 @@ final class SongArtistBrowseTests: XCTestCase {
   override func setUpWithError() throws { continueAfterFailure = false }
 
   @MainActor
+  func testSongAlbumAndArtistPillsShareMetadataLine() {
+    let app = launch("success")
+    let artist = app.buttons["track.fixture-1-track-1.artist.fixture-artist-1"]
+    let album = app.buttons["track.fixture-1-track-1.album"]
+    XCTAssertTrue(artist.waitForExistence(timeout: 10))
+    XCTAssertTrue(album.waitForExistence(timeout: 10))
+    XCTAssertEqual(artist.frame.midY, album.frame.midY, accuracy: 1,
+                   "Album and artist pills should share the line below the song title")
+    XCTAssertGreaterThan(album.frame.minX, artist.frame.maxX)
+    capture(app, "Songs - aligned metadata pills")
+    album.click()
+    XCTAssertTrue(app.buttons["album.play"].waitForExistence(timeout: 10),
+                  "The aligned album pill still opens the album")
+  }
+
+  @MainActor
   func testSongsLeadAndArtistNavigationPreservesPlayback() {
     let app = XCUIApplication()
     app.launchArguments = ["-ApplePersistenceIgnoreState", "YES"]
