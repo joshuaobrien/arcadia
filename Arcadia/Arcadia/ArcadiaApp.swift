@@ -70,17 +70,7 @@ struct ArcadiaApp: App {
       }
       #if DEBUG
         .onPreferenceChange(DevelopmentFrameReady.self) { visualStateReady = $0 }
-        .overlay(alignment: .topLeading) {
-          if visualStateReady, let run = ProcessInfo.processInfo.environment["ARCADIA_VISUAL_RUN_ID"] {
-            Text("FRAME " + run.suffix(8).uppercased())
-            .font(.system(size: 24, weight: .bold, design: .monospaced))
-            .foregroundStyle(.black)
-            .padding(4)
-            .background(.yellow)
-            .allowsHitTesting(false)
-            .accessibilityIdentifier("development.frame")
-          }
-        }
+        .overlay(alignment: .topLeading) { DevelopmentFrameMarker(isReady: visualStateReady) }
       #endif
     }
     .commands {
@@ -98,5 +88,23 @@ struct ArcadiaApp: App {
   struct DevelopmentFrameReady: PreferenceKey {
     static let defaultValue = false
     static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
+  }
+#endif
+
+#if DEBUG
+  struct DevelopmentFrameMarker: View {
+    let isReady: Bool
+
+    var body: some View {
+      if isReady, let run = ProcessInfo.processInfo.environment["ARCADIA_VISUAL_RUN_ID"] {
+        Text("FRAME " + run.suffix(8).uppercased())
+          .font(.system(size: 24, weight: .bold, design: .monospaced))
+          .foregroundStyle(.black)
+          .padding(4)
+          .background(.yellow)
+          .allowsHitTesting(false)
+          .accessibilityIdentifier("development.frame")
+      }
+    }
   }
 #endif
