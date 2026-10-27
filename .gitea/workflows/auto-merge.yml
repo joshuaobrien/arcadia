@@ -60,7 +60,10 @@ jobs:
               const files = await api(path + `/files?limit=100&page=${page}`);
               if (!Array.isArray(files)) throw new Error('Invalid PR file inventory');
               const ui = /^Arcadia\/Arcadia\/.*\.swift$|^Arcadia\/Arcadia\/.*\.xcassets\//;
-              visual ||= files.some(file => ui.test(file.filename) || ui.test(file.previous_filename ?? ''));
+              // Audio fixture generation has no visual presentation; changes to views still need images.
+              const nonvisual = new Set(['Arcadia/Arcadia/Development/FixtureAudio.swift']);
+              const needsImages = name => ui.test(name) && !nonvisual.has(name);
+              visual ||= files.some(file => needsImages(file.filename) || needsImages(file.previous_filename ?? ''));
               if (files.length < 100) break;
             }
             if (visual) {
