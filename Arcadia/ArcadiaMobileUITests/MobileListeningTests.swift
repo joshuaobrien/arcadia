@@ -34,6 +34,30 @@ final class MobileListeningTests: XCTestCase {
   }
 
   @MainActor
+  func testPlayerMetadataReturnsToArtistAndAlbumInLibrary() {
+    let app = XCUIApplication()
+    app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
+    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
+    app.launch()
+    XCTAssertTrue(app.buttons["track.fixture-1-track-1.play"].waitForExistence(timeout: 10))
+    app.buttons["track.fixture-1-track-1.play"].tap()
+    XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 10))
+    app.buttons["player.pause"].tap()
+    app.buttons["player.expand"].tap()
+    XCTAssertTrue(app.buttons["player.artist.fixture-artist-1"].waitForExistence(timeout: 5))
+    app.buttons["player.artist.fixture-artist-1"].tap()
+    XCTAssertTrue(app.scrollViews["artist.detail.scroll"].waitForExistence(timeout: 10))
+    XCTAssertFalse(app.buttons["player.dismiss"].exists)
+    XCTAssertTrue(app.buttons["player.resume"].exists)
+    app.buttons["player.expand"].tap()
+    app.buttons["player.album"].tap()
+    XCTAssertTrue(app.buttons["album.play"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.buttons["track.fixture-1-track-1.play"].exists)
+    XCTAssertTrue(app.buttons["player.resume"].exists)
+    XCTAssertEqual(app.staticTexts["player.title"].firstMatch.label, "The First Song")
+  }
+
+  @MainActor
   func testExpandedPlayerPrioritizesMetadataSeekingAndTransport() {
     let app = XCUIApplication()
     app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"

@@ -228,8 +228,12 @@ struct AppView: View {
         .fullScreenCover(isPresented: $isPlayerPresented) {
           NavigationStack {
             ExpandedPlayerView(
+              openLibraryRoute: openPlayerDestination,
               queueScrollPosition: $queueScrollPosition, queueScrollOffset: $queueScrollOffset
             )
+            #if DEBUG
+              .overlay(alignment: .topLeading) { DevelopmentFrameMarker(isReady: developmentFrameReady) }
+            #endif
             .navigationTitle("Now Playing")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -282,6 +286,13 @@ struct AppView: View {
 
 }
 
+extension AppView {
+  private func openPlayerDestination(_ route: LibraryRoute) {
+    paths[selection, default: NavigationPath()].append(route)
+    isPlayerPresented = false
+  }
+}
+
 #if DEBUG
   extension AppView {
     // Visual-loop runs use a frozen, paused fixture queue; normal launches and tests stay untouched.
@@ -298,6 +309,9 @@ struct AppView: View {
         let songs = try await albumService.fetchSongs(SongBrowseRequest(cursor: nil, searchTerm: ""))
         playerStore.play(Array(songs.items.prefix(3)))
         playerStore.pause()
+        #if os(iOS)
+          isPlayerPresented = true
+        #endif
       } catch {
         // A failed fixture cannot satisfy the frame readiness gate below.
       }
@@ -341,8 +355,10 @@ struct AppView: View {
         }
         if playerStore.currentTrack != nil {
           Divider()
-          NowPlayingSidebar { isQueuePresented.toggle() }
-            .frame(width: 300)
+          NowPlayingSidebar(
+            showQueue: { isQueuePresented.toggle() }, openLibraryRoute: openPlayerDestination
+          )
+          .frame(width: 300)
         }
       }
       .navigationTitle(activeLibraryTitle ?? selection.rawValue.capitalized)

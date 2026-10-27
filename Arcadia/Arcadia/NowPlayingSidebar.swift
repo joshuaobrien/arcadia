@@ -3,6 +3,7 @@ import SwiftUI
 struct NowPlayingSidebar: View {
   @Environment(PlayerStore.self) private var playerStore
   let showQueue: () -> Void
+  let openLibraryRoute: (LibraryRoute) -> Void
   private let lavender = Color(red: 0.65, green: 0.55, blue: 0.85)
 
   var body: some View {
@@ -77,16 +78,7 @@ struct NowPlayingSidebar: View {
         .font(.title.bold())
         .fixedSize(horizontal: false, vertical: true)
         .accessibilityIdentifier("player.title")
-      Text(track.artists?.joined(separator: ", ") ?? "Unknown Artist")
-        .font(.title3)
-        .foregroundStyle(.secondary)
-        .fixedSize(horizontal: false, vertical: true)
-        .accessibilityIdentifier("player.artist")
-      Text(track.albumReference?.title ?? "Unknown Album")
-        .font(.body)
-        .foregroundStyle(.secondary)
-        .fixedSize(horizontal: false, vertical: true)
-        .accessibilityIdentifier("player.album")
+      PlayerMetadataLinks(track: track, open: openLibraryRoute)
     }
   }
 
