@@ -52,7 +52,6 @@ struct TrackRow: View {
       playButton
       leadingContent
       metadata(isCompact: false)
-      if !showsTrackNumber { albumLink }
       Spacer()
       if let format = track.format {
         Text(format).font(.caption.monospaced()).foregroundStyle(.secondary)
@@ -124,25 +123,37 @@ struct TrackRow: View {
       Text(track.title ?? "Untitled track")
         .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : (isCompact ? 2 : 1))
         .accessibilityIdentifier("track.\(track.id).title")
-      if let references = track.artistReferences, !references.isEmpty {
-        let artistLayout =
-          dynamicTypeSize.isAccessibilitySize
-          ? AnyLayout(VStackLayout(alignment: .leading)) : AnyLayout(HStackLayout())
-        artistLayout {
-          ForEach(references) { artist in
-            NavigationLink(value: LibraryRoute.artist(artist)) {
-              Text(artist.name).lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
-            }
-            .accessibilityIdentifier("track.\(track.id).artist.\(artist.id)")
-          }
-        }
-        .font(.caption)
-      } else if let artists = track.artists {
-        Text(artists.joined(separator: ", "))
-          .font(.caption).foregroundStyle(.secondary)
-          .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+      let metadataLayout =
+        isCompact || dynamicTypeSize.isAccessibilitySize
+        ? AnyLayout(VStackLayout(alignment: .leading, spacing: DesignTokens.Spacing.s))
+        : AnyLayout(HStackLayout(spacing: DesignTokens.Spacing.s))
+      metadataLayout {
+        artistMetadata
+        if !showsTrackNumber { albumLink }
       }
-      if isCompact && !showsTrackNumber { albumLink }
+    }
+  }
+
+  @ViewBuilder
+  private var artistMetadata: some View {
+    if let references = track.artistReferences, !references.isEmpty {
+      let artistLayout =
+        dynamicTypeSize.isAccessibilitySize
+        ? AnyLayout(VStackLayout(alignment: .leading)) : AnyLayout(HStackLayout())
+      artistLayout {
+        ForEach(references) { artist in
+          NavigationLink(value: LibraryRoute.artist(artist)) {
+            Text(artist.name).font(.caption)
+              .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+          }
+          .accessibilityIdentifier("track.\(track.id).artist.\(artist.id)")
+        }
+      }
+      .font(.caption)
+    } else if let artists = track.artists {
+      Text(artists.joined(separator: ", "))
+        .font(.caption).foregroundStyle(.secondary)
+        .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
     }
   }
 
