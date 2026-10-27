@@ -230,6 +230,19 @@ struct AppView: View {
             ExpandedPlayerView(
               queueScrollPosition: $queueScrollPosition, queueScrollOffset: $queueScrollOffset
             )
+            #if DEBUG
+              .overlay(alignment: .topLeading) {
+                if developmentFrameReady, let run = ProcessInfo.processInfo.environment["ARCADIA_VISUAL_RUN_ID"] {
+                  Text("FRAME " + run.suffix(8).uppercased())
+                    .font(.system(size: 24, weight: .bold, design: .monospaced))
+                    .foregroundStyle(.black)
+                    .padding(4)
+                    .background(.yellow)
+                    .allowsHitTesting(false)
+                    .accessibilityIdentifier("development.frame")
+                }
+              }
+            #endif
             .navigationTitle("Now Playing")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
