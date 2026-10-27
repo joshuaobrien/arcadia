@@ -20,8 +20,20 @@
         channels[0][sample] = value
         channels[1][sample] = value
       }
-      let file = try AVAudioFile(forWriting: url, settings: format.settings)
-      try file.write(from: buffer)
+      // XCTest workers share this cache. A visible final path must mean the
+      // WAV is complete, including the header finalized when the writer closes.
+      let pending = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("wav")
+      defer { try? FileManager.default.removeItem(at: pending) }
+      do {
+        let file = try AVAudioFile(forWriting: pending, settings: format.settings)
+        try file.write(from: buffer)
+      }
+      do {
+        try FileManager.default.moveItem(at: pending, to: url)
+      } catch {
+        // Another worker may have published its complete copy first.
+        guard FileManager.default.fileExists(atPath: url.path) else { throw error }
+      }
       return url
     }
   }
