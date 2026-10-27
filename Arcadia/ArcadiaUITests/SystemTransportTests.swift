@@ -11,8 +11,8 @@ final class SystemTransportTests: XCTestCase {
     app.launchEnvironment["ARCADIA_FIXTURE_SCENARIO"] = "success"
     app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
     app.launch()
-    XCTAssertTrue(app.staticTexts["library.destination.albums"].waitForExistence(timeout: 10))
-    app.staticTexts["library.destination.albums"].click()
+    XCTAssertTrue(app.libraryDestination("albums").waitForExistence(timeout: 10))
+    app.libraryDestination("albums").click()
     let album = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "album.")).firstMatch
     XCTAssertTrue(album.waitForExistence(timeout: 10))
     album.click()
@@ -48,8 +48,8 @@ final class SystemTransportTests: XCTestCase {
     app.launchEnvironment["ARCADIA_FIXTURE_SCENARIO"] = "success"
     app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
     app.launch()
-    XCTAssertTrue(app.staticTexts["library.destination.albums"].waitForExistence(timeout: 10))
-    app.staticTexts["library.destination.albums"].click()
+    XCTAssertTrue(app.libraryDestination("albums").waitForExistence(timeout: 10))
+    app.libraryDestination("albums").click()
     let album = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "album.")).firstMatch
     XCTAssertTrue(album.waitForExistence(timeout: 10))
     album.click()

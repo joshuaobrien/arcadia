@@ -90,17 +90,48 @@ struct ArtistsView: View {
 }
 
 struct ArtistDetail: View {
+  @Environment(PlayerStore.self) private var playerStore
+  @Environment(\.libraryPresentationIsActive) private var isActive
+  @State private var isPreparingPlayback = false
   let artist: Artist
   let model: ArtistLibraryModel
+
+  private var releaseWidth: CGFloat? {
+    #if os(macOS)
+      220
+    #else
+      nil
+    #endif
+  }
 
   var body: some View {
     ScrollView {
       LazyVStack(alignment: .leading, spacing: DesignTokens.Spacing.l) {
-        Text("Songs").font(.title2.bold()).accessibilityIdentifier("artist.songs.title")
-        ForEach(model.songs.items) { TrackRow(track: $0, showsTrackNumber: false) }
-        LibraryPageStatus(model: model.songs, noun: "artist-songs", skeletonSpacing: DesignTokens.Spacing.l)
+        #if os(macOS)
+          HStack(spacing: 28) {
+            AlbumArtwork(artworkURL: artist.artworkURL)
+              .frame(width: 140, height: 140).clipShape(Circle())
+            VStack(alignment: .leading, spacing: 4) {
+              Text(artist.name).font(.largeTitle.bold())
+              Text("\(model.releases.countText) albums").foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("Play", systemImage: "play.fill") { isPreparingPlayback = true }
+              .buttonStyle(.borderedProminent).controlSize(.large)
+              .disabled(model.songs.items.isEmpty || model.songs.isLoading || isPreparingPlayback)
+              .accessibilityIdentifier("artist.play")
+          }.padding(.bottom, 8)
+          if isPreparingPlayback { ProgressView("Preparing artist").accessibilityIdentifier("artist.preparing") }
+          if let playError = model.playError {
+            Text(playError).foregroundStyle(.secondary).accessibilityIdentifier("artist.play.error")
+          }
+        #else
+          Text("Songs").font(.title2.bold()).accessibilityIdentifier("artist.songs.title")
+          ForEach(model.songs.items) { TrackRow(track: $0, showsTrackNumber: false) }
+          LibraryPageStatus(model: model.songs, noun: "artist-songs", skeletonSpacing: DesignTokens.Spacing.l)
+        #endif
         Text("Releases").font(.title2.bold()).accessibilityIdentifier("artist.releases.title")
-        AlbumCardGrid {
+        AlbumCardGrid(minimumWidth: releaseWidth) {
           ForEach(model.releases.items) { album in
             NavigationLink(value: LibraryRoute.album(album)) {
               AlbumCardView(
@@ -111,7 +142,20 @@ struct ArtistDetail: View {
             .accessibilityIdentifier("album.\(album.id)")
           }
         }
+        #if os(macOS)
+          .frame(maxWidth: 520)
+          .frame(maxWidth: .infinity)
+        #endif
         LibraryPageStatus(model: model.releases, noun: "releases")
+        #if os(macOS)
+          // Establish the release section before exposing song rows below it,
+          // so completing the independent album request cannot move those rows.
+          if model.releases.hasOpened && (!model.releases.isLoading || !model.releases.items.isEmpty) {
+            Text("Songs").font(.title2.bold()).accessibilityIdentifier("artist.songs.title")
+            ForEach(model.songs.items) { TrackRow(track: $0, showsTrackNumber: false) }
+            LibraryPageStatus(model: model.songs, noun: "artist-songs", skeletonSpacing: DesignTokens.Spacing.l)
+          }
+        #endif
       }
       .padding()
     }
@@ -119,7 +163,14 @@ struct ArtistDetail: View {
     .libraryNavigationTitle(artist.name)
     .task { await model.songs.open() }
     .task { await model.releases.open() }
+    .task(id: isPreparingPlayback && isActive) {
+      if isPreparingPlayback && isActive {
+        await model.play(using: playerStore)
+        isPreparingPlayback = false
+      }
+    }
   }
+
 }
 
 struct LibraryPageStatus<Item: Identifiable>: View {

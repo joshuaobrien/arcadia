@@ -11,7 +11,7 @@ final class QueueTests: XCTestCase {
     app.launchEnvironment["ARCADIA_FIXTURE_SCENARIO"] = "success"
     app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
     app.launch()
-    app.staticTexts["library.destination.albums"].click()
+    app.libraryDestination("albums").click()
     XCTAssertTrue(app.buttons["album.fixture-1"].waitForExistence(timeout: 10))
     app.buttons["album.fixture-1"].click()
     app.descendants(matching: .any)["album.actions"].click()
@@ -42,7 +42,7 @@ final class QueueTests: XCTestCase {
     app.launchEnvironment["ARCADIA_FIXTURE_SCENARIO"] = "success"
     app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
     app.launch()
-    app.staticTexts["library.destination.albums"].click()
+    app.libraryDestination("albums").click()
     XCTAssertTrue(app.buttons["album.fixture-1"].waitForExistence(timeout: 10))
     app.buttons["album.fixture-1"].click()
     app.buttons["track.fixture-1-track-1.play"].click()
@@ -66,8 +66,10 @@ final class QueueTests: XCTestCase {
     let identifier = target.identifier
     XCTAssertNotEqual(identifier, initialFirstID, "The test must actually move beyond the initial queue row")
     let position = target.frame.minY
+    app.buttons["queue.toggle"].click()
     app.descendants(matching: .any)["album.actions"].click()
     app.menuItems["Add Album to Queue"].click()
+    app.buttons["queue.toggle"].click()
     XCTAssertTrue(app.staticTexts["queue.heading"].exists)
     XCTAssertEqual(app.descendants(matching: .any)[identifier].frame.minY, position, accuracy: 10)
     app.buttons["queue.toggle"].click()
@@ -84,7 +86,7 @@ final class QueueTests: XCTestCase {
     app.launchEnvironment["ARCADIA_FIXTURE_SCENARIO"] = "success"
     app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
     app.launch()
-    app.staticTexts["library.destination.albums"].click()
+    app.libraryDestination("albums").click()
     XCTAssertTrue(app.buttons["album.fixture-1"].waitForExistence(timeout: 10))
     app.buttons["album.fixture-1"].click()
     app.buttons["track.fixture-1-track-1.play"].click()
@@ -114,7 +116,7 @@ final class QueueTests: XCTestCase {
     app.launchEnvironment["ARCADIA_FIXTURE_SCENARIO"] = "success"
     app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
     app.launch()
-    app.staticTexts["library.destination.albums"].click()
+    app.libraryDestination("albums").click()
     XCTAssertTrue(app.buttons["album.fixture-1"].waitForExistence(timeout: 10))
     app.buttons["album.fixture-1"].click()
     app.buttons["track.fixture-1-track-1.play"].click()
@@ -175,7 +177,7 @@ final class QueueTests: XCTestCase {
     app.launchEnvironment["ARCADIA_FIXTURE_SCENARIO"] = "success"
     app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
     app.launch()
-    app.staticTexts["library.destination.albums"].click()
+    app.libraryDestination("albums").click()
     XCTAssertTrue(app.buttons["album.fixture-1"].waitForExistence(timeout: 10))
     app.buttons["album.fixture-1"].click()
     app.buttons["track.fixture-1-track-1.play"].click()
@@ -197,10 +199,12 @@ final class QueueTests: XCTestCase {
     let rows = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "queue.entry."))
     XCTAssertEqual(rows.count, 3)
     let survivingID = rows.element(boundBy: 1).identifier
-    rows.element(boundBy: 0).buttons["queue.remove"].click()
+    rows.element(boundBy: 0).menuButtons.firstMatch.click()
+    app.menuItems["Remove"].click()
     XCTAssertEqual(rows.count, 2)
     XCTAssertEqual(rows.element(boundBy: 0).identifier, survivingID)
-    rows.element(boundBy: 0).buttons["queue.move-down"].click()
+    rows.element(boundBy: 0).menuButtons.firstMatch.click()
+    app.menuItems["Move later"].click()
     XCTAssertEqual(rows.element(boundBy: 0).label, "The Third Song")
     XCTAssertEqual(rows.element(boundBy: 1).identifier, survivingID)
     XCTAssertEqual(app.staticTexts["player.title"].value as? String, "The First Song")

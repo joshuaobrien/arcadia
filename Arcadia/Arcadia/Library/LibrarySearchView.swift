@@ -13,32 +13,68 @@ struct LibrarySearchView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: DesignTokens.Spacing.m) {
-      TextField("Search library", text: $model.query)
-        .textFieldStyle(.roundedBorder)
-        .accessibilityIdentifier("search.query")
-        .onSubmit { model.search(immediately: true) }
-      Picker("Category", selection: $model.category) {
-        ForEach(SearchCategory.allCases) { category in
-          Text("\(category.title) (\(searchCount(model.sections[category])))")
-            .tag(category)
-            .accessibilityIdentifier("search.category.\(category.rawValue)")
+      #if !os(macOS)
+        TextField("Search library", text: $model.query)
+          .textFieldStyle(.roundedBorder)
+          .accessibilityIdentifier("search.query")
+          .onSubmit { model.search(immediately: true) }
+        Picker("Category", selection: $model.category) {
+          ForEach(SearchCategory.allCases) { category in
+            Text("\(category.title) (\(searchCount(model.sections[category])))")
+              .tag(category)
+              .accessibilityIdentifier("search.category.\(category.rawValue)")
+          }
         }
-      }
-      .pickerStyle(.segmented)
+        .pickerStyle(.segmented)
+      #endif
       if model.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
         ContentUnavailableView(
           "Search your library", systemImage: "magnifyingglass",
           description: Text("Find songs, artists, albums and playlists.")
         )
         .accessibilityIdentifier("search.initial")
-      } else if let page = model.sections[model.category] {
-        SearchResultsView(page: page, model: model)
       } else {
-        ScrollView {
-          LibrarySkeleton(layout: loadingLayout, label: "Searching", identifier: "search.loading")
-            .padding(.vertical)
-        }
-        .accessibilityIdentifier("search.results.scroll")
+        #if os(macOS)
+          ScrollView {
+            LazyVStack(alignment: .leading, spacing: 16) {
+              if !model.pendingCategories.isEmpty {
+                ProgressView("Searching your library").accessibilityIdentifier("search.other.loading")
+              }
+              if model.hasNoMatches {
+                Text("No matches in your library. Try a different search.")
+                  .foregroundStyle(.secondary).accessibilityIdentifier("search.all.empty")
+              }
+              ForEach([SearchCategory.artists, .albums, .songs, .playlists]) { category in
+                if let page = model.sections[category] {
+                  Text(category.title).font(.headline).padding(.top, 12)
+                    .accessibilityIdentifier("search.heading.\(category.rawValue)")
+                    .accessibilityValue("\(page.countText) results")
+                  Divider()
+                  ForEach(page.items) { result in
+                    MacSearchResultRow(result: result)
+                    Divider()
+                  }
+                  if page.hasOpened && page.items.isEmpty && !page.isLoading && page.errorText == nil {
+                    Text("No \(category.rawValue) found").foregroundStyle(.secondary)
+                      .accessibilityIdentifier("search.\(category.rawValue).empty")
+                  } else {
+                    LibraryPageStatus(model: page, noun: "search-\(category.rawValue)")
+                  }
+                }
+              }
+            }
+          }.accessibilityIdentifier("search.results.scroll")
+        #else
+          if let page = model.sections[model.category] {
+            SearchResultsView(page: page, model: model)
+          } else {
+            ScrollView {
+              LibrarySkeleton(layout: loadingLayout, label: "Searching", identifier: "search.loading")
+                .padding(.vertical)
+            }
+            .accessibilityIdentifier("search.results.scroll")
+          }
+        #endif
       }
     }
     .padding()
@@ -147,3 +183,42 @@ private struct SearchEmptyCategoryView: View {
 private func searchCount(_ page: PagedLibrary<LibrarySearchResult>?) -> String {
   page?.countText ?? "0"
 }
+
+#if os(macOS)
+  private struct MacSearchResultRow: View {
+    let result: LibrarySearchResult
+    var body: some View {
+      switch result {
+      case .song(let track):
+        TrackRow(track: track, showsTrackNumber: false)
+      case .artist(let artist):
+        NavigationLink(value: LibraryRoute.artist(artist)) {
+          HStack(spacing: 16) {
+            AlbumArtwork(artworkURL: artist.artworkURL).frame(width: 54, height: 54).clipShape(Circle())
+            VStack(alignment: .leading, spacing: 4) {
+              Text(artist.name)
+              Text("Artist").font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+          }.contentShape(Rectangle())
+        }.buttonStyle(.plain).accessibilityIdentifier("search.artist.\(artist.id)")
+      case .album(let album):
+        NavigationLink(value: LibraryRoute.album(album)) {
+          HStack(spacing: 16) {
+            AlbumArtwork(artworkURL: album.artworkURL).frame(width: 54, height: 54)
+              .clipShape(RoundedRectangle(cornerRadius: 4))
+            VStack(alignment: .leading, spacing: 4) {
+              Text(album.title)
+              Text(album.year.map(String.init) ?? album.albumArtist).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+          }.contentShape(Rectangle())
+        }.buttonStyle(.plain).accessibilityIdentifier("search.album.\(album.id)")
+      case .playlist(let playlist):
+        NavigationLink(value: LibraryRoute.playlist(playlist)) {
+          Label(playlist.title, systemImage: "music.note.list")
+        }.accessibilityIdentifier("search.playlist.\(playlist.id)")
+      }
+    }
+  }
+#endif

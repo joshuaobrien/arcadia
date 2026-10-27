@@ -31,8 +31,8 @@ final class JellyfinPlaylistSearchTests: XCTestCase {
     app.secureTextFields["source.password"].typeKey("a", modifierFlags: .command)
     app.secureTextFields["source.password"].typeKey("v", modifierFlags: .command)
     app.buttons["source.connect"].click()
-    XCTAssertTrue(app.staticTexts["library.destination.search"].waitForExistence(timeout: 20))
-    app.staticTexts["library.destination.search"].click()
+    XCTAssertTrue(app.libraryDestination("search").waitForExistence(timeout: 20))
+    app.libraryDestination("search").click()
     search("First Contact", app: app)
     let song = app.buttons.matching(
       NSPredicate(format: "identifier BEGINSWITH 'track.' AND identifier ENDSWITH '.play'")
@@ -69,8 +69,8 @@ final class JellyfinPlaylistSearchTests: XCTestCase {
     XCTAssertTrue(artist.waitForExistence(timeout: 15))
     artist.click()
     XCTAssertTrue(app.scrollViews["artist.detail.scroll"].waitForExistence(timeout: 15))
-    app.staticTexts["library.destination.songs"].click()
-    app.staticTexts["library.destination.search"].click()
+    app.libraryDestination("songs").click()
+    app.libraryDestination("search").click()
     // Search retains its path. Return through the native navigation button.
     if !app.textFields["search.query"].exists { app.buttons["Back"].firstMatch.click() }
     search("Orb Sessions", app: app)
@@ -79,7 +79,7 @@ final class JellyfinPlaylistSearchTests: XCTestCase {
     XCTAssertTrue(album.waitForExistence(timeout: 15))
     album.click()
     XCTAssertTrue(app.buttons["album.play"].waitForExistence(timeout: 15))
-    app.buttons["albums.back"].click()
+    app.buttons["library.back"].click()
     search("Fixture Mix", app: app)
     category("playlists", app: app)
     let playlist = app.buttons["search.playlist.\(configuration.playlistID)"]
@@ -190,9 +190,7 @@ final class JellyfinPlaylistSearchTests: XCTestCase {
 
   @MainActor
   private func category(_ name: String, app: XCUIApplication) {
-    let control = app.descendants(matching: .any).matching(identifier: "search.category.\(name)").firstMatch
-    XCTAssertTrue(control.waitForExistence(timeout: 5))
-    control.click()
+    app.revealSearchCategory(name)
   }
 
   @MainActor

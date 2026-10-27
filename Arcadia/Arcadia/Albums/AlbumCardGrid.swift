@@ -3,13 +3,17 @@ import SwiftUI
 struct AlbumCardGrid<Content: View>: View {
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   #if os(macOS)
-    @ScaledMetric(relativeTo: .body) private var minimumAlbumWidth: CGFloat = 220
+    @ScaledMetric(relativeTo: .body) private var minimumAlbumWidth: CGFloat = 140
   #else
     @ScaledMetric(relativeTo: .body) private var minimumAlbumWidth: CGFloat = 150
   #endif
   private let content: Content
+  var isList: Bool
+  var minimumWidth: CGFloat?
 
-  init(@ViewBuilder content: () -> Content) {
+  init(isList: Bool = false, minimumWidth: CGFloat? = nil, @ViewBuilder content: () -> Content) {
+    self.isList = isList
+    self.minimumWidth = minimumWidth
     self.content = content()
   }
 
@@ -17,7 +21,8 @@ struct AlbumCardGrid<Content: View>: View {
     LazyVGrid(
       columns: [
         GridItem(
-          dynamicTypeSize.isAccessibilitySize ? .flexible() : .adaptive(minimum: minimumAlbumWidth),
+          isList || dynamicTypeSize.isAccessibilitySize
+            ? .flexible() : .adaptive(minimum: minimumWidth ?? minimumAlbumWidth),
           spacing: DesignTokens.Spacing.l,
           alignment: .top
         )

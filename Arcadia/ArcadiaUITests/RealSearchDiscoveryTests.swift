@@ -28,8 +28,8 @@ final class RealSearchDiscoveryTests: XCTestCase {
     app.secureTextFields["source.password"].click()
     app.secureTextFields["source.password"].typeKey("v", modifierFlags: .command)
     app.buttons["source.connect"].click()
-    XCTAssertTrue(app.staticTexts["library.destination.search"].waitForExistence(timeout: 20))
-    app.staticTexts["library.destination.search"].click()
+    XCTAssertTrue(app.libraryDestination("search").waitForExistence(timeout: 20))
+    app.libraryDestination("search").click()
     let query = app.textFields["search.query"]
     XCTAssertTrue(query.waitForExistence(timeout: 5))
     query.click()
@@ -39,9 +39,7 @@ final class RealSearchDiscoveryTests: XCTestCase {
     capture(app, "Real Jellyfin Orb Sessions - empty Songs with matching album")
     XCTAssertEqual(empty.value as? String, "No songs found")
     XCTAssertFalse(app.staticTexts["search.all.empty"].exists)
-    let albums = app.buttons["search.show.albums"]
-    XCTAssertTrue(albums.waitForExistence(timeout: 15))
-    albums.click()
+    app.revealSearchCategory("albums")
     let album = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'search.album.'")).firstMatch
     XCTAssertTrue(album.waitForExistence(timeout: 15))
     XCTAssertEqual(query.value as? String, "Orb Sessions")

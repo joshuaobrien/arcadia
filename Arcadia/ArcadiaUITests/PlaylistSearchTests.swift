@@ -10,7 +10,7 @@ final class PlaylistSearchTests: XCTestCase {
     before.name = "Library before playlist and search destinations"
     before.lifetime = .keepAlways
     add(before)
-    let destination = app.staticTexts["library.destination.playlists"]
+    let destination = app.libraryDestination("playlists")
     XCTAssertTrue(destination.waitForExistence(timeout: 5))
     destination.click()
     let playlist = app.buttons["playlist.fixture-playlist-1"]
@@ -28,8 +28,8 @@ final class PlaylistSearchTests: XCTestCase {
   @MainActor
   func testPlaylistPlayUsesItsDeclaredOrderAndPreservesDuplicates() {
     let app = launch("two-page")
-    XCTAssertTrue(app.staticTexts["library.destination.playlists"].waitForExistence(timeout: 5))
-    app.staticTexts["library.destination.playlists"].click()
+    XCTAssertTrue(app.libraryDestination("playlists").waitForExistence(timeout: 5))
+    app.libraryDestination("playlists").click()
     let playlist = app.buttons["playlist.fixture-playlist-1"]
     XCTAssertTrue(playlist.waitForExistence(timeout: 10))
     playlist.click()
@@ -48,7 +48,7 @@ final class PlaylistSearchTests: XCTestCase {
   @MainActor
   func testLaterSongPlaySupersedesPendingPlaylistPreparation() {
     let app = launch("delayed-playlist")
-    app.staticTexts["library.destination.playlists"].click()
+    app.libraryDestination("playlists").click()
     let playlist = app.buttons["playlist.fixture-playlist-1"]
     XCTAssertTrue(playlist.waitForExistence(timeout: 10))
     playlist.click()
@@ -77,7 +77,7 @@ final class PlaylistSearchTests: XCTestCase {
     first.click()
     XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 10))
     app.buttons["player.pause"].click()
-    let destination = app.staticTexts["library.destination.search"]
+    let destination = app.libraryDestination("search")
     XCTAssertTrue(destination.waitForExistence(timeout: 5))
     destination.click()
     let query = app.textFields["search.query"]
@@ -94,15 +94,13 @@ final class PlaylistSearchTests: XCTestCase {
   @MainActor
   func testNoMatchesAreHonestInEveryCategory() {
     let app = launch("success")
-    app.staticTexts["library.destination.search"].click()
+    app.libraryDestination("search").click()
     let query = app.textFields["search.query"]
     XCTAssertTrue(query.waitForExistence(timeout: 5))
     query.click()
     query.typeText("no-such-record")
     for category in ["songs", "artists", "albums", "playlists"] {
-      let control = app.descendants(matching: .any).matching(identifier: "search.category.\(category)").firstMatch
-      XCTAssertTrue(control.waitForExistence(timeout: 5))
-      control.click()
+      app.revealSearchCategory(category)
       XCTAssertTrue(app.staticTexts["search.\(category).empty"].waitForExistence(timeout: 10))
     }
   }
@@ -110,7 +108,7 @@ final class PlaylistSearchTests: XCTestCase {
   @MainActor
   func testSearchFailureCanBeRetriedWithoutChangingQuery() {
     let app = launch("failure-then-success")
-    app.staticTexts["library.destination.search"].click()
+    app.libraryDestination("search").click()
     let query = app.textFields["search.query"]
     XCTAssertTrue(query.waitForExistence(timeout: 5))
     query.click()
@@ -124,7 +122,7 @@ final class PlaylistSearchTests: XCTestCase {
   @MainActor
   func testLateOldQueryCannotReplaceNewResults() {
     let app = launch("delayed-search")
-    app.staticTexts["library.destination.search"].click()
+    app.libraryDestination("search").click()
     let query = app.textFields["search.query"]
     XCTAssertTrue(query.waitForExistence(timeout: 5))
     query.click()
@@ -147,7 +145,7 @@ final class PlaylistSearchTests: XCTestCase {
   @MainActor
   func testLaterSearchPageFailureRetainsResultsAndRetriesWithoutDuplicates() {
     let app = launch("paged-search-failure")
-    app.staticTexts["library.destination.search"].click()
+    app.libraryDestination("search").click()
     let query = app.textFields["search.query"]
     XCTAssertTrue(query.waitForExistence(timeout: 5))
     query.click()
@@ -176,7 +174,7 @@ final class PlaylistSearchTests: XCTestCase {
     first.click()
     XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 10))
     app.buttons["player.pause"].click()
-    app.staticTexts["library.destination.playlists"].click()
+    app.libraryDestination("playlists").click()
     let playlist = app.buttons["playlist.fixture-playlist-1"]
     XCTAssertTrue(playlist.waitForExistence(timeout: 10))
     playlist.click()
@@ -197,7 +195,7 @@ final class PlaylistSearchTests: XCTestCase {
   @MainActor
   func testExplicitNextSupersedesPendingPlaylistPreparation() {
     let app = launch("delayed-playlist")
-    app.staticTexts["library.destination.albums"].click()
+    app.libraryDestination("albums").click()
     let album = app.buttons["album.fixture-1"]
     XCTAssertTrue(album.waitForExistence(timeout: 10))
     album.click()
@@ -207,7 +205,7 @@ final class PlaylistSearchTests: XCTestCase {
     app.buttons["player.next"].click()
     XCTAssertTrue(waitForTitle(app.staticTexts["player.title"], "The Second Song"))
     app.buttons["player.pause"].click()
-    app.staticTexts["library.destination.playlists"].click()
+    app.libraryDestination("playlists").click()
     let playlist = app.buttons["playlist.fixture-playlist-1"]
     XCTAssertTrue(playlist.waitForExistence(timeout: 10))
     playlist.click()
@@ -232,7 +230,7 @@ final class PlaylistSearchTests: XCTestCase {
     first.click()
     XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 10))
     app.buttons["player.pause"].click()
-    app.staticTexts["library.destination.playlists"].click()
+    app.libraryDestination("playlists").click()
     let playlist = app.buttons["playlist.fixture-playlist-1"]
     XCTAssertTrue(playlist.waitForExistence(timeout: 10))
     playlist.click()

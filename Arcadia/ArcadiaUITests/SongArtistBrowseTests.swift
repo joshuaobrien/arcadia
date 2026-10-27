@@ -10,13 +10,15 @@ final class SongArtistBrowseTests: XCTestCase {
     let album = app.buttons["track.fixture-1-track-1.album"]
     XCTAssertTrue(artist.waitForExistence(timeout: 10))
     XCTAssertTrue(album.waitForExistence(timeout: 10))
-    XCTAssertEqual(artist.frame.midY, album.frame.midY, accuracy: 1,
-                   "Album and artist pills should share the line below the song title")
+    XCTAssertEqual(
+      artist.frame.midY, album.frame.midY, accuracy: 1,
+      "Album and artist pills should share the line below the song title")
     XCTAssertGreaterThan(album.frame.minX, artist.frame.maxX)
     capture(app, "Songs - aligned metadata pills")
     album.click()
-    XCTAssertTrue(app.buttons["album.play"].waitForExistence(timeout: 10),
-                  "The aligned album pill still opens the album")
+    XCTAssertTrue(
+      app.buttons["album.play"].waitForExistence(timeout: 10),
+      "The aligned album pill still opens the album")
   }
 
   @MainActor
@@ -34,7 +36,7 @@ final class SongArtistBrowseTests: XCTestCase {
     XCTAssertTrue(play.waitForExistence(timeout: 10))
     play.click()
     XCTAssertTrue(app.staticTexts["player.title"].waitForExistence(timeout: 10))
-    app.staticTexts["library.destination.artists"].click()
+    app.libraryDestination("artists").click()
     let artist = app.buttons["artist.fixture-artist-1"]
     XCTAssertTrue(artist.waitForExistence(timeout: 10))
     XCTAssertEqual(artist.label, "Bjork")
@@ -48,7 +50,7 @@ final class SongArtistBrowseTests: XCTestCase {
     XCTAssertTrue(release.exists && release.isHittable)
     XCTAssertTrue(app.staticTexts["player.title"].exists)
     capture(app, "Artist - shared songs and releases")
-    app.staticTexts["library.destination.songs"].click()
+    app.libraryDestination("songs").click()
     XCTAssertTrue(app.staticTexts["songs.count"].waitForExistence(timeout: 5))
     XCTAssertTrue(app.staticTexts["player.title"].exists)
   }
@@ -57,7 +59,7 @@ final class SongArtistBrowseTests: XCTestCase {
   func testEmptySongsAndArtists() {
     let app = launch("empty")
     XCTAssertTrue(app.staticTexts["songs.empty.title"].waitForExistence(timeout: 10))
-    app.staticTexts["library.destination.artists"].click()
+    app.libraryDestination("artists").click()
     XCTAssertTrue(app.staticTexts["artists.empty.title"].waitForExistence(timeout: 10))
     capture(app, "Artists - empty library")
   }
@@ -68,7 +70,7 @@ final class SongArtistBrowseTests: XCTestCase {
     XCTAssertTrue(app.staticTexts["songs.error"].waitForExistence(timeout: 10))
     app.buttons["songs.retry"].click()
     XCTAssertTrue(app.buttons["track.fixture-1-track-1.play"].waitForExistence(timeout: 10))
-    app.staticTexts["library.destination.artists"].click()
+    app.libraryDestination("artists").click()
     XCTAssertTrue(app.staticTexts["artists.error"].waitForExistence(timeout: 10))
     app.buttons["artists.retry"].click()
     XCTAssertTrue(app.buttons["artist.fixture-artist-1"].waitForExistence(timeout: 10))
@@ -88,7 +90,7 @@ final class SongArtistBrowseTests: XCTestCase {
     XCTAssertTrue(lastSong.exists && lastSong.isHittable)
     XCTAssertEqual(app.staticTexts["songs.count"].value as? String, "24 songs")
     XCTAssertEqual(app.buttons.matching(identifier: "track.fixture-8-track-3.play").count, 1)
-    app.staticTexts["library.destination.artists"].click()
+    app.libraryDestination("artists").click()
     XCTAssertTrue(app.staticTexts["artists.count"].waitForExistence(timeout: 10))
     XCTAssertTrue(app.buttons["artist.fixture-artist-1"].waitForExistence(timeout: 10))
     XCTAssertEqual(app.staticTexts["artists.count"].value as? String, "24 artists")
@@ -101,10 +103,10 @@ final class SongArtistBrowseTests: XCTestCase {
     XCTAssertEqual(app.staticTexts["artists.count"].value as? String, "24 artists")
     XCTAssertEqual(app.buttons.matching(identifier: "artist.fixture-artist-24").count, 1)
     capture(app, "Artists - second page without duplicate rows")
-    app.staticTexts["library.destination.songs"].click()
+    app.libraryDestination("songs").click()
     XCTAssertTrue(app.staticTexts["songs.count"].waitForExistence(timeout: 5))
     XCTAssertTrue(waitUntilHittable(lastSong), "Returning to Songs should preserve the browsed position")
-    app.staticTexts["library.destination.artists"].click()
+    app.libraryDestination("artists").click()
     XCTAssertTrue(waitUntilHittable(lastArtist), "Returning to Artists should preserve the browsed position")
     app.terminate()
     app.launch()
@@ -135,15 +137,18 @@ final class SongArtistBrowseTests: XCTestCase {
     let firstRow = app.descendants(matching: .any).matching(identifier: "track.fixture-1-track-1").firstMatch
     let secondRow = app.descendants(matching: .any).matching(identifier: "track.fixture-1-track-2").firstMatch
     let geometry = XCTAttachment(
-      string: "Reserved top: \(reservedTop); pitch: \(reservedRowPitch); first: \(firstRow.frame); second: \(secondRow.frame)")
+      string:
+        "Reserved top: \(reservedTop); pitch: \(reservedRowPitch); first: \(firstRow.frame); second: \(secondRow.frame)"
+    )
     geometry.name = "Loading and loaded song-row geometry"
     geometry.lifetime = .keepAlways
     add(geometry)
     XCTAssertEqual(firstRow.frame.minY, reservedTop, accuracy: 6, "The first row stays in its reserved position")
-    XCTAssertEqual(secondRow.frame.minY - firstRow.frame.minY, reservedRowPitch, accuracy: 6,
-                   "Loaded row spacing matches the skeleton's row pitch")
+    XCTAssertEqual(
+      secondRow.frame.minY - firstRow.frame.minY, reservedRowPitch, accuracy: 6,
+      "Loaded row spacing matches the skeleton's row pitch")
     XCTAssertFalse(loading.exists)
-    app.staticTexts["library.destination.artists"].click()
+    app.libraryDestination("artists").click()
     XCTAssertTrue(
       app.descendants(matching: .any).matching(identifier: "artists.loading").firstMatch.waitForExistence(timeout: 5))
     capture(app, "Artists - loading")
@@ -169,8 +174,9 @@ final class SongArtistBrowseTests: XCTestCase {
     let secondRow = app.descendants(matching: .any).matching(identifier: "track.fixture-1-track-2").firstMatch
     capture(app, "Artist songs - loaded")
     XCTAssertEqual(firstRow.frame.minY, reservedTop, accuracy: 1)
-    XCTAssertEqual(secondRow.frame.minY - firstRow.frame.minY, reservedRowPitch, accuracy: 1,
-                   "Artist song placeholders reserve the loaded row pitch")
+    XCTAssertEqual(
+      secondRow.frame.minY - firstRow.frame.minY, reservedRowPitch, accuracy: 1,
+      "Artist song placeholders reserve the loaded row pitch")
     XCTAssertFalse(loading.exists)
   }
 

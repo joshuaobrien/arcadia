@@ -10,14 +10,14 @@ final class SharedCompositionTests: XCTestCase {
     app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
     app.launch()
     XCTAssertTrue(app.staticTexts["songs.count"].waitForExistence(timeout: 10))
-    app.staticTexts["library.destination.search"].click()
+    app.libraryDestination("search").click()
     XCTAssertTrue(app.textFields["search.query"].waitForExistence(timeout: 5))
     let screenshot = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
     screenshot.name = "Active Search window title"
     screenshot.lifetime = .keepAlways
     add(screenshot)
     XCTAssertEqual(app.windows.firstMatch.title, "Search")
-    app.staticTexts["library.destination.songs"].click()
+    app.libraryDestination("songs").click()
     XCTAssertTrue(app.staticTexts["songs.count"].waitForExistence(timeout: 5))
     XCTAssertEqual(app.windows.firstMatch.title, "Songs")
   }
@@ -29,13 +29,15 @@ final class SharedCompositionTests: XCTestCase {
     app.launchEnvironment["ARCADIA_FIXTURE_SCENARIO"] = "two-page"
     app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
     app.launch()
-    XCTAssertTrue(app.staticTexts["library.destination.playlists"].waitForExistence(timeout: 10))
-    app.staticTexts["library.destination.playlists"].click()
+    XCTAssertTrue(app.libraryDestination("playlists").waitForExistence(timeout: 10))
+    app.libraryDestination("playlists").click()
     XCTAssertTrue(app.buttons["playlist.fixture-playlist-1"].waitForExistence(timeout: 10))
     app.buttons["playlist.fixture-playlist-1"].click()
     let count = app.staticTexts["playlist.count"]
     XCTAssertTrue(count.waitForExistence(timeout: 10))
-    XCTAssertEqual(count.value as? String, "20 songs loaded")
+    // The wider library can prefetch the last page before the AX query completes.
+    // Both states must distinguish a loaded page from the complete collection.
+    XCTAssertTrue(["20 songs loaded", "24 songs"].contains(count.value as? String ?? ""))
     let screenshot = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
     screenshot.name = "Playlist count accurately describes loaded page"
     screenshot.lifetime = .keepAlways

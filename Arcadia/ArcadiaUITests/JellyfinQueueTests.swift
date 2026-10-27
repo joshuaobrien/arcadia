@@ -7,7 +7,8 @@ final class JellyfinQueueTests: XCTestCase {
   @MainActor
   func testEditedQueuePreservesPlaybackAndAdvancesWithRealOutput() throws {
     let fixture = URL(fileURLWithPath: "/tmp/arcadia-jellyfin-fixture.json")
-    let captureDirectory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("tmp/arcadia-audio-capture-55")
+    let captureDirectory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(
+      "tmp/arcadia-audio-capture-55")
     guard FileManager.default.fileExists(atPath: fixture.path),
       FileManager.default.fileExists(atPath: captureDirectory.appendingPathComponent("armed").path)
     else { throw XCTSkip("Requires explicit disposable Jellyfin and guest PCM capture; not audio acceptance.") }
@@ -31,8 +32,8 @@ final class JellyfinQueueTests: XCTestCase {
     app.secureTextFields["source.password"].typeKey("a", modifierFlags: .command)
     app.secureTextFields["source.password"].typeKey("v", modifierFlags: .command)
     app.buttons["source.connect"].click()
-    XCTAssertTrue(app.staticTexts["library.destination.albums"].waitForExistence(timeout: 20))
-    app.staticTexts["library.destination.albums"].click()
+    XCTAssertTrue(app.libraryDestination("albums").waitForExistence(timeout: 20))
+    app.libraryDestination("albums").click()
     XCTAssertTrue(app.staticTexts["albums.count"].waitForExistence(timeout: 20))
     let album = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Orb Sessions'")).firstMatch
     for _ in 0..<12 {
@@ -65,15 +66,18 @@ final class JellyfinQueueTests: XCTestCase {
     rows.element(boundBy: 0).buttons["queue.remove"].click()
     rows.element(boundBy: 1).buttons["queue.move-up"].click()
     XCTAssertEqual(rows.element(boundBy: 0).label, "Persistent State")
-    let nextOccurrence = rows.element(boundBy: 0).identifier.replacingOccurrences(of: "queue.entry.", with: "queue.current.")
+    let nextOccurrence = rows.element(boundBy: 0).identifier.replacingOccurrences(
+      of: "queue.entry.", with: "queue.current.")
     XCTAssertEqual(app.staticTexts["player.title"].value as? String, "First Contact")
     XCTAssertEqual(app.staticTexts["player.elapsed"].value as? String, pausedPosition)
     XCTAssertTrue(app.buttons["player.resume"].exists)
     app.sliders["player.seek"].adjust(toNormalizedSliderPosition: 0)
     app.buttons["player.resume"].click()
     waitForState("Playing", app: app)
-    let process = try XCTUnwrap(NSRunningApplication.runningApplications(
-      withBundleIdentifier: "tokyo.drift.Arcadia.Development").first)
+    let process = try XCTUnwrap(
+      NSRunningApplication.runningApplications(
+        withBundleIdentifier: "tokyo.drift.Arcadia.Development"
+      ).first)
     try JSONSerialization.data(withJSONObject: ["pid": Int(process.processIdentifier)]).write(
       to: captureDirectory.appendingPathComponent("target.json"))
     XCTAssertTrue(waitForFile(captureDirectory.appendingPathComponent("capture-ready"), timeout: 30))

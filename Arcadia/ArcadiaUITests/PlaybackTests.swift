@@ -12,7 +12,7 @@ final class PlaybackTests: XCTestCase {
     app.launchEnvironment["ARCADIA_RUN_ID"] = ProcessInfo.processInfo.environment["ARCADIA_RUN_ID"] ?? "playback-ui"
     app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
     app.launch()
-    app.staticTexts["Albums"].click()
+    app.libraryDestination("albums").click()
     XCTAssertTrue(app.buttons["album.fixture-1"].waitForExistence(timeout: 10))
     app.buttons["album.fixture-1"].click()
     XCTAssertTrue(app.buttons["track.fixture-1-track-1.play"].waitForExistence(timeout: 10))
@@ -20,7 +20,7 @@ final class PlaybackTests: XCTestCase {
   }
 
   @MainActor
-  func testNowPlayingSidebarKeepsTransportVolumeAndQueueAccessible() {
+  func testBottomTransportKeepsVolumeAndQueueAccessible() {
     let app = XCUIApplication()
     app.launchArguments = ["-ApplePersistenceIgnoreState", "YES"]
     app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
@@ -33,27 +33,18 @@ final class PlaybackTests: XCTestCase {
     app.buttons["player.pause"].click()
     XCTAssertFalse(app.staticTexts["NOW PLAYING"].exists)
     XCTAssertFalse(app.staticTexts["player.state"].exists)
-    XCTAssertEqual(app.scrollViews["player.bar"].value as? String, "Paused")
+    let player = app.descendants(matching: .any).matching(identifier: "player.bar").firstMatch
+    XCTAssertTrue(app.buttons["player.resume"].exists)
     let title = app.staticTexts["player.title"]
     XCTAssertEqual(title.value as? String, "The First Song")
     XCTAssertEqual(app.buttons["player.album"].label, "Hyperballad")
-    XCTAssertGreaterThan(title.frame.minX, song.frame.maxX)
-    let sidebar = app.scrollViews["player.bar"]
+    XCTAssertGreaterThan(player.frame.minY, song.frame.maxY)
+    XCTAssertGreaterThan(player.frame.width, app.windows.firstMatch.frame.width * 0.8)
     let volume = app.sliders["player.volume"]
-    for _ in 0..<5 {
-      if volume.isHittable { break }
-      sidebar.scroll(byDeltaX: 0, deltaY: -150)
-    }
     XCTAssertTrue(volume.isHittable)
     volume.adjust(toNormalizedSliderPosition: 0.25)
     XCTAssertTrue(app.buttons["player.resume"].exists, "Volume must preserve paused intent")
-    let upNext = app.buttons["player.up-next"]
-    for _ in 0..<5 {
-      if upNext.isHittable { break }
-      sidebar.scroll(byDeltaX: 0, deltaY: -150)
-    }
-    XCTAssertTrue(upNext.isHittable)
-    upNext.click()
+    app.buttons["queue.toggle"].click()
     XCTAssertTrue(app.scrollViews["queue.scroll"].waitForExistence(timeout: 5))
     app.buttons["queue.toggle"].click()
     XCTAssertEqual(title.value as? String, "The First Song")
@@ -155,7 +146,7 @@ final class PlaybackTests: XCTestCase {
     app.launchEnvironment["ARCADIA_RUN_ID"] = ProcessInfo.processInfo.environment["ARCADIA_RUN_ID"] ?? "playback-ui"
     app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
     app.launch()
-    app.staticTexts["Albums"].click()
+    app.libraryDestination("albums").click()
     let album = app.buttons["album.fixture-1"]
     XCTAssertTrue(album.waitForExistence(timeout: 10))
     album.click()
@@ -170,7 +161,7 @@ final class PlaybackTests: XCTestCase {
     XCTAssertTrue(title.waitForExistence(timeout: 10))
     XCTAssertEqual(title.value as? String, "The First Song")
     XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 10))
-    app.buttons["albums.back"].click()
+    app.buttons["library.back"].click()
     XCTAssertTrue(album.waitForExistence(timeout: 5))
     XCTAssertEqual(title.value as? String, "The First Song")
     app.buttons["player.pause"].click()

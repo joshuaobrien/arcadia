@@ -30,17 +30,24 @@ struct AlbumMetadataView: View {
 
   var body: some View {
     Group {
-      if dynamicTypeSize.isAccessibilitySize {
-        metadata.frame(maxWidth: .infinity, alignment: .leading)
-      } else {
-        ViewThatFits(in: .horizontal) {
-          HStack(alignment: .bottom, spacing: DesignTokens.Spacing.l) {
-            artwork.frame(width: 220, height: 220)
-            metadata.frame(minWidth: 280, maxWidth: .infinity, alignment: .leading)
-          }
-          stackedHeader
+      #if os(macOS)
+        VStack(alignment: .leading, spacing: 4) {
+          Text(title).font(.largeTitle.bold()).accessibilityIdentifier("album.title")
+          Text(artist).font(.title2).foregroundStyle(.secondary).accessibilityIdentifier("album.artist")
         }
-      }
+      #else
+        if dynamicTypeSize.isAccessibilitySize {
+          metadata.frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+          ViewThatFits(in: .horizontal) {
+            HStack(alignment: .bottom, spacing: DesignTokens.Spacing.l) {
+              artwork.frame(width: 220, height: 220)
+              metadata.frame(minWidth: 280, maxWidth: .infinity, alignment: .leading)
+            }
+            stackedHeader
+          }
+        }
+      #endif
     }
   }
 

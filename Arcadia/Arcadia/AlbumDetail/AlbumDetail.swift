@@ -43,6 +43,15 @@ struct AlbumDetail: View {
         .disabled(model.isLoading || model.tracks.isEmpty)
 
         Divider()
+        #if os(macOS)
+          HStack(spacing: 24) {
+            Text("#").frame(width: 36, alignment: .leading)
+            Text("Title")
+            Spacer()
+            Text("Time").frame(width: 42, alignment: .trailing)
+            Spacer().frame(width: 28)
+          }.foregroundStyle(.secondary).font(.subheadline)
+        #endif
 
         if model.isLoading {
           LibrarySkeleton(
@@ -72,9 +81,11 @@ struct AlbumDetail: View {
       .navigationBarTitleDisplayMode(.inline)
     #endif
     .navigationBarBackButtonHidden(true)
-    .toolbar {
-      ToolbarItem(placement: .navigation) { AlbumBackButton() }
-    }
+    #if os(iOS)
+      .toolbar {
+        ToolbarItem(placement: .navigation) { AlbumBackButton() }
+      }
+    #endif
     .task {
       await model.onOpen()
     }

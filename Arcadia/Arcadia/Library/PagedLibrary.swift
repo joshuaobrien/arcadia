@@ -93,6 +93,7 @@ final class LibraryModel {
 @MainActor
 @Observable
 final class ArtistLibraryModel {
+  private(set) var playError: String?
   let songs: PagedLibrary<Track>
   let releases: PagedLibrary<Album>
 
@@ -104,5 +105,34 @@ final class ArtistLibraryModel {
       let page = try await source.fetchArtistAlbums(artistID: artist.id, cursor: $0)
       return LibraryPage(items: page.albums, nextCursor: page.nextCursor, totalCount: page.totalCount)
     }
+  }
+
+  func play(using player: PlayerStore) async {
+    let choice = player.playbackChoiceRevision
+    let lifecycle = player.audioLifecycleRevision
+    playError = nil
+    await songs.open()
+    guard !Task.isCancelled else { return }
+    if let error = songs.errorText {
+      playError = error
+      return
+    }
+    var visited = Set<String>()
+    while let cursor = songs.nextCursor {
+      guard visited.insert(cursor).inserted else {
+        playError = MusicSourceError.invalidCursor.localizedDescription
+        return
+      }
+      await songs.next()
+      guard !Task.isCancelled else { return }
+      if let error = songs.errorText {
+        playError = error
+        return
+      }
+    }
+    guard !Task.isCancelled, player.playbackChoiceRevision == choice,
+      player.audioLifecycleRevision == lifecycle
+    else { return }
+    player.play(songs.items)
   }
 }

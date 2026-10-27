@@ -22,16 +22,17 @@ struct AppView: View {
   let listeningSession: ListeningSession?
   private let disconnect: (() -> Void)?
 
-  @State private var albumsModel: AlbumsModel
-  @State private var playerStore: PlayerStore
+  @State var albumsModel: AlbumsModel
+  @State var playerStore: PlayerStore
   @State private var isQueuePresented = false
-  @State private var isPlayerPresented = false
+  @State var isPlayerPresented = false
   @State private var queueScrollPosition = ScrollPosition()
   @State private var queueScrollOffset: CGFloat = 0
-  @State private var libraryModel: LibraryModel
+  @State var libraryModel: LibraryModel
   @State private var activeLibraryTitle: String?
   @State private var paths: [AppSection: NavigationPath] = [:]
-  @AppStorage private var destination: String
+  @State private var forwardPaths: [AppSection: [NavigationPath]] = [:]
+  @AppStorage var destination: String
   @AppStorage private var lastLibraryDestination: String
 
   init(
@@ -145,18 +146,6 @@ struct AppView: View {
         .allowsHitTesting(selection == section)
         .accessibilityHidden(selection != section)
       }
-    }
-  }
-
-  @ViewBuilder
-  private func libraryDestination(_ route: LibraryRoute, isActive: Bool) -> some View {
-    switch route {
-    case .artist(let artist):
-      ArtistDetail(artist: artist, model: libraryModel.library(for: artist))
-    case .playlist(let playlist):
-      PlaylistDetail(playlist: playlist, source: albumService, isActive: isActive)
-    case .album(let album):
-      AlbumDetail(albumService: albumService, album: album)
     }
   }
 
@@ -281,96 +270,117 @@ struct AppView: View {
   }
 
   private func pathBinding(for section: AppSection) -> Binding<NavigationPath> {
-    return Binding(get: { paths[section] ?? NavigationPath() }, set: { paths[section] = $0 })
+    return Binding(
+      get: { paths[section] ?? NavigationPath() },
+      set: {
+        paths[section] = $0
+        forwardPaths[section] = []
+      })
   }
 
 }
 
 extension AppView {
+  @ViewBuilder
+  private func libraryDestination(_ route: LibraryRoute, isActive: Bool) -> some View {
+    switch route {
+    case .artist(let artist):
+      ArtistDetail(artist: artist, model: libraryModel.library(for: artist))
+    case .playlist(let playlist):
+      PlaylistDetail(playlist: playlist, source: albumService, isActive: isActive)
+    case .album(let album):
+      AlbumDetail(albumService: albumService, album: album)
+    }
+  }
+
   private func openPlayerDestination(_ route: LibraryRoute) {
+    forwardPaths[selection] = []
     paths[selection, default: NavigationPath()].append(route)
     isPlayerPresented = false
   }
 }
 
-#if DEBUG
-  extension AppView {
-    // Visual-loop runs use a frozen, paused fixture queue; normal launches and tests stay untouched.
-    private var usesVisualPlayerFixture: Bool {
-      let environment = ProcessInfo.processInfo.environment
-      return environment["ARCADIA_VISUAL_RUN_ID"] != nil
-        && environment["ARCADIA_DATA_MODE"] == "fixtures"
-        && environment["ARCADIA_FIXTURE_SCENARIO"] == "success"
-    }
-
-    private func prepareVisualPlayer() async {
-      guard usesVisualPlayerFixture else { return }
-      do {
-        let songs = try await albumService.fetchSongs(SongBrowseRequest(cursor: nil, searchTerm: ""))
-        playerStore.play(Array(songs.items.prefix(3)))
-        playerStore.pause()
-        #if os(iOS)
-          isPlayerPresented = true
-        #endif
-      } catch {
-        // A failed fixture cannot satisfy the frame readiness gate below.
-      }
-    }
-
-    private var developmentFrameReady: Bool {
-      if usesVisualPlayerFixture && playerStore.state != .paused { return false }
-      let capturingLoading = ProcessInfo.processInfo.environment["ARCADIA_FIXTURE_SCENARIO"] == "loading"
-      return switch AppSection(rawValue: destination) ?? .songs {
-      case .songs:
-        libraryModel.songs.hasOpened && libraryModel.songs.isLoading == capturingLoading
-      case .artists:
-        libraryModel.artists.hasOpened && libraryModel.artists.isLoading == capturingLoading
-      case .playlists:
-        libraryModel.playlists.hasOpened && libraryModel.playlists.isLoading == capturingLoading
-      case .albums:
-        if capturingLoading {
-          albumsModel.loadState == .initial
-        } else if case .loaded = albumsModel.loadState {
-          true
-        } else {
-          false
-        }
-      case .search: true
-      }
-    }
-  }
-#endif
-
 #if os(macOS)
   extension AppView {
     private var macShell: some View {
-      HStack(spacing: 0) {
-        NavigationSplitView {
-          List(AppSection.allCases, selection: selectionBinding) { section in
-            Text(section.rawValue.capitalized)
-              .accessibilityIdentifier("library.destination.\(section.rawValue)")
-          }
-        } detail: {
-          retainedSections(AppSection.allCases)
+      retainedSections(AppSection.allCases)
+        .background(Color(red: 0.99, green: 0.97, blue: 0.95).opacity(0.45))
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+          MacTransportBar(open: openPlayerDestination)
         }
-        if playerStore.currentTrack != nil {
-          Divider()
-          NowPlayingSidebar(
-            showQueue: { isQueuePresented.toggle() }, openLibraryRoute: openPlayerDestination
+        .overlay(alignment: .topTrailing) {
+          MacQueuePopover(
+            isPresented: $isQueuePresented, scrollPosition: $queueScrollPosition,
+            scrollOffset: $queueScrollOffset
           )
-          .frame(width: 300)
+          .opacity(isQueuePresented ? 1 : 0)
+          .allowsHitTesting(isQueuePresented)
+          .accessibilityHidden(!isQueuePresented)
         }
-      }
-      .navigationTitle(activeLibraryTitle ?? selection.rawValue.capitalized)
-      .onPreferenceChange(ActiveLibraryTitle.self) { activeLibraryTitle = $0 }
-      .inspector(isPresented: $isQueuePresented) {
-        QueueView(scrollPosition: $queueScrollPosition, scrollOffset: $queueScrollOffset)
-      }
-      .toolbar {
-        IssueReportButton()
-        Button("Queue", systemImage: "list.bullet") { isQueuePresented.toggle() }
-          .accessibilityIdentifier("queue.toggle")
-      }
+        .navigationTitle(activeLibraryTitle ?? selection.rawValue.capitalized)
+        .toolbar(removing: .title)
+        .onPreferenceChange(ActiveLibraryTitle.self) { activeLibraryTitle = $0 }
+        .toolbar {
+          ToolbarItemGroup(placement: .navigation) {
+            Button("Back", systemImage: "chevron.left") {
+              forwardPaths[selection, default: []].append(paths[selection] ?? NavigationPath())
+              paths[selection]?.removeLast()
+            }
+            .disabled(paths[selection]?.isEmpty ?? true)
+            .accessibilityIdentifier("library.back")
+            Button("Forward", systemImage: "chevron.right") {
+              if let path = forwardPaths[selection]?.popLast() { paths[selection] = path }
+            }
+            .disabled(forwardPaths[selection]?.isEmpty ?? true)
+            .accessibilityIdentifier("library.forward")
+            Menu {
+              ForEach(AppSection.allCases) { section in
+                Button(section.rawValue.capitalized) {
+                  selectionBinding.wrappedValue = section
+                }
+                .accessibilityIdentifier("library.destination.\(section.rawValue)")
+              }
+            } label: {
+              Label {
+                if selection != .search { Text(activeLibraryTitle ?? selection.rawValue.capitalized) }
+              } icon: {
+                Image(systemName: "books.vertical")
+              }
+            }
+            .labelStyle(.titleAndIcon)
+            .accessibilityIdentifier("library.menu")
+          }
+          ToolbarItem(placement: .principal) {
+            if selection == .search && (paths[.search]?.isEmpty ?? true) {
+              MacSearchField(model: libraryModel.search) { destination = lastLibraryCategory.rawValue }
+            }
+          }
+          ToolbarItemGroup {
+            Button("Search", systemImage: "magnifyingglass") {
+              paths[.search] = NavigationPath()
+              forwardPaths[.search] = []
+              destination = "search"
+            }
+            .accessibilityIdentifier("library.search")
+            Button("Now Playing", systemImage: "photo") { isPlayerPresented.toggle() }
+              .disabled(playerStore.currentTrack == nil)
+              .popover(isPresented: $isPlayerPresented) {
+                NowPlayingSidebar(
+                  showQueue: {
+                    isPlayerPresented = false
+                    isQueuePresented = true
+                  },
+                  openLibraryRoute: openPlayerDestination
+                )
+                .frame(width: 300, height: 620)
+              }
+            Button("Queue", systemImage: "list.bullet") { isQueuePresented.toggle() }
+              .accessibilityIdentifier("queue.toggle")
+            IssueReportButton()
+          }
+        }
+        .frame(minWidth: 850, minHeight: 560)
+        .tint(Color(red: 0.94, green: 0.38, blue: 0.30))
     }
   }
 #endif

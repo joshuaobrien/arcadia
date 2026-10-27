@@ -28,7 +28,7 @@ final class RealCurrentTrackIndicatorTests: XCTestCase {
     XCTAssertTrue(NSPasteboard.general.setString(config.password, forType: .string))
     app.secureTextFields["source.password"].typeKey("v", modifierFlags: .command)
     app.buttons["source.connect"].click()
-    let albums = app.staticTexts["library.destination.albums"]
+    let albums = app.libraryDestination("albums")
     XCTAssertTrue(albums.waitForExistence(timeout: 20))
     albums.click()
     XCTAssertTrue(app.staticTexts["albums.count"].waitForExistence(timeout: 20))

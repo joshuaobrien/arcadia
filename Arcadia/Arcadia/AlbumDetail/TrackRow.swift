@@ -18,10 +18,14 @@ struct TrackRow: View {
       if dynamicTypeSize.isAccessibilitySize {
         accessibleRow
       } else {
-        ViewThatFits(in: .horizontal) {
-          fullRow
-          compactRow
-        }
+        #if os(macOS)
+          if showsTrackNumber { albumTableRow } else { fullRow }
+        #else
+          ViewThatFits(in: .horizontal) {
+            fullRow
+            compactRow
+          }
+        #endif
       }
     }
     .contextMenu { SongActions(track: track) }
@@ -29,6 +33,41 @@ struct TrackRow: View {
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("track.\(track.id)")
   }
+
+  #if os(macOS)
+    private var albumTableRow: some View {
+      HStack(spacing: 24) {
+        Button(action: playTableTrack) {
+          Group {
+            if isCurrentTrack {
+              Image(systemName: playerStore.isPlaybackRequested ? "waveform" : "pause.fill")
+                .foregroundStyle(.tint)
+            } else {
+              Text(track.trackNumber.map(String.init) ?? "–").foregroundStyle(.secondary)
+            }
+          }.frame(width: 36, height: 28, alignment: .leading).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(playbackAction) \(track.title ?? "Untitled track")")
+        .accessibilityValue(isCurrentTrack ? playerStore.state.rawValue.capitalized : "")
+        .accessibilityIdentifier("track.\(track.id).play")
+        Text(track.title ?? "Untitled track")
+          .fontWeight(isCurrentTrack ? .semibold : .regular)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .contentShape(Rectangle()).onTapGesture(perform: playTableTrack)
+          .accessibilityIdentifier("track.\(track.id).title")
+        duration
+        SongActionsMenu(track: track)
+      }
+      .padding(.vertical, 4)
+      .overlay(alignment: .bottom) { Divider().offset(y: 6) }
+    }
+
+    private func playTableTrack() {
+      if isCurrentTrack { playerStore.togglePlayback() } else { playerStore.play([track]) }
+    }
+
+  #endif
 
   private var accessibleRow: some View {
     VStack(alignment: .leading, spacing: DesignTokens.Spacing.m) {

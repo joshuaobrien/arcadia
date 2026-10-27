@@ -45,8 +45,8 @@ final class SessionRestoreTests: XCTestCase {
     XCTAssertTrue(NSPasteboard.general.setString(config.password, forType: .string))
     app.secureTextFields["source.password"].typeKey("v", modifierFlags: .command)
     app.buttons["source.connect"].click()
-    XCTAssertTrue(app.staticTexts["library.destination.albums"].waitForExistence(timeout: 20))
-    app.staticTexts["library.destination.albums"].click()
+    XCTAssertTrue(app.libraryDestination("albums").waitForExistence(timeout: 20))
+    app.libraryDestination("albums").click()
     let album = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Orb Sessions'")).firstMatch
     for _ in 0..<12 {
       if album.exists && album.isHittable { break }

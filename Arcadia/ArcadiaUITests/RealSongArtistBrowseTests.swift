@@ -14,7 +14,7 @@ final class RealSongArtistBrowseTests: XCTestCase {
     defer { NSPasteboard.general.clearContents() }
     let app = connect(config)
     browseArtistPages(app, config: config)
-    app.staticTexts["library.destination.songs"].click()
+    app.libraryDestination("songs").click()
     let play = app.buttons["track.\(config.firstSongID).play"]
     scrollTo(play, in: app.scrollViews["songs.scroll"])
     capture(app, "Real Songs - paged standalone song before playing")
@@ -57,7 +57,8 @@ final class RealSongArtistBrowseTests: XCTestCase {
     app.launchEnvironment["ARCADIA_DATA_MODE"] = "jellyfin"
     app.launchEnvironment["ARCADIA_SESSION_NAMESPACE"] = UUID().uuidString
     app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
-    app.launchEnvironment["ARCADIA_RUN_ID"] = ProcessInfo.processInfo.environment["ARCADIA_RUN_ID"] ?? "real-song-artist-ui"
+    app.launchEnvironment["ARCADIA_RUN_ID"] =
+      ProcessInfo.processInfo.environment["ARCADIA_RUN_ID"] ?? "real-song-artist-ui"
     app.launch()
     XCTAssertTrue(app.textFields["source.server"].waitForExistence(timeout: 10))
     app.textFields["source.server"].click()
@@ -77,7 +78,7 @@ final class RealSongArtistBrowseTests: XCTestCase {
 
   @MainActor
   private func browseArtistPages(_ app: XCUIApplication, config: BrowseConfiguration) {
-    app.staticTexts["library.destination.artists"].click()
+    app.libraryDestination("artists").click()
     let lastArtist = app.buttons["artist.\(config.lastArtistID)"]
     scrollTo(lastArtist, in: app.scrollViews["artists.scroll"])
     XCTAssertEqual(app.staticTexts["artists.count"].value as? String, "23 artists")
@@ -102,13 +103,16 @@ final class RealSongArtistBrowseTests: XCTestCase {
 
   @MainActor
   private func beginCapture(directory: URL) throws {
-    let process = try XCTUnwrap(NSRunningApplication.runningApplications(withBundleIdentifier: "tokyo.drift.Arcadia.Development").first)
-    try JSONSerialization.data(withJSONObject: ["pid": Int(process.processIdentifier)]).write(to: directory.appendingPathComponent("target.json"))
+    let process = try XCTUnwrap(
+      NSRunningApplication.runningApplications(withBundleIdentifier: "tokyo.drift.Arcadia.Development").first)
+    try JSONSerialization.data(withJSONObject: ["pid": Int(process.processIdentifier)]).write(
+      to: directory.appendingPathComponent("target.json"))
     XCTAssertTrue(waitForFile(directory.appendingPathComponent("capture-ready"), timeout: 30))
   }
 
   private func finishCapture(directory: URL, phases: [[String: Any]]) throws {
-    try JSONSerialization.data(withJSONObject: phases, options: [.prettyPrinted]).write(to: directory.appendingPathComponent("phases.json"))
+    try JSONSerialization.data(withJSONObject: phases, options: [.prettyPrinted]).write(
+      to: directory.appendingPathComponent("phases.json"))
     try Data().write(to: directory.appendingPathComponent("done"))
     XCTAssertTrue(waitForFile(directory.appendingPathComponent("results.json"), timeout: 10))
   }

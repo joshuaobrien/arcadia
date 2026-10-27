@@ -7,7 +7,7 @@ struct AlbumCardView: View {
   let year: String
 
   var body: some View {
-    VStack(alignment: .leading, spacing: DesignTokens.Spacing.s) {
+    VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
       AlbumArtwork(artworkURL: artworkURL)
         .aspectRatio(1, contentMode: .fit)
         .clipShape(
@@ -24,9 +24,11 @@ struct AlbumCardView: View {
         .lineLimit(2)
         .fixedSize(horizontal: false, vertical: true)
 
-      Text(String(year))
-        .font(.caption)
-        .foregroundStyle(.secondary)
+      if !year.isEmpty {
+        Text(String(year))
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
     }
   }
 }

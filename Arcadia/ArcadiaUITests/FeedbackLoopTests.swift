@@ -8,8 +8,8 @@ final class FeedbackLoopTests: XCTestCase {
   @MainActor
   func testNonSquareArtworkStaysInsideAlbumCards() {
     let app = launch("two-page")
-    let first = app.buttons["album.fixture-1"]
-    let second = app.buttons["album.fixture-2"]
+    let first = app.buttons["album.fixture-2"]
+    let second = app.buttons["album.fixture-3"]
     XCTAssertTrue(first.waitForExistence(timeout: 10))
     XCTAssertTrue(second.waitForExistence(timeout: 10))
     let loaded = NSPredicate(format: "label BEGINSWITH 'Album artwork, '")
@@ -24,6 +24,70 @@ final class FeedbackLoopTests: XCTestCase {
   }
 
   @MainActor
+  func testToolbarNavigationAndBottomTransport() {
+    let app = launch("success")
+    app.buttons["album.fixture-1"].click()
+    let play = app.buttons["track.fixture-1-track-1.play"]
+    XCTAssertTrue(play.waitForExistence(timeout: 10))
+    app.buttons["album.play"].click()
+    let player = app.descendants(matching: .any).matching(identifier: "player.bar").firstMatch
+    XCTAssertTrue(player.waitForExistence(timeout: 10))
+    XCTAssertGreaterThan(player.frame.width, app.windows.firstMatch.frame.width * 0.8)
+    XCTAssertTrue(app.sliders["player.volume"].exists)
+    XCTAssertTrue(app.sliders["player.seek"].exists)
+    app.buttons["queue.toggle"].click()
+    XCTAssertTrue(app.staticTexts["queue.heading"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["queue.clear"].exists)
+    capture(app, "Redesign - queue popover")
+    app.buttons["queue.toggle"].click()
+    XCTAssertFalse(app.staticTexts["queue.heading"].exists)
+    capture(app, "Redesign - album table and bottom transport")
+    app.descendants(matching: .any).matching(identifier: "library.menu").firstMatch.click()
+    app.menuItems["Artists"].click()
+    let artist = app.buttons["artist.fixture-artist-1"]
+    XCTAssertTrue(artist.waitForExistence(timeout: 10))
+    artist.click()
+    let artistPlay = app.buttons["artist.play"]
+    XCTAssertTrue(artistPlay.waitForExistence(timeout: 10))
+    artistPlay.click()
+    XCTAssertEqual(
+      XCTWaiter.wait(
+        for: [
+          XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", "The First Song"), object: app.staticTexts["player.title"])
+        ],
+        timeout: 10), .completed)
+    capture(app, "Redesign - artist releases")
+    app.buttons["library.search"].click()
+    let search = app.textFields["search.query"]
+    XCTAssertTrue(search.waitForExistence(timeout: 5))
+    search.click()
+    search.typeText("Bjork")
+    XCTAssertTrue(app.buttons["search.artist.fixture-artist-1"].waitForExistence(timeout: 10))
+    capture(app, "Redesign - grouped search")
+  }
+
+  @MainActor
+  func testToolbarHistoryRestoresForwardRouteAndClearsItForANewChoice() {
+    let app = launch("success")
+    let album = app.buttons["album.fixture-1"]
+    XCTAssertTrue(album.waitForExistence(timeout: 10))
+    album.click()
+    let track = app.buttons["track.fixture-1-track-1.play"]
+    XCTAssertTrue(track.waitForExistence(timeout: 10))
+    app.buttons["library.back"].click()
+    XCTAssertTrue(album.waitForExistence(timeout: 5))
+    let forward = app.buttons["library.forward"]
+    XCTAssertTrue(forward.isEnabled)
+    forward.click()
+    XCTAssertTrue(track.waitForExistence(timeout: 5))
+    app.buttons["library.back"].click()
+    album.click()
+    XCTAssertTrue(track.waitForExistence(timeout: 5))
+    XCTAssertFalse(forward.isEnabled)
+  }
+
+  @MainActor
   private func launch(_ scenario: String) -> XCUIApplication {
     let app = XCUIApplication()
     app.launchArguments = ["-ApplePersistenceIgnoreState", "YES"]
@@ -32,7 +96,8 @@ final class FeedbackLoopTests: XCTestCase {
     app.launchEnvironment["ARCADIA_RUN_ID"] = ProcessInfo.processInfo.environment["ARCADIA_RUN_ID"] ?? "ui-tests"
     app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
     app.launch()
-    app.staticTexts["Albums"].click()
+    app.descendants(matching: .any).matching(identifier: "library.menu").firstMatch.click()
+    app.menuItems["Albums"].click()
     return app
   }
 
@@ -55,10 +120,10 @@ final class FeedbackLoopTests: XCTestCase {
     album.click()
     XCTAssertTrue(app.staticTexts["track.fixture-1-track-1.title"].waitForExistence(timeout: 10))
     XCTAssertTrue(app.buttons["track.fixture-1-track-1.play"].exists)
-    XCTAssertTrue(app.images["artwork.loaded"].exists)
+    XCTAssertTrue(app.staticTexts["album.title"].exists)
     XCTAssertEqual(app.staticTexts["track.fixture-1-track-1.title"].value as? String, "The First Song")
     capture(app, "Success - artwork and tracks")
-    app.buttons["albums.back"].click()
+    app.buttons["library.back"].click()
     XCTAssertTrue(album.waitForExistence(timeout: 5))
     capture(app, "Success - library after back")
   }
@@ -119,7 +184,7 @@ final class FeedbackLoopTests: XCTestCase {
   @MainActor
   func testInitialPageCountIncludesUnloadedAlbums() {
     let app = launch("two-page")
-    XCTAssertTrue(app.buttons["album.fixture-1"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.buttons["album.fixture-2"].waitForExistence(timeout: 10))
     XCTAssertFalse(app.buttons["album.fixture-24"].exists, "The remaining page has not loaded")
     XCTAssertEqual(app.staticTexts["albums.count"].value as? String, "24 albums")
     capture(app, "Initial page - total includes unloaded albums")
@@ -128,8 +193,8 @@ final class FeedbackLoopTests: XCTestCase {
   @MainActor
   func testTwoPage() {
     let app = launch("two-page")
-    XCTAssertTrue(app.buttons["album.fixture-1"].waitForExistence(timeout: 10))
-    let lastAlbum = app.buttons["album.fixture-24"]
+    XCTAssertTrue(app.buttons["album.fixture-2"].waitForExistence(timeout: 10))
+    let lastAlbum = app.buttons["album.fixture-1"]
     var observedIDs = Set<String>()
     for _ in 0..<12 {
       // Lazy grid cells can disappear between indexed AX queries while scrolling.
@@ -149,11 +214,11 @@ final class FeedbackLoopTests: XCTestCase {
     XCTAssertEqual(app.buttons.matching(identifier: "album.fixture-24").count, 1)
     capture(app, "Two pages - final albums")
     for _ in 0..<12 {
-      if app.buttons["album.fixture-1"].isHittable { break }
+      if app.buttons["album.fixture-2"].isHittable { break }
       app.scrollViews["albums.scroll"].scroll(byDeltaX: 0, deltaY: 500)
     }
-    XCTAssertTrue(app.buttons["album.fixture-1"].isHittable)
-    XCTAssertEqual(app.buttons.matching(identifier: "album.fixture-1").count, 1)
+    XCTAssertTrue(app.buttons["album.fixture-2"].isHittable)
+    XCTAssertEqual(app.buttons.matching(identifier: "album.fixture-2").count, 1)
   }
 
   @MainActor
@@ -168,7 +233,8 @@ final class FeedbackLoopTests: XCTestCase {
     app.launchEnvironment["ARCADIA_RUN_ID"] = ProcessInfo.processInfo.environment["ARCADIA_RUN_ID"] ?? "integration"
     app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
     app.launch()
-    app.staticTexts["Albums"].click()
+    app.descendants(matching: .any).matching(identifier: "library.menu").firstMatch.click()
+    app.menuItems["Albums"].click()
     let album = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Orb Sessions'")).firstMatch
     XCTAssertTrue(album.waitForExistence(timeout: 30))
     album.click()
@@ -187,7 +253,7 @@ final class FeedbackLoopTests: XCTestCase {
     XCTAssertTrue(app.buttons["album.fixture-1"].waitForExistence(timeout: 10))
     var previousState = ""
     for _ in 0..<90 {
-      let state = app.buttons["albums.back"].exists ? "track detail" : "library"
+      let state = app.buttons["library.back"].isEnabled ? "track detail" : "library"
       if state != previousState {
         capture(app, "Native review - \(state)")
         previousState = state
