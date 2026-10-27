@@ -118,6 +118,9 @@ struct AppView: View {
           #endif
           #if os(iOS)
             .toolbar {
+              if selection == section {
+                ToolbarItem(placement: .topBarTrailing) { IssueReportButton() }
+              }
               if selection == section, let disconnect {
                 ToolbarItem(placement: .topBarTrailing) {
                   Button("Disconnect", systemImage: "rectangle.portrait.and.arrow.right", action: disconnect)
@@ -127,20 +130,14 @@ struct AppView: View {
             }
           #endif
           .navigationDestination(for: LibraryRoute.self) { route in
-            Group {
-              switch route {
-              case .artist(let artist):
-                ArtistDetail(artist: artist, model: libraryModel.library(for: artist))
-              case .playlist(let playlist):
-                PlaylistDetail(playlist: playlist, source: albumService, isActive: selection == section)
-              case .album(let album):
-                AlbumDetail(albumService: albumService, album: album)
-              }
-            }
-            .accessibilityElement(children: .contain)
-            #if os(iOS)
-              .accessibilityHidden(selection != section)
-            #endif
+            libraryDestination(route, isActive: selection == section)
+              .accessibilityElement(children: .contain)
+              #if os(iOS)
+                .accessibilityHidden(selection != section)
+                .toolbar {
+                  ToolbarItem(placement: .topBarTrailing) { IssueReportButton() }
+                }
+              #endif
           }
         }
         .environment(\.libraryPresentationIsActive, selection == section)
@@ -148,6 +145,18 @@ struct AppView: View {
         .allowsHitTesting(selection == section)
         .accessibilityHidden(selection != section)
       }
+    }
+  }
+
+  @ViewBuilder
+  private func libraryDestination(_ route: LibraryRoute, isActive: Bool) -> some View {
+    switch route {
+    case .artist(let artist):
+      ArtistDetail(artist: artist, model: libraryModel.library(for: artist))
+    case .playlist(let playlist):
+      PlaylistDetail(playlist: playlist, source: albumService, isActive: isActive)
+    case .album(let album):
+      AlbumDetail(albumService: albumService, album: album)
     }
   }
 
@@ -232,6 +241,9 @@ struct AppView: View {
                   Label("Queue", systemImage: "list.bullet")
                 }
                 .accessibilityIdentifier("queue.toggle")
+              }
+              ToolbarItem(placement: .topBarTrailing) {
+                IssueReportButton()
               }
               ToolbarItem(placement: .topBarTrailing) {
                 Button("Done", systemImage: "chevron.down") { isPlayerPresented = false }
@@ -339,6 +351,7 @@ struct AppView: View {
         QueueView(scrollPosition: $queueScrollPosition, scrollOffset: $queueScrollOffset)
       }
       .toolbar {
+        IssueReportButton()
         Button("Queue", systemImage: "list.bullet") { isQueuePresented.toggle() }
           .accessibilityIdentifier("queue.toggle")
       }
