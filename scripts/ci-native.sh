@@ -117,6 +117,8 @@ vm_run "cd /tmp/build && xcrun swift-format lint --configuration .swift-format -
 
 FASTLANE="export PATH=/opt/homebrew/opt/ruby@3.4/bin:/opt/homebrew/bin:\$PATH BUNDLE_GEMFILE=/tmp/build/Gemfile BUNDLE_PATH=/Users/admin/.cache/arcadia-fastlane BUNDLE_FROZEN=1 FASTLANE_SKIP_UPDATE_CHECK=1 FASTLANE_HIDE_CHANGELOG=1 FASTLANE_OPT_OUT_USAGE=1 && cd /tmp/build && bundle exec fastlane"
 echo "==> Building and testing (Fastlane)"
+echo "==> Audio fixture publication across test workers"
+vm_run "cd /tmp/build && export PATH=/opt/homebrew/bin:\$PATH && python3 Arcadia/test-fixture-audio-race.py"
 TEST_STATUS=0
 vm_run "$FASTLANE mac_ci" || TEST_STATUS=$?
 vm_run "xcrun xcresulttool get test-results summary --path /tmp/arcadia-ci-tests.xcresult > '/Volumes/My Shared Files/evidence/tests-summary.json'" || true
