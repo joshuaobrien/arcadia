@@ -355,7 +355,8 @@ extension AppView {
               MacSearchField(model: libraryModel.search) { destination = lastLibraryCategory.rawValue }
             }
           }
-          ToolbarItemGroup {
+          ToolbarSpacer(.flexible, placement: .primaryAction)
+          ToolbarItemGroup(placement: .primaryAction) {
             Button("Search", systemImage: "magnifyingglass") {
               paths[.search] = NavigationPath()
               forwardPaths[.search] = []
