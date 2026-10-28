@@ -20,6 +20,20 @@ final class PlaybackTests: XCTestCase {
   }
 
   @MainActor
+  func testAlbumSongQueueEvidence() {
+    let app = openFixtureAlbum()
+    app.buttons["track.fixture-1-track-2.play"].click()
+    XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 10))
+    app.buttons["player.pause"].click()
+    app.buttons["queue.toggle"].click()
+    XCTAssertTrue(app.scrollViews["queue.scroll"].waitForExistence(timeout: 5))
+    let shot = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
+    shot.name = "Album song queue"
+    shot.lifetime = .keepAlways
+    add(shot)
+  }
+
+  @MainActor
   func testNowPlayingSidebarKeepsTransportVolumeAndQueueAccessible() {
     let app = XCUIApplication()
     app.launchArguments = ["-ApplePersistenceIgnoreState", "YES"]

@@ -4,6 +4,28 @@ import XCTest
 final class MobileListeningTests: XCTestCase {
   override func setUpWithError() throws { continueAfterFailure = false }
   @MainActor
+  func testAlbumSongQueueEvidence() {
+    let app = XCUIApplication()
+    app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
+    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
+    app.launch()
+    XCTAssertTrue(app.segmentedControls.buttons["Albums"].waitForExistence(timeout: 10))
+    app.segmentedControls.buttons["Albums"].tap()
+    XCTAssertTrue(app.buttons["album.fixture-1"].waitForExistence(timeout: 10))
+    app.buttons["album.fixture-1"].tap()
+    let song = app.buttons["track.fixture-1-track-2.play"]
+    XCTAssertTrue(song.waitForExistence(timeout: 10))
+    if !song.isHittable { app.scrollViews["album.detail.scroll"].swipeUp() }
+    song.tap()
+    XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 10))
+    app.buttons["player.pause"].tap()
+    app.buttons["player.expand"].tap()
+    app.buttons["queue.toggle"].tap()
+    XCTAssertTrue(app.staticTexts["queue.heading"].waitForExistence(timeout: 5))
+    capture(app, "Album song queue")
+  }
+
+  @MainActor
   func testLibraryStartsInSongsAndPlayerPresentationPreservesListening() throws {
     let app = XCUIApplication()
     app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
