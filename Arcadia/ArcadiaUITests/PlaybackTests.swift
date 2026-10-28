@@ -34,6 +34,34 @@ final class PlaybackTests: XCTestCase {
   }
 
   @MainActor
+  func testSelectingAlbumSongQueuesRemainderAndAdvancesNaturally() {
+    let app = openFixtureAlbum()
+    app.buttons["track.fixture-1-track-2.play"].click()
+    let title = app.staticTexts["player.title"]
+    XCTAssertTrue(title.waitForExistence(timeout: 5))
+    XCTAssertEqual(title.value as? String, "The Second Song")
+    XCTAssertTrue(app.buttons["player.next"].isEnabled)
+    expectation(for: NSPredicate(format: "value == %@", "The Third Song"), evaluatedWith: title)
+    waitForExpectations(timeout: 25)
+    XCTAssertFalse(app.buttons["player.next"].isEnabled)
+  }
+
+  @MainActor
+  func testAlbumSongPlayMenuQueuesRemainder() {
+    let app = openFixtureAlbum()
+    app.descendants(matching: .any)["track.fixture-1-track-2.actions"].click()
+    app.menuItems["Play"].click()
+    XCTAssertTrue(app.buttons["player.pause"].waitForExistence(timeout: 10))
+    app.buttons["player.pause"].click()
+    app.buttons["queue.toggle"].click()
+    XCTAssertTrue(app.scrollViews["queue.scroll"].waitForExistence(timeout: 5))
+    let rows = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "queue.entry."))
+    XCTAssertEqual(rows.count, 1)
+    XCTAssertEqual(rows.firstMatch.label, "The Third Song")
+    XCTAssertEqual(app.staticTexts["player.title"].value as? String, "The Second Song")
+  }
+
+  @MainActor
   func testNowPlayingSidebarKeepsTransportVolumeAndQueueAccessible() {
     let app = XCUIApplication()
     app.launchArguments = ["-ApplePersistenceIgnoreState", "YES"]
@@ -110,7 +138,7 @@ final class PlaybackTests: XCTestCase {
     XCTAssertEqual(title.value as? String, "The Third Song")
     app.buttons["track.fixture-1-track-1.play"].click()
     XCTAssertEqual(title.value as? String, "The First Song")
-    XCTAssertFalse(app.buttons["player.next"].isEnabled)
+    XCTAssertTrue(app.buttons["player.next"].isEnabled)
   }
 
   @MainActor

@@ -4,6 +4,58 @@ import XCTest
 
 final class QueueTests: XCTestCase {
   @MainActor
+  func testAlbumSelectionQueuesOnlyTheRemainingAlbumOrder() async throws {
+    let source = FixtureAlbumClient(scenario: .success)
+    let tracks = try await source.fetchAlbum(FetchAlbumRequest(albumId: "fixture-1")).items
+    let session = PlayerStore(source: source)
+    defer { session.stop() }
+    session.play(tracks[1], in: tracks)
+    XCTAssertEqual(session.currentTrack?.stableID, tracks[1].stableID)
+    XCTAssertEqual(session.queue.map(\.track.stableID), tracks.dropFirst().map(\.stableID))
+    XCTAssertEqual(session.upcoming.map(\.track.stableID), [tracks[2].stableID])
+    session.playNext()
+    XCTAssertEqual(session.currentTrack?.stableID, tracks[2].stableID)
+    XCTAssertFalse(session.canAdvance)
+    session.play(tracks[0], in: tracks)
+    XCTAssertEqual(session.queue.map(\.track.stableID), tracks.map(\.stableID))
+    session.play(tracks[2], in: tracks)
+    XCTAssertEqual(session.queue.map(\.track.stableID), [tracks[2].stableID])
+  }
+
+  @MainActor
+  func testAlbumSelectionPreservesManualQueueUntilConfirmed() async throws {
+    let source = FixtureAlbumClient(scenario: .success)
+    let tracks = try await source.fetchAlbum(FetchAlbumRequest(albumId: "fixture-1")).items
+    let session = PlayerStore(source: source)
+    defer { session.stop() }
+    session.play([tracks[0]])
+    session.pause()
+    session.append([tracks[0]])
+    let original = session.queue.map(\.id)
+    session.play(tracks[1], in: tracks)
+    XCTAssertTrue(session.needsReplacementConfirmation)
+    XCTAssertEqual(session.queue.map(\.id), original)
+    session.cancelReplacement()
+    XCTAssertEqual(session.state, .paused)
+    session.play(tracks[1], in: tracks)
+    session.confirmReplacement()
+    XCTAssertEqual(session.queue.map(\.track.stableID), tracks.dropFirst().map(\.stableID))
+    XCTAssertEqual(session.currentTrack?.stableID, tracks[1].stableID)
+  }
+
+  @MainActor
+  func testSongOutsideAlbumRetainsSingleSongPlayback() async throws {
+    let source = FixtureAlbumClient(scenario: .success)
+    let tracks = try await source.fetchAlbum(FetchAlbumRequest(albumId: "fixture-1")).items
+    let session = PlayerStore(source: source)
+    defer { session.stop() }
+    session.play(tracks[1], in: [])
+    XCTAssertEqual(session.queue.map(\.track.stableID), [tracks[1].stableID])
+    session.play(tracks[0], in: Array(tracks.dropFirst()))
+    XCTAssertEqual(session.queue.map(\.track.stableID), [tracks[0].stableID])
+  }
+
+  @MainActor
   func testAddingToEmptyQueueWaitsForExplicitPlaybackAndKeepsItsOrder() async throws {
     let source = FixtureAlbumClient(scenario: .success)
     let tracks = try await source.fetchAlbum(FetchAlbumRequest(albumId: "fixture-1")).items

@@ -102,7 +102,7 @@ struct AlbumTracksView: View {
 
   var body: some View {
     List(tracks) { track in
-      TrackRow(track: track)
+      TrackRow(track: track, albumTracks: tracks)
     }
   }
 }

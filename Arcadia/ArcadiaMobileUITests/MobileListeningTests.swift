@@ -26,6 +26,27 @@ final class MobileListeningTests: XCTestCase {
   }
 
   @MainActor
+  func testAlbumSongAdvancesNaturally() {
+    let app = XCUIApplication()
+    app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"
+    app.launchEnvironment["ARCADIA_LIBRARY_NAMESPACE"] = UUID().uuidString
+    app.launch()
+    XCTAssertTrue(app.segmentedControls.buttons["Albums"].waitForExistence(timeout: 10))
+    app.segmentedControls.buttons["Albums"].tap()
+    XCTAssertTrue(app.buttons["album.fixture-1"].waitForExistence(timeout: 10))
+    app.buttons["album.fixture-1"].tap()
+    let song = app.buttons["track.fixture-1-track-2.play"]
+    XCTAssertTrue(song.waitForExistence(timeout: 10))
+    if !song.isHittable { app.scrollViews["album.detail.scroll"].swipeUp() }
+    song.tap()
+    let title = app.staticTexts["player.title"].firstMatch
+    XCTAssertTrue(title.waitForExistence(timeout: 5))
+    XCTAssertEqual(title.label, "The Second Song")
+    expectation(for: NSPredicate(format: "label == %@", "The Third Song"), evaluatedWith: title)
+    waitForExpectations(timeout: 25)
+  }
+
+  @MainActor
   func testLibraryStartsInSongsAndPlayerPresentationPreservesListening() throws {
     let app = XCUIApplication()
     app.launchEnvironment["ARCADIA_DATA_MODE"] = "fixtures"

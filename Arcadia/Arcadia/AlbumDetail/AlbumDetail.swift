@@ -58,7 +58,7 @@ struct AlbumDetail: View {
         } else {
           LazyVStack(alignment: .leading, spacing: DesignTokens.Spacing.s) {
             ForEach(model.tracks) { track in
-              TrackRow(track: track)
+              TrackRow(track: track, albumTracks: model.tracks)
             }
           }
           .accessibilityIdentifier("tracks.loaded")

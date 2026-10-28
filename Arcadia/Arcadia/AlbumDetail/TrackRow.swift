@@ -10,6 +10,7 @@ import SwiftUI
 struct TrackRow: View {
   let track: Track
   var showsTrackNumber = true
+  var albumTracks: [Track] = []
   @Environment(PlayerStore.self) private var playerStore
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
@@ -24,7 +25,7 @@ struct TrackRow: View {
         }
       }
     }
-    .contextMenu { SongActions(track: track) }
+    .contextMenu { SongActions(track: track, albumTracks: albumTracks) }
     .padding(.vertical, 4)
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("track.\(track.id)")
@@ -42,7 +43,7 @@ struct TrackRow: View {
           .font(.caption.monospacedDigit())
           .foregroundStyle(.secondary)
           .fixedSize()
-        SongActionsMenu(track: track)
+        SongActionsMenu(track: track, albumTracks: albumTracks)
       }
     }
   }
@@ -57,7 +58,7 @@ struct TrackRow: View {
         Text(format).font(.caption.monospaced()).foregroundStyle(.secondary)
       }
       duration
-      SongActionsMenu(track: track)
+      SongActionsMenu(track: track, albumTracks: albumTracks)
     }
   }
 
@@ -68,13 +69,13 @@ struct TrackRow: View {
       metadata(isCompact: true)
         .frame(maxWidth: .infinity, alignment: .leading)
       duration
-      SongActionsMenu(track: track)
+      SongActionsMenu(track: track, albumTracks: albumTracks)
     }
   }
 
   private var playButton: some View {
     Button {
-      if isCurrentTrack { playerStore.togglePlayback() } else { playerStore.play([track]) }
+      if isCurrentTrack { playerStore.togglePlayback() } else { playerStore.play(track, in: albumTracks) }
     } label: {
       Image(systemName: isPauseAction ? "pause.fill" : "play.fill")
         .frame(minWidth: 44, minHeight: 44)
