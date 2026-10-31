@@ -265,3 +265,9 @@ Run the selected test against the committed before source and final source in th
 ```
 
 Choose an app-window attachment that actually shows the changed surface, inspect both images, and use the run directories printed by the test command. Each pair may use its own test and screenshot name; combine `--xctest-pair` with ordinary `--pair` for other affected layouts. Tests must pass and retain matching source-integrity receipts. The guest seals the exported PNGs and attachment manifest; modified, unsealed, failed/skipped or wrong-platform evidence is rejected. Publication reuses the existing committed-source, upload and visible-embedding checks. Retained eligible runs can be published after VM cleanup; app-source changes still require new matching evidence.
+
+### Mobile dependency cache
+
+Both `test --platform iphone` and `iterate --platform iphone` restore and publish the versioned private dependency cache for `/tmp/arcadia-loop/iteration-ios`. Its key includes the task image/toolchain identity, package pins, project settings and iOS Simulator platform. Mac seeds retain their existing keys and directory; switching platforms does not reset the other platform's guest cache. Application/test products, runtime data, logs and simulator state remain excluded. The first successful mobile build publishes a seed; a fresh task restores it and builds the current app sources. Existing `--dependency-cache` and task-start `--no-dependency-cache` settings apply to both platforms. Cache hit/miss and publication remain recorded in the task manifest (`mobile_dependency_cache` for iPhone).
+
+Mobile seeds use PAX archives to preserve nanosecond file timestamps required by Xcode build signatures. Older timestamp-truncated mobile seeds have a different key and are not reused as compiled caches.

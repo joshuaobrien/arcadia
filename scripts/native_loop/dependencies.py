@@ -1,6 +1,7 @@
 """Versioned, private dependency seeds; no application outputs or runtime state."""
 import hashlib
 import shutil
+import subprocess
 from pathlib import Path
 
 VERSION = 'dependencies-v4-module-maps'
@@ -8,7 +9,11 @@ VERSION = 'dependencies-v4-module-maps'
 PACKAGES = {'swift-syntax', 'Mockable', 'mockable', 'xctest-dynamic-overlay'}
 
 
-def cache_key(image, resolved, project):
+def cache_key(image, resolved, project, platform="mac"):
+    if platform not in {"mac", "iphone"}:
+        raise ValueError("Unsupported dependency-cache platform")
+    if platform != "mac":
+        image += "|ios-simulator-pax-v1"
     return hashlib.sha256(b'\0'.join([VERSION.encode(), image.encode(), resolved, project])).hexdigest()[:24]
 
 
@@ -43,3 +48,11 @@ def stage(source, target):
                     shutil.copytree(entry, destination, symlinks=True, ignore=application_outputs)
                 else:
                     shutil.copy2(entry, destination)
+
+
+def create_archive(source, output, platform='mac'):
+    if platform not in {'mac', 'iphone'}:
+        raise ValueError('Unsupported dependency-cache platform')
+    # BSD tar's default format truncates mtimes, invalidating Xcode build signatures.
+    options = ['--format', 'pax'] if platform == 'iphone' else []
+    subprocess.run(['/usr/bin/tar', *options, '-czf', str(output), '-C', str(source), '.'], check=True)
