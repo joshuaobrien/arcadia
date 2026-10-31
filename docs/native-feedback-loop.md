@@ -246,3 +246,22 @@ The workflow uploads the build log, phase timings, toolchain facts, source-integ
 ```sh
 python3 -m unittest discover -s scripts/native_preview -p 'test_*.py' -v
 ```
+
+
+### Reuse UI-test screenshots for PR evidence
+
+When a relevant UI test already captures the changed app window, reuse its attachment instead of launching a second visual-capture pass. This is the preferred Duo evidence path when Device Hub cannot connect its display. It uses Apple's XCTest screenshot API and does not require a host viewer.
+
+Run the selected test against the committed before source and final source in the task VM. For example:
+
+```sh
+./scripts/native-loop --platform duo \
+  --only-testing ArcadiaMobileUITests/AlbumLayoutTests/testNonSquareArtworkStaysInsideAlbumCards \
+  test TASK
+./scripts/pr-screenshots --pr NUMBER \
+  --xctest-pair duo \
+  ArcadiaMobileUITests/AlbumLayoutTests/testNonSquareArtworkStaysInsideAlbumCards \
+  "Mixed aspect ratios - album grid" BEFORE_TEST_RUN_DIR AFTER_TEST_RUN_DIR
+```
+
+Choose an app-window attachment that actually shows the changed surface, inspect both images, and use the run directories printed by the test command. Each pair may use its own test and screenshot name; combine `--xctest-pair` with ordinary `--pair` for other affected layouts. Tests must pass and retain matching source-integrity receipts. The guest seals the exported PNGs and attachment manifest; modified, unsealed, failed/skipped or wrong-platform evidence is rejected. Publication reuses the existing committed-source, upload and visible-embedding checks. Retained eligible runs can be published after VM cleanup; app-source changes still require new matching evidence.
