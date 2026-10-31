@@ -1,4 +1,4 @@
-"""Real filesystem/archive checks through both validation entrypoints; no native tools."""
+"""Real filesystem/archive checks through the phone validation entrypoint; no native tools."""
 import importlib.util
 import io
 import json
@@ -36,27 +36,16 @@ class SourceArchiveTests(unittest.TestCase):
                     entry.size = len(content)
                     stream.addfile(entry, io.BytesIO(content))
             report = root / 'report.json'
-            if driver == 'phone':
-                sys.modules.pop('source_archive', None)
-                specification = importlib.util.spec_from_file_location('phone_archive_test', target / 'validate.py')
-                module = importlib.util.module_from_spec(specification)
-                specification.loader.exec_module(module)
-                try:
-                    module.guard_source(repository, archive, report)
-                except RuntimeError:
-                    self.assertFalse(passed)
-                else:
-                    self.assertTrue(passed)
+            sys.modules.pop('source_archive', None)
+            specification = importlib.util.spec_from_file_location('phone_archive_test', target / 'validate.py')
+            module = importlib.util.module_from_spec(specification)
+            specification.loader.exec_module(module)
+            try:
+                module.guard_source(repository, archive, report)
+            except RuntimeError:
+                self.assertFalse(passed)
             else:
-                output = root / 'output'
-                # The source guard must finish before any native inventory command.
-                environment = dict(os.environ, PATH='')
-                subprocess.run([os.sys.executable, str(target / 'validate.py'), 'fixture',
-                                '--device', 'owned', '--output', str(output),
-                                '--derived-data', str(root / 'derived'), '--source-archive', str(archive),
-                                '--control', str(root / 'control')], env=environment,
-                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                report = output / 'source-before.json'
+                self.assertTrue(passed)
             if report.exists():
                 result = json.loads(report.read_text())
                 self.assertEqual(result['passed'], passed)
@@ -68,23 +57,23 @@ class SourceArchiveTests(unittest.TestCase):
             else:
                 self.assertFalse(passed)
 
-    def test_empty_archive_is_rejected_by_both_drivers(self):
-        for driver in ('phone', 'duo'):
+    def test_empty_archive_is_rejected_by_phone_driver(self):
+        for driver in ('phone',):
             with self.subTest(driver=driver):
                 self.check_driver(driver, [], {}, False)
 
     def test_escaping_member_is_rejected_even_when_external_bytes_match(self):
-        for driver in ('phone', 'duo'):
+        for driver in ('phone',):
             with self.subTest(driver=driver):
                 self.check_driver(driver, [('../outside', b'outside')], {'../outside': b'outside'}, False)
 
-    def test_changed_source_is_rejected_by_both_drivers(self):
-        for driver in ('phone', 'duo'):
+    def test_changed_source_is_rejected_by_phone_driver(self):
+        for driver in ('phone',):
             with self.subTest(driver=driver):
                 self.check_driver(driver, [('source.swift', b'original')], {'source.swift': b'changed'}, False)
 
-    def test_matching_source_preserves_success_report_for_both_drivers(self):
-        for driver in ('phone', 'duo'):
+    def test_matching_source_preserves_success_report_for_phone_driver(self):
+        for driver in ('phone',):
             with self.subTest(driver=driver):
                 self.check_driver(driver, [('source.swift', b'original')], {'source.swift': b'original'}, True)
 

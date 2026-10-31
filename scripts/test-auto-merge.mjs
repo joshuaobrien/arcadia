@@ -80,7 +80,7 @@ test('already scheduled is an idempotent success, other conflicts still fail', a
 const imageBytes = Buffer.from('89504e470d0a1a0a00000000', 'hex');
 function visualFixture() {
   const assets = Array.from({length:6},(_,i)=>({id:i+1,uuid:`00000000-0000-0000-0000-00000000000${i+1}`,size:imageBytes.length}));
-  const pairs=['mac','iphone','duo'].map((platform,index)=>{
+  const pairs=['mac','iphone'].map((platform,index)=>{
     const pair={platform};
     for(const [i,stage] of ['before','after'].entries()) {
       const asset=assets[index*2+i];
@@ -183,9 +183,9 @@ test('shared or renamed changes cannot claim Mac-only scope',async()=>{
 test('protected-main waiver is exact-head, expiring, and limited to listed platforms',async()=>{
  for(const mode of ['valid','wrong-head','expired','wrong-pr','wrong-platform','body-only']) {
   const f=visualFixture();f.manifest.pairs.pop();f.update();
-  const waiver={pr:28,head_sha:'abc',expires_at:'2099-01-01T00:00:00Z',platforms:['duo'],reason:'Owner approved capture waiver'};
+  const waiver={pr:28,head_sha:'abc',expires_at:'2099-01-01T00:00:00Z',platforms:['iphone'],reason:'Owner approved capture waiver'};
   if(mode==='wrong-head')waiver.head_sha='old';if(mode==='expired')waiver.expires_at='2020-01-01';if(mode==='wrong-pr')waiver.pr=29;if(mode==='wrong-platform')waiver.platforms=['mac'];
-  if(mode!=='body-only')f.policy={version:1,waivers:[waiver]};else f.pr.body+='\nDuo waived by owner';
+  if(mode!=='body-only')f.policy={version:1,waivers:[waiver]};else f.pr.body+='\niPhone waived by owner';
   const r=await run(f.pr,{},0,null,f);assert.equal(r.exitCode,mode==='valid'?undefined:1,mode);
  }
 });

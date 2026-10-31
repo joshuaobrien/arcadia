@@ -66,7 +66,7 @@ class PreviewCLI(unittest.TestCase):
         phone = {'identifier': 'com.apple.CoreSimulator.SimRuntime.iOS-26-5', 'isAvailable': True}
         fold = {'identifier': 'com.apple.CoreSimulator.SimRuntime.iOS-27-1', 'isAvailable': True,
                 'supportedDeviceTypes': [{'identifier': 'com.apple.CoreSimulator.SimDeviceType.iPhone-Duo'}]}
-        devices = {phone['identifier']: [{'name': 'iPhone 17 Pro', 'udid': 'PHONE', 'state': 'Shutdown',
+        devices = {phone['identifier']: [{'name': 'Arcadia PR12 iPhone', 'udid': 'EXISTING-PHONE', 'state': 'Shutdown',
                                         'deviceTypeIdentifier': 'com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro'}]}
         if duo:
             devices[fold['identifier']] = [{'name': 'Arcadia PR12 Duo', 'udid': 'EXISTING-DUO', 'state': 'Shutdown',
@@ -81,11 +81,11 @@ class PreviewCLI(unittest.TestCase):
     def recorded(self):
         return [json.loads(line) for line in self.calls.read_text().splitlines()]
 
-    def test_read_only_check_from_any_directory_reuses_existing_duo(self):
-        result = self.invoke('--device', 'duo', '--check', '--json')
+    def test_read_only_check_reuses_phone_and_ignores_newer_duo(self):
+        result = self.invoke('--device', 'iphone', '--check', '--json')
         self.assertEqual(result.returncode, 0, result.stderr)
         facts = json.loads(result.stdout)
-        self.assertEqual(facts['devices'][0]['udid'], 'EXISTING-DUO')
+        self.assertEqual(facts['devices'][0]['udid'], 'EXISTING-PHONE')
         self.assertEqual(facts['mode'], 'jellyfin')
         self.assertFalse(self.cache.exists())
         self.assertFalse(any(c['args'][:2] in [['simctl', 'create'], ['simctl', 'boot']]
@@ -98,15 +98,15 @@ class PreviewCLI(unittest.TestCase):
         self.assertIn('26.6', result.stderr)
         self.assertFalse(any('build' in c['args'] for c in self.recorded()))
 
-    def test_missing_duo_runtime_is_actionable_without_creating_a_device(self):
-        self.write_facts(duo=False)
-        result = self.invoke('--device', 'duo', '--check')
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn('installed iOS 27.1+', result.stderr)
-        self.assertFalse(any(c['args'][:2] == ['simctl', 'create'] for c in self.recorded()))
+    def test_duo_and_both_are_rejected_before_tools_run(self):
+        for device in ['duo', 'both']:
+            result = self.invoke('--device', device, '--check')
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('invalid choice', result.stderr)
+            self.assertFalse(self.calls.exists())
 
     def test_zero_exit_migration_failure_stops_before_install_or_launch(self):
-        result = self.invoke('--device', 'duo', BAD_BOOT='1')
+        result = self.invoke('--device', 'iphone', BAD_BOOT='1')
         self.assertNotEqual(result.returncode, 0, result.stdout)
         self.assertIn('boot/migration failed', result.stderr)
         calls = self.recorded()
@@ -119,14 +119,14 @@ class PreviewCLI(unittest.TestCase):
         waiter.start()
         self.addCleanup(lambda: old.kill() if old.poll() is None else None)
         executable = self.cache / 'mac/Build/Products/Debug/Arcadia.app/Contents/MacOS/Arcadia'
-        result = self.invoke('--device', 'duo', OLD_PID=str(old.pid), OLD_EXECUTABLE=str(executable.resolve()))
+        result = self.invoke('--device', 'iphone', OLD_PID=str(old.pid), OLD_EXECUTABLE=str(executable.resolve()))
         self.assertEqual(result.returncode, 0, result.stderr)
         waiter.join(timeout=1)
         self.assertEqual(old.returncode, -15)
         self.assertTrue(any(c['tool'] == 'open' for c in self.recorded()))
 
-    def test_success_uses_actual_checkout_and_real_jellyfin_on_owned_duo(self):
-        result = self.invoke('--device', 'duo')
+    def test_success_uses_actual_checkout_and_real_jellyfin_on_owned_phone(self):
+        result = self.invoke('--device', 'iphone')
         self.assertEqual(result.returncode, 0, result.stderr)
         calls = self.recorded()
         builds = [c for c in calls if c['tool'] == 'xcodebuild' and 'build' in c['args']]
@@ -135,7 +135,7 @@ class PreviewCLI(unittest.TestCase):
             self.assertEqual(build['args'][build['args'].index('-project') + 1],
                              str(CLI.parents[1] / 'Arcadia/Arcadia.xcodeproj'))
         launch = next(c for c in calls if c['args'][:2] == ['simctl', 'launch'])
-        self.assertIn('EXISTING-DUO', launch['args'])
+        self.assertIn('EXISTING-PHONE', launch['args'])
         self.assertEqual(launch['mode'], 'jellyfin')
         mac = next(c for c in calls if c['tool'] == 'open' and 'ARCADIA_DATA_MODE=jellyfin' in c['args'])
         self.assertIn('Arcadia.app', ' '.join(mac['args']))

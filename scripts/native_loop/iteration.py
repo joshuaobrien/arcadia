@@ -70,7 +70,9 @@ def sync_source(archive):
 
 def prepare_device(platform, state):
     inventory = json.loads(command('xcrun', 'simctl', 'list', 'runtimes', '--json'))['runtimes']
-    device_type = 'com.apple.CoreSimulator.SimDeviceType.' + ('iPhone-Duo' if platform == 'duo' else 'iPhone-17')
+    if platform != 'iphone':
+        raise ValueError('Only the standard iPhone simulator is supported')
+    device_type = 'com.apple.CoreSimulator.SimDeviceType.iPhone-17'
     supported = [r for r in inventory if r.get('isAvailable') and any(
         t['identifier'] == device_type for t in r.get('supportedDeviceTypes', []))]
     if not supported:
@@ -136,7 +138,7 @@ def capture(helper, pids, output, marker, device=None):
 
 def main():
     task, run_id, platform, screen, mode, scenario = sys.argv[1:]
-    if platform not in {'mac', 'iphone', 'duo'} or screen not in {'songs', 'artists', 'albums', 'playlists', 'search'}:
+    if platform not in {'mac', 'iphone'} or screen not in {'songs', 'artists', 'albums', 'playlists', 'search'}:
         raise RuntimeError('Invalid iteration platform/screen')
     ROOT.mkdir(exist_ok=True)
     WORKSPACE.mkdir(exist_ok=True)

@@ -70,42 +70,35 @@ def simulator_inventory(env):
 
 
 def device_plan(inventory, kind):
-    name = 'Arcadia Preview Duo' if kind == 'duo' else 'Arcadia Preview iPhone'
+    if kind != 'iphone':
+        raise Unavailable('Only standard iPhone previews are supported.')
+    name = 'Arcadia Preview iPhone'
     runtimes = {r['identifier']: r for r in inventory['runtimes'] if r.get('isAvailable')}
     candidates = []
     for runtime, rows in inventory['devices'].items():
-        minimum = (27, 1) if kind == 'duo' else (26, 0)
+        minimum = (26, 0)
         if runtime not in runtimes or version(runtime) < minimum:
             continue
         for device in rows:
             if not device.get('isAvailable', True):
                 continue
             device_type = device.get('deviceTypeIdentifier', '')
-            legacy = 'Arcadia PR12 Duo' if kind == 'duo' else 'Arcadia PR12 iPhone'
+            legacy = 'Arcadia PR12 iPhone'
             if (device['name'] in {name, legacy} and 'iPhone' in device_type
-                    and ((kind == 'duo') == (device_type == DUO_TYPE))):
+                    and device_type != DUO_TYPE):
                 candidates.append((version(runtime), runtime, device))
     if candidates:
         _, runtime, device = max(candidates, key=lambda item: item[0])
         return {'kind': kind, 'name': name, 'runtime': runtime, **device}
-    if kind == 'duo':
-        compatible = [r for r in runtimes.values() if version(r['identifier']) >= (27, 1)
-                      and any(t['identifier'] == DUO_TYPE for t in r.get('supportedDeviceTypes', []))]
-        if not compatible:
-            raise Unavailable('Duo requires an installed iOS 27.1+ runtime supporting iPhone Duo. '
-                              'Install it with: xcodebuild -downloadPlatform iOS -buildVersion 27.1')
-        runtime = max(compatible, key=lambda r: version(r['identifier']))['identifier']
-        device_type = DUO_TYPE
-    else:
-        phones = [(version(runtime), runtime, device) for runtime, rows in inventory['devices'].items()
-                  if runtime in runtimes and version(runtime) >= (26, 0)
-                  for device in rows if device.get('isAvailable', True)
-                  and 'iPhone' in device.get('deviceTypeIdentifier', '')
-                  and device.get('deviceTypeIdentifier') != DUO_TYPE]
-        if not phones:
-            raise Unavailable('An available iOS 26+ regular iPhone simulator is required.')
-        _, runtime, template = max(phones, key=lambda item: (item[0], 'Pro' in item[2]['name']))
-        device_type = template['deviceTypeIdentifier']
+    phones = [(version(runtime), runtime, device) for runtime, rows in inventory['devices'].items()
+              if runtime in runtimes and version(runtime) >= (26, 0)
+              for device in rows if device.get('isAvailable', True)
+              and 'iPhone' in device.get('deviceTypeIdentifier', '')
+              and device.get('deviceTypeIdentifier') != DUO_TYPE]
+    if not phones:
+        raise Unavailable('An available iOS 26+ regular iPhone simulator is required.')
+    _, runtime, template = max(phones, key=lambda item: (item[0], 'Pro' in item[2]['name']))
+    device_type = template['deviceTypeIdentifier']
     return {'kind': kind, 'name': name, 'runtime': runtime, 'deviceTypeIdentifier': device_type,
             'state': 'not created'}
 

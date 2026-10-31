@@ -10,8 +10,7 @@ For an interactive local review on your Mac and an iPhone simulator:
 
 ```sh
 ./scripts/native-preview
-./scripts/native-preview --device duo
-./scripts/native-preview --device both --check
+./scripts/native-preview --device iphone
 ```
 
 The launcher uses real Jellyfin connection mode and a separate review app identity. It requires Xcode 27.1 or later; `--check` reports missing capabilities without building or changing simulators. See [local previews and iOS CI](docs/native-feedback-loop.md#local-interactive-previews) for setup, logs and runtime requirements.

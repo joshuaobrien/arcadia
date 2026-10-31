@@ -102,7 +102,7 @@ def launch_phone(plan, product, cache, env):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--device', choices=['iphone', 'duo', 'both'], default='iphone',
+    parser.add_argument('--device', choices=['iphone'], default='iphone',
                         help='Mobile preview alongside the Mac app (default: iphone).')
     parser.add_argument('--xcode', help='Xcode.app or Contents/Developer directory; system selection is unchanged.')
     parser.add_argument('--check', action='store_true', help='Read-only toolchain/runtime check; no builds or devices created.')
@@ -114,7 +114,7 @@ def main(argv=None):
     try:
         facts, env = toolchain(args.xcode)
         inventory = simulator_inventory(env)
-        kinds = ['iphone', 'duo'] if args.device == 'both' else [args.device]
+        kinds = [args.device]
         plans = [device_plan(inventory, kind) for kind in kinds]
         key = hashlib.sha256(str(REPOSITORY).encode()).hexdigest()[:12]
         cache = (args.cache or Path.home() / 'Library/Caches/Arcadia/native-preview' / key).expanduser().resolve()

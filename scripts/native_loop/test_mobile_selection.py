@@ -18,11 +18,14 @@ class MobileSelectionTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         return result.stderr
 
+    def test_duo_is_rejected_before_vm_work(self):
+        self.assertIn('invalid choice', self.rejected('--platform', 'duo'))
+
     def test_mobile_requires_explicit_selection(self):
         self.assertIn('explicit fixture', self.rejected('--platform', 'iphone'))
 
     def test_mobile_rejects_mac_targets(self):
-        self.assertIn('match --platform', self.rejected('--platform', 'duo', '--only-testing',
+        self.assertIn('match --platform', self.rejected('--platform', 'iphone', '--only-testing',
                                                        'ArcadiaUITests/Example/testWanted'))
 
     def test_mac_rejects_mobile_targets(self):

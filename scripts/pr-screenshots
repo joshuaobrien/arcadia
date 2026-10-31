@@ -82,6 +82,8 @@ def source_record(directory, data, source_sha, run_id):
 
 
 def read_xctest_capture(platform, directory, test, name):
+    if platform not in {"mac", "iphone"}:
+        raise ValueError("Unsupported screenshot platform")
     directory = Path(directory)
     prefix = 'ArcadiaUITests/' if platform == 'mac' else 'ArcadiaMobileUITests/'
     if not test.startswith(prefix):
@@ -252,8 +254,8 @@ def main():
     args = parser.parse_args()
     selectors = {platform: (test, name) for platform, test, name, _, _ in args.xctest_pair}
     args.pair += [(platform, before, after) for platform, _, _, before, after in args.xctest_pair]
-    if not args.pair or args.pr <= 0 or any(p[0] not in {'mac', 'iphone', 'duo'} for p in args.pair) or len({p[0] for p in args.pair}) != len(args.pair):
-        parser.error('Use a positive PR number and one pair per affected mac/iphone/duo platform')
+    if not args.pair or args.pr <= 0 or any(p[0] not in {'mac', 'iphone'} for p in args.pair) or len({p[0] for p in args.pair}) != len(args.pair):
+        parser.error('Use a positive PR number and one pair per affected mac/iphone platform')
     # Validate every local input before any external mutation.
     for platform, before, after in args.pair:
         for directory in [before, after]:

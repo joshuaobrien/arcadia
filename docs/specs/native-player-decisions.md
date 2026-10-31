@@ -1,3 +1,5 @@
+> Current scope (2026-10-31): macOS and standard iPhone. The owner retired Duo support; older Duo requirements below are historical and no longer acceptance criteria.
+
 # Native player interaction and support decisions
 
 Approved by Josh during Vikunja ticket 50 review, 11 October 2026. These decisions resolve the corresponding provisional options in the shared native player specification.

@@ -70,7 +70,7 @@ jobs:
                 if (!needsImages(name)) continue;
                 visual = true;
                 // This view is referenced only by the macOS shell. Unknown/shared files stay conservative.
-                const platforms = name === 'Arcadia/Arcadia/NowPlayingSidebar.swift' ? ['mac'] : ['mac', 'iphone', 'duo'];
+                const platforms = name === 'Arcadia/Arcadia/NowPlayingSidebar.swift' ? ['mac'] : ['mac', 'iphone'];
                 for (const platform of platforms) required.add(platform);
               }
               if (files.length < 100) break;
@@ -82,6 +82,7 @@ jobs:
               const evidence = JSON.parse(manifests[0][1]);
               if (evidence.head_sha !== pr.head.sha || !Array.isArray(evidence.pairs) || !evidence.pairs.length || evidence.pairs.length > 20) throw new Error('Missing or stale visual evidence');
               const platforms = evidence.pairs.map(pair => pair.platform).sort();
+              // Accept historical Duo attachments/waivers without requiring new Duo evidence.
               if (new Set(platforms).size !== platforms.length || platforms.some(p => !['mac', 'iphone', 'duo'].includes(p))) throw new Error('Invalid or duplicate screenshot platform');
               const missing = [...required].filter(platform => !platforms.includes(platform));
               if (missing.length) {
