@@ -55,6 +55,30 @@ class MobileCacheTests(unittest.TestCase):
                 self.source(task,b'changed-pins');task.prepare_dependencies()
                 self.assertIn(('dependency-reset',('iphone',)),calls)
 
+    def test_mobile_commands_restore_before_execution_and_publish_only_after_success(self):
+        from contextlib import ExitStack
+        for operation in ['test','iterate']:
+            for failed in [False,True]:
+                with self.subTest(operation=operation,failed=failed),tempfile.TemporaryDirectory() as tmp:
+                    task=self.task(Path(tmp));task.args.operation=operation
+                    task.args.integration=False;task.args.only_testing=['ArcadiaMobileUITests/Example/testCapture']
+                    task.args.state='albums';task.args.data_mode='fixtures';task.args.scenario='success'
+                    task.manifest['state']='ready';events=[]
+                    def guest(*arguments):
+                        events.append('execute')
+                        if failed:raise runner.LoopError('failed build')
+                        task.manifest['runs'].append({'id':'verified'})
+                    with ExitStack() as stack:
+                        for name in ['load','sync_tools','sync_snapshot','save','ensure_lint','export']:
+                            stack.enter_context(patch.object(task,name))
+                        stack.enter_context(patch.object(task,'prepare_dependencies',side_effect=lambda:events.append('restore')))
+                        stack.enter_context(patch.object(task,'publish_dependencies',side_effect=lambda:events.append('publish')))
+                        stack.enter_context(patch.object(task,'guest',side_effect=guest))
+                        if failed:
+                            with self.assertRaises(runner.LoopError):task.execute()
+                        else:task.execute()
+                    self.assertEqual(events,['restore','execute']+([] if failed else ['publish']))
+
     def test_disabled_mobile_cache_never_restores_or_publishes(self):
         with tempfile.TemporaryDirectory() as tmp:
             task=self.task(Path(tmp));task.manifest['dependency_cache_disabled']=True
