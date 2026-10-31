@@ -14,21 +14,60 @@ struct TrackRow: View {
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
   var body: some View {
+    rowContent
+      .contextMenu { SongActions(track: track) }
+      .padding(.vertical, 4)
+      #if os(macOS)
+        .padding(.horizontal, showsTrackNumber ? 8 : 0)
+        .background {
+          if showsTrackNumber && isCurrentTrack {
+            RoundedRectangle(cornerRadius: 8).fill(DesignTokens.Desktop.accent.opacity(0.12))
+          }
+        }
+        .overlay(alignment: .bottom) {
+          if showsTrackNumber && !isCurrentTrack { Divider().padding(.leading, 52) }
+        }
+      #endif
+      .accessibilityElement(children: .contain)
+      .accessibilityIdentifier("track.\(track.id)")
+  }
+
+  private var rowContent: some View {
     Group {
       if dynamicTypeSize.isAccessibilitySize {
         accessibleRow
       } else {
-        ViewThatFits(in: .horizontal) {
-          fullRow
-          compactRow
-        }
+        #if os(macOS)
+          if showsTrackNumber {
+            macAlbumRow
+          } else {
+            adaptiveRow
+          }
+        #else
+          adaptiveRow
+        #endif
       }
     }
-    .contextMenu { SongActions(track: track) }
-    .padding(.vertical, 4)
-    .accessibilityElement(children: .contain)
-    .accessibilityIdentifier("track.\(track.id)")
   }
+
+  private var adaptiveRow: some View {
+    ViewThatFits(in: .horizontal) {
+      fullRow
+      compactRow
+    }
+  }
+
+  #if os(macOS)
+    private var macAlbumRow: some View {
+      HStack(spacing: 16) {
+        playButton
+        metadata(isCompact: true)
+          .frame(maxWidth: .infinity, alignment: .leading)
+        duration
+        SongActionsMenu(track: track)
+      }
+    }
+  #endif
 
   private var accessibleRow: some View {
     VStack(alignment: .leading, spacing: DesignTokens.Spacing.m) {
@@ -76,15 +115,32 @@ struct TrackRow: View {
     Button {
       if isCurrentTrack { playerStore.togglePlayback() } else { playerStore.play([track]) }
     } label: {
-      Image(systemName: isPauseAction ? "pause.fill" : "play.fill")
-        .frame(minWidth: 44, minHeight: 44)
-        .overlay {
-          if isCurrentTrack {
-            RoundedRectangle(cornerRadius: DesignTokens.Radius.m)
-              .strokeBorder(.secondary, lineWidth: 1)
-              .accessibilityHidden(true)
+      Group {
+        #if os(macOS)
+          if showsTrackNumber && !dynamicTypeSize.isAccessibilitySize {
+            if isCurrentTrack {
+              Image(systemName: isPauseAction ? "waveform" : "pause.fill")
+                .foregroundStyle(DesignTokens.Desktop.accent)
+            } else {
+              Text(track.trackNumber.map(String.init) ?? "–")
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+            }
+          } else {
+            Image(systemName: isPauseAction ? "pause.fill" : "play.fill")
           }
+        #else
+          Image(systemName: isPauseAction ? "pause.fill" : "play.fill")
+        #endif
+      }
+      .frame(minWidth: 44, minHeight: 44)
+      .overlay {
+        if isCurrentTrack && !usesAlbumHighlight {
+          RoundedRectangle(cornerRadius: DesignTokens.Radius.m)
+            .strokeBorder(.secondary, lineWidth: 1)
+            .accessibilityHidden(true)
         }
+      }
     }
     .buttonStyle(.borderless)
     .accessibilityLabel("\(playbackAction) \(track.title ?? "Untitled track")")
@@ -93,6 +149,13 @@ struct TrackRow: View {
   }
 
   private var isCurrentTrack: Bool { playerStore.currentTrack?.stableID == track.stableID }
+  private var usesAlbumHighlight: Bool {
+    #if os(macOS)
+      return showsTrackNumber
+    #else
+      return false
+    #endif
+  }
   private var isPauseAction: Bool { isCurrentTrack && playerStore.isPlaybackRequested }
   private var playbackAction: String {
     guard isCurrentTrack else { return "Play" }

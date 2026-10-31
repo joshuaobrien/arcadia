@@ -25,12 +25,14 @@ struct AlbumMetadataView: View {
   let artist: String
   let year: String
   let trackCount: String
+  var showsArtwork = true
+  var summary: String?
 
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
   var body: some View {
     Group {
-      if dynamicTypeSize.isAccessibilitySize {
+      if !showsArtwork || dynamicTypeSize.isAccessibilitySize {
         metadata.frame(maxWidth: .infinity, alignment: .leading)
       } else {
         ViewThatFits(in: .horizontal) {
@@ -58,25 +60,49 @@ struct AlbumMetadataView: View {
 
   private var metadata: some View {
     VStack(alignment: .leading, spacing: DesignTokens.Spacing.s) {
-      if !dynamicTypeSize.isAccessibilitySize {
-        Text("ALBUM")
-          .font(.caption.monospaced())
-          .foregroundStyle(.secondary)
-      }
+      #if os(iOS)
+        if !dynamicTypeSize.isAccessibilitySize {
+          Text("ALBUM")
+            .font(.caption.monospaced())
+            .foregroundStyle(.secondary)
+        }
+      #endif
       Text(title)
-        .font(dynamicTypeSize.isAccessibilitySize ? .headline.bold() : .largeTitle.bold())
+        .font(titleFont)
         .fixedSize(horizontal: false, vertical: true)
         .accessibilityIdentifier("album.title")
       Text(artist)
         .font(dynamicTypeSize.isAccessibilitySize ? .body : .title2)
-        .foregroundStyle(.secondary)
+        #if os(macOS)
+          .foregroundStyle(DesignTokens.Desktop.accent)
+        #else
+          .foregroundStyle(.secondary)
+        #endif
         .fixedSize(horizontal: false, vertical: true)
         .accessibilityIdentifier("album.artist")
-      Text([year, trackCount.isEmpty ? "" : "\(trackCount) tracks"].filter { !$0.isEmpty }.joined(separator: " • "))
-        .font(.callout)
-        .foregroundStyle(.secondary)
-        .fixedSize(horizontal: false, vertical: true)
+      Text(
+        [year, summary == nil && !trackCount.isEmpty ? "\(trackCount) tracks" : ""]
+          .filter { !$0.isEmpty }.joined(separator: " • ")
+      )
+      .font(.callout)
+      .foregroundStyle(.secondary)
+      .fixedSize(horizontal: false, vertical: true)
+      if let summary {
+        Text(summary)
+          .font(.callout)
+          .foregroundStyle(.secondary)
+          .accessibilityIdentifier("album.summary")
+      }
     }
+  }
+
+  private var titleFont: Font {
+    if dynamicTypeSize.isAccessibilitySize { return .headline.bold() }
+    #if os(macOS)
+      return .system(size: 40, weight: .bold)
+    #else
+      return .largeTitle.bold()
+    #endif
   }
 }
 

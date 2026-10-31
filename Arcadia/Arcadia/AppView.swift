@@ -344,23 +344,22 @@ extension AppView {
 #if os(macOS)
   extension AppView {
     private var macShell: some View {
-      HStack(spacing: 0) {
+      VStack(spacing: 0) {
         NavigationSplitView {
-          List(AppSection.allCases, selection: selectionBinding) { section in
-            Text(section.rawValue.capitalized)
-              .accessibilityIdentifier("library.destination.\(section.rawValue)")
-          }
+          MacLibrarySidebar(selection: selectionBinding)
+            .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 280)
         } detail: {
-          retainedSections(AppSection.allCases)
+          macLibraryContent
         }
         if playerStore.currentTrack != nil {
           Divider()
-          NowPlayingSidebar(
+          MacPlayerBar(
             showQueue: { isQueuePresented.toggle() }, openLibraryRoute: openPlayerDestination
           )
-          .frame(width: 300)
         }
       }
+      .tint(DesignTokens.Desktop.accent)
+      .accentColor(DesignTokens.Desktop.accent)
       .navigationTitle(activeLibraryTitle ?? selection.rawValue.capitalized)
       .onPreferenceChange(ActiveLibraryTitle.self) { activeLibraryTitle = $0 }
       .inspector(isPresented: $isQueuePresented) {
@@ -372,5 +371,20 @@ extension AppView {
           .accessibilityIdentifier("queue.toggle")
       }
     }
+
+    private var macLibraryContent: some View {
+      NavigationStack(path: pathBinding(for: selection)) {
+        ContentView(
+          selection: selection, albumService: albumService, albumsModel: albumsModel,
+          libraryModel: libraryModel
+        )
+        .navigationDestination(for: LibraryRoute.self) { route in
+          libraryDestination(route, isActive: true)
+        }
+      }
+      .id(selection)
+      .environment(\.libraryPresentationIsActive, true)
+    }
+
   }
 #endif
