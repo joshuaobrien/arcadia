@@ -607,7 +607,7 @@ class Task:
             finally:
                 self.export()
             return
-        if self.args.platform != 'mac' and operation in {'build', 'oracle', 'release', 'review'}:
+        if getattr(self.args, 'platform', 'mac') != 'mac' and operation in {'build', 'oracle', 'release', 'review'}:
             raise LoopError('Use test or iterate for iPhone builds')
         if operation in {'build', 'test', 'oracle', 'lint', 'release', 'review'}:
             self.sync_snapshot()
