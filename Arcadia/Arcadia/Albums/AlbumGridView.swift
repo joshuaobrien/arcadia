@@ -27,12 +27,7 @@ struct AlbumGridView: View {
           }
         }
         ForEach(albums) { album in
-          NavigationLink {
-            AlbumDetail(
-              albumService: albumService,
-              album: album,
-            )
-          } label: {
+          albumLink(album) {
             AlbumCardView(
               artworkURL: album.artworkURL,
               title: album.title,
@@ -64,5 +59,18 @@ struct AlbumGridView: View {
     }
     .accessibilityIdentifier(isInitialLoading ? "albums.loading" : "albums.scroll")
     .accessibilityLabel(isInitialLoading ? "Loading albums" : "Albums")
+  }
+
+  @ViewBuilder
+  private func albumLink<Label: View>(_ album: Album, @ViewBuilder label: () -> Label) -> some View {
+    #if os(macOS)
+      NavigationLink(value: LibraryRoute.album(album), label: label)
+    #else
+      NavigationLink {
+        AlbumDetail(albumService: albumService, album: album)
+      } label: {
+        label()
+      }
+    #endif
   }
 }

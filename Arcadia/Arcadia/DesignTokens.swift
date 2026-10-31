@@ -8,6 +8,12 @@
 import SwiftUI
 
 enum DesignTokens {
+  #if os(macOS)
+    enum Desktop {
+      static let accent = Color(red: 0.04, green: 0.52, blue: 0.49)
+    }
+  #endif
+
   enum Spacing {
     static let none: CGFloat = 0
     static let xs: CGFloat = 4
