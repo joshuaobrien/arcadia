@@ -10,7 +10,7 @@ AgentConnect automation is enabled for `jj/arcadia` on the durable home Mac work
 4. New and updated PRs trigger a separate reviewer that checks **Standards** (repository guidance) and **Spec** (the originating issue's acceptance criteria). Review findings belong with the PR and its current revision.
 5. Completed agent PRs are ready, not drafts. Gitea queues bot-authored PRs for squash merge after the required macOS CI, iOS CI and AgentConnect review checks pass. Agents must not bypass checks or change repository protections.
 
-The implementer and reviewer are separate agent roles, but shared bot reviews are **not independent human approval**. The configured reviewer status is an automated merge gate, not a claim of human approval.
+The implementer and reviewer are separate agent roles, but shared bot reviews are **not independent human approval**. The reviewer execution status records whether the agent ran. The separate `agentconnect/arcadia-verdict` check records whether its current-head review passed; require both alongside native CI. The verdict check reads Gitea review records, not issue comments or PR claims. A reviewer COMMENT must start with `Pass` when no blocking findings remain or `Fail` when they do; ambiguous, stale or dismissed reviews remain pending. This is automated review, not human approval.
 
 ## Task execution contract
 

@@ -1,0 +1,76 @@
+name: Agent review verdict
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  pull_request_review:
+    types: [submitted, dismissed]
+
+concurrency:
+  group: arcadia-review-verdict-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  verdict:
+    if: github.event.pull_request.user.login == 'arcadia-pilot-bot'
+    runs-on: docker
+    steps:
+      # Read trusted Gitea review metadata; never check out or execute PR code.
+      - name: Publish the current-head review decision
+        env:
+          MERGE_TOKEN: ${{ secrets.AGENTCONNECT_MERGE_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          node <<'JS'
+          const apiRoot = 'https://joshs-mac-mini.tail81f644.ts.net/api/v1/repos/jj/arcadia';
+          const context = 'agentconnect/arcadia-verdict';
+          let head;
+          async function api(path, method = 'GET', data) {
+            const response = await fetch(apiRoot + path, {
+              method, headers: { Authorization: `token ${process.env.MERGE_TOKEN}`, 'Content-Type': 'application/json' },
+              body: data === undefined ? undefined : JSON.stringify(data), signal: AbortSignal.timeout(30000),
+            });
+            if (!response.ok) throw new Error(`Gitea review API HTTP ${response.status}`);
+            const text = await response.text();
+            return text ? JSON.parse(text) : null;
+          }
+          async function publish(state, description) {
+            await api('/statuses/' + head, 'POST', {state, context, description,
+              target_url: `https://joshs-mac-mini.tail81f644.ts.net/jj/arcadia/pulls/${process.env.PR_NUMBER}`});
+          }
+          async function main() {
+            const number = process.env.PR_NUMBER;
+            if (!process.env.MERGE_TOKEN || !/^[1-9][0-9]*$/.test(number)) throw new Error('Missing token or invalid PR number');
+            const path = '/pulls/' + number;
+            const pr = await api(path);
+            if (pr.state !== 'open' || pr.merged) return;
+            if (pr.user.login !== 'arcadia-pilot-bot' || pr.base.ref !== 'main' || pr.head.repo.full_name !== 'jj/arcadia') throw new Error('PR is outside the authorised review boundary');
+            head = pr.head.sha;
+            let latest;
+            for (let page = 1; ; page++) {
+              if (page > 20) throw new Error('Review inventory exceeds bound');
+              const reviews = await api(path + `/reviews?limit=100&page=${page}`);
+              if (!Array.isArray(reviews)) throw new Error('Invalid review inventory');
+              for (const review of reviews) {
+                if (review.user?.login === 'arcadia-pilot-bot' && review.commit_id === head && (!latest || review.id > latest.id)) latest = review;
+              }
+              if (reviews.length < 100) break;
+            }
+            let state = 'pending', description = 'Waiting for an explicit current-head review verdict';
+            if (latest && !latest.stale && !latest.dismissed) {
+              const firstLine = (latest.body ?? '').trimStart().split('\n')[0];
+              if (latest.state === 'REQUEST_CHANGES' || /^Fail\b/i.test(firstLine)) {
+                state = 'failure'; description = 'Current-head review has blocking findings';
+              } else if (latest.state === 'APPROVED' || (latest.state === 'COMMENT' && /^Pass\b/i.test(firstLine))) {
+                state = 'success'; description = 'Current-head review explicitly passed';
+              }
+            }
+            const current = await api(path);
+            if (current.head.sha !== head || current.state !== 'open' || current.merged) return;
+            await publish(state, description);
+          }
+          main().catch(async error => {
+            console.error(error.message); process.exitCode = 1;
+            if (head) try { await publish('error', 'Review verdict could not be verified'); } catch { console.error('Review verdict remains unverified'); }
+          });
+          JS

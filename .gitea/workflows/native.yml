@@ -61,7 +61,7 @@ jobs:
       - name: Check CI worker command behavior
         run: |
           python3 -m unittest discover -s scripts/native_ci -p 'test_*.py'
-          node --test scripts/test-auto-merge.mjs scripts/test-publish-macos-update.mjs
+          node --test scripts/test-auto-merge.mjs scripts/test-publish-macos-update.mjs scripts/test-review-verdict.mjs
           python3 -m unittest discover -s scripts -p test_pr_screenshots.py
           python3 -m unittest discover -s scripts -p test_sign_release.py
 
