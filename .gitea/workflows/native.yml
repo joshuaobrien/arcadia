@@ -63,6 +63,7 @@ jobs:
           python3 -m unittest discover -s scripts/native_ci -p 'test_*.py'
           node --test scripts/test-auto-merge.mjs scripts/test-publish-macos-update.mjs
           python3 -m unittest discover -s scripts -p test_pr_screenshots.py
+          python3 -m unittest discover -s scripts -p test_xctest_publication.py
           python3 -m unittest discover -s scripts -p test_sign_release.py
 
       - name: Lint, build and test in an ephemeral VM

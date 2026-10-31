@@ -163,6 +163,7 @@ PYTHON
         set -e
         xcrun xcresulttool get test-results summary --path "$artifacts/tests.xcresult" > "$artifacts/tests-summary.json"
         xcrun xcresulttool get test-results tests --path "$artifacts/tests.xcresult" > "$artifacts/tests-tree.json"
+        python3 "$tools/screenshots.py" integrity "$workspace" "$ARCADIA_SOURCE_ARCHIVE" "$artifacts/source-integrity.json"
         python3 "$tools/verification.py" "$artifacts/tests-tree.json" "$artifacts/verification.json" "${test_arguments[@]}"
         python3 - "$artifacts/tests-summary.json" <<'PYTHON'
 import json, sys
@@ -194,6 +195,7 @@ PYTHON
       [[ -d "$result" ]] || continue
       destination="${result%.xcresult}-attachments"
       [[ -d "$destination" ]] || xcrun xcresulttool export attachments --path "$result" --output-path "$destination"
+      python3 "$tools/screenshots.py" seal "$(dirname "$result")"
       xcrun xcresulttool get test-results summary --path "$result" > "${result%.xcresult}-summary.json"
     done
     ;;

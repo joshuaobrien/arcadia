@@ -14,6 +14,8 @@ import urllib.parse
 import urllib.request
 import uuid
 
+from native_loop.screenshots import attachment_image, file_hash
+
 BASE = 'https://joshs-mac-mini.tail81f644.ts.net'
 REPO = '/api/v1/repos/jj/arcadia'
 START = '<!-- arcadia-visual-evidence:start -->'
@@ -63,12 +65,48 @@ def read_capture(platform, directory):
         raise ValueError('Evidence must be a PNG no larger than 10 MiB')
     if receipt.get('captured') is not True or receipt.get('platform') != platform or receipt.get('image_sha256') != sha:
         raise ValueError('Screenshot does not match its successful platform/run receipt')
-    if not re.fullmatch('[a-f0-9]{64}', receipt.get('source_sha256', '')) or not receipt.get('run_id'):
+    if not isinstance(receipt.get('source_sha256'), str) or not re.fullmatch('[a-f0-9]{64}', receipt['source_sha256']) or not isinstance(receipt.get('run_id'), str) or not receipt['run_id']:
         raise ValueError('Screenshot lacks source/run provenance')
-    archive = directory.parent.parent / 'source' / ('source-' + receipt['source_sha256'] + '.tgz')
-    if hashlib.sha256(archive.read_bytes()).hexdigest() != receipt['source_sha256']:
+    return source_record(directory, data, receipt['source_sha256'], receipt['run_id'])
+
+
+def source_record(directory, data, source_sha, run_id):
+    if not isinstance(source_sha, str) or not re.fullmatch('[a-f0-9]{64}', source_sha) or not isinstance(run_id, str) or not run_id:
+        raise ValueError('Screenshot lacks source/run provenance')
+    if len(data) > 10485760 or data[:8] != b'\x89PNG\r\n\x1a\n':
+        raise ValueError('Evidence must be a PNG no larger than 10 MiB')
+    archive = directory.parent.parent / 'source' / ('source-' + source_sha + '.tgz')
+    if file_hash(archive) != source_sha:
         raise ValueError('Capture source archive fingerprint mismatch')
-    return data, dict(source_trees(archive), sha256=sha, source_sha256=receipt['source_sha256'], run_id=receipt['run_id'])
+    return data, dict(source_trees(archive), sha256=hashlib.sha256(data).hexdigest(), source_sha256=source_sha, run_id=run_id)
+
+
+def read_xctest_capture(platform, directory, test, name):
+    directory = Path(directory)
+    prefix = 'ArcadiaUITests/' if platform == 'mac' else 'ArcadiaMobileUITests/'
+    if not test.startswith(prefix):
+        raise ValueError('Select an app UI test for the requested platform')
+    manifest = json.loads((directory.parent.parent / 'manifest.json').read_text())
+    run = next((r for r in manifest['runs'] if r['id'] == directory.name), {})
+    if manifest.get('owner') != 'arcadia-native-loop-v1' or run.get('operation') != 'test' or run.get('status') != 'passed' or run.get('platform', 'mac') != platform:
+        raise ValueError('XCTest capture requires a successful owned platform test run')
+    receipt = json.loads((directory / 'verification.json').read_text())
+    integrity = json.loads((directory / 'source-integrity.json').read_text())
+    source_sha = run.get('source_sha256')
+    if receipt.get('verified') is not True or receipt.get('source_sha256') != source_sha or integrity.get('source_sha256') != source_sha or integrity.get('unchanged_after_test') is not True:
+        raise ValueError('XCTest source and successful verification do not match')
+    if not any(r['identifier'].removesuffix('()') == test.removesuffix('()') and r['result'] == 'Passed' for r in receipt.get('results', [])):
+        raise ValueError('Selected screenshot test did not pass')
+    attachments = directory / 'tests-attachments'
+    if receipt.get('attachment_manifest_sha256') != file_hash(attachments / 'manifest.json'):
+        raise ValueError('XCTest attachments were not sealed in the guest or manifest changed')
+    image = attachment_image(attachments, test, name)
+    if image.is_symlink() or receipt.get('attachment_sha256', {}).get(image.name) != file_hash(image):
+        raise ValueError('XCTest screenshot differs from its guest seal')
+    data, record = source_record(directory, image.read_bytes(), source_sha, directory.name)
+    record.update(capture_method='xctest-app-window', test_identifier=test,
+                  test_verification_sha256=file_hash(directory / 'verification.json'))
+    return data, record
 
 
 def credential(token_file):
@@ -134,7 +172,10 @@ class Publisher:
         project = entries(native['Arcadia.xcodeproj']['sha'])['project.pbxproj']['sha']
         return {'app_tree_sha': native['Arcadia']['sha'], 'project_sha': project}
 
-    def publish(self, number, pairs, before_ref=None):
+    def publish(self, number, pairs, before_ref=None, xctest_selectors=None):
+        def read(platform, directory):
+            selector = (xctest_selectors or {}).get(platform)
+            return read_xctest_capture(platform, directory, *selector) if selector else read_capture(platform, directory)
         path = '/pulls/' + str(number)
         pr = self.api(path)
         if pr['user']['login'] != 'arcadia-pilot-bot' or pr['head']['repo']['full_name'] != 'jj/arcadia':
@@ -151,7 +192,7 @@ class Publisher:
         # Validate all source bindings before external mutations.
         for platform, before, after in pairs:
             for stage, directory in [('before', before), ('after', after)]:
-                _, record = read_capture(platform, directory)
+                _, record = read(platform, directory)
                 if any(record[k] != v for k, v in expected[stage].items()):
                     raise ValueError(stage + ' capture does not match its declared Git app/project source; commit fixture baseline before capture')
         endpoint = '/issues/' + str(number) + '/assets'
@@ -161,7 +202,7 @@ class Publisher:
         for platform, before, after in pairs:
             pair = {'platform': platform}
             for stage, directory in [('before', before), ('after', after)]:
-                data, record = read_capture(platform, directory)
+                data, record = read(platform, directory)
                 name = f'arcadia-{platform}-{stage}-{record["sha256"]}.png'
                 asset = assets.get(name)
                 if asset is None:
@@ -204,17 +245,20 @@ class Publisher:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--pr', type=int, required=True)
-    parser.add_argument('--pair', nargs=3, action='append', metavar=('PLATFORM', 'BEFORE_RUN_DIR', 'AFTER_RUN_DIR'), required=True)
+    parser.add_argument('--pair', nargs=3, action='append', metavar=('PLATFORM', 'BEFORE_RUN_DIR', 'AFTER_RUN_DIR'), default=[])
+    parser.add_argument('--xctest-pair', nargs=5, action='append', default=[], metavar=('PLATFORM', 'TEST_ID', 'SCREENSHOT_NAME', 'BEFORE_RUN_DIR', 'AFTER_RUN_DIR'))
     parser.add_argument('--token-file', type=Path)
     parser.add_argument('--before-ref', help='Committed fixture baseline in this PR; default merge base')
     args = parser.parse_args()
-    if args.pr <= 0 or any(p[0] not in {'mac', 'iphone', 'duo'} for p in args.pair) or len({p[0] for p in args.pair}) != len(args.pair):
+    selectors = {platform: (test, name) for platform, test, name, _, _ in args.xctest_pair}
+    args.pair += [(platform, before, after) for platform, _, _, before, after in args.xctest_pair]
+    if not args.pair or args.pr <= 0 or any(p[0] not in {'mac', 'iphone', 'duo'} for p in args.pair) or len({p[0] for p in args.pair}) != len(args.pair):
         parser.error('Use a positive PR number and one pair per affected mac/iphone/duo platform')
     # Validate every local input before any external mutation.
     for platform, before, after in args.pair:
-        read_capture(platform, before)
-        read_capture(platform, after)
-    Publisher(credential(args.token_file)).publish(args.pr, args.pair, args.before_ref)
+        for directory in [before, after]:
+            read_xctest_capture(platform, directory, *selectors[platform]) if platform in selectors else read_capture(platform, directory)
+    Publisher(credential(args.token_file)).publish(args.pr, args.pair, args.before_ref, selectors)
 
 
 if __name__ == '__main__':
