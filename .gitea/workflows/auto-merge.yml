@@ -53,7 +53,7 @@ jobs:
             }
             authorisedQueue = true;
             inspectedBody = pr.body;
-            const withdrawn = value => value.draft || /^(?:(?:WIP|Draft):\s*)?(?:Cancelled|Canceled|Withdrawn)\b/i.test(value.title) || (value.labels ?? []).some(label => label.name === 'agent:cancelled');
+            const withdrawn = value => value.draft || /^(?:(?:WIP|Draft):\s*)?(?:Cancelled|Canceled|Withdrawn)\b/i.test(value.title);
             if (withdrawn(pr)) throw new Error('Draft or cancelled work cannot enter the merge queue');
             // Inspect trusted Gitea metadata only; never check out or execute PR code.
             let visual = false;

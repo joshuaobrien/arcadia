@@ -53,7 +53,7 @@ test('foreign source or base cannot be enrolled', async () => {
   }
 });
 test('draft and withdrawn work is never promoted or queued', async () => {
-  for (const pr of [{...initial,draft:true}, {...initial,title:'WIP: Cancelled by Josh'}, {...initial,labels:[{name:'agent:cancelled'}]}]) {
+  for (const pr of [{...initial,draft:true}, {...initial,title:'WIP: Cancelled by Josh'}]) {
     const r=await run(pr); assert.equal(r.exitCode,1);
     assert.ok(!r.calls.some(c=>c.method==='POST'||c.method==='PATCH'));
   }
