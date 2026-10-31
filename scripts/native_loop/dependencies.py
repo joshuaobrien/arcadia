@@ -8,7 +8,11 @@ VERSION = 'dependencies-v4-module-maps'
 PACKAGES = {'swift-syntax', 'Mockable', 'mockable', 'xctest-dynamic-overlay'}
 
 
-def cache_key(image, resolved, project):
+def cache_key(image, resolved, project, platform="mac"):
+    if platform not in {"mac", "iphone"}:
+        raise ValueError("Unsupported dependency-cache platform")
+    if platform != "mac":
+        image += "|ios-simulator"
     return hashlib.sha256(b'\0'.join([VERSION.encode(), image.encode(), resolved, project])).hexdigest()[:24]
 
 

@@ -30,6 +30,16 @@ tools="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Each VM is task-owned, so stable guest paths preserve dependency build signatures.
 workspace="/tmp/arcadia-loop/source"
 derived="/tmp/arcadia-loop/derived"
+# Dependency operations select the same DerivedData directory used by mobile tests/iteration.
+case "$operation" in
+  dependency-reset|dependency-restore|dependency-save)
+    case "${1:-mac}" in
+      mac) ;;
+      iphone) derived='/tmp/arcadia-loop/iteration-ios' ;;
+      *) echo 'Unsupported dependency-cache platform'; exit 2 ;;
+    esac
+    ;;
+esac
 artifacts="$exchange/$run_id"
 mkdir -p "$artifacts" "$workspace"
 export ARCADIA_RUN_ID="$run_id"

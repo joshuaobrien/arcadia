@@ -376,7 +376,18 @@ class Task:
             self.export()
             raise
 
+    def dependency_state(self):
+        # Preserve the established Mac cache/manifest format; mobile has its own identity.
+        if getattr(self.args, 'platform', 'mac') == 'iphone':
+            return self.manifest.setdefault('mobile_dependency_cache', {})
+        return self.manifest
+
+    def dependency_guest(self, operation):
+        arguments = ['iphone'] if getattr(self.args, 'platform', 'mac') == 'iphone' else []
+        return self.guest(operation, *arguments)
+
     def prepare_dependencies(self):
+        cache_state = self.dependency_state()
         if getattr(self.args, 'no_dependency_cache', False):
             self.manifest['dependency_cache_disabled'] = True
         if self.manifest.get('dependency_cache_disabled'):
@@ -386,15 +397,15 @@ class Task:
         with tarfile.open(self.directory / 'source/source.tgz') as archive:
             resolved = archive.extractfile('Arcadia/Arcadia.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved').read()
             project = archive.extractfile('Arcadia/Arcadia.xcodeproj/project.pbxproj').read()
-        key = dependency_cache_key(self.manifest['image'], resolved, project)
-        if self.manifest.get('dependency_cache_key') == key:
+        key = dependency_cache_key(self.manifest['image'], resolved, project, getattr(self.args, 'platform', 'mac'))
+        if cache_state.get('dependency_cache_key') == key:
             return
-        if self.manifest.get('dependency_cache_key'):
+        if cache_state.get('dependency_cache_key'):
             progress('dependency inputs changed: discarding guest build cache')
-            self.guest('dependency-reset')
-        cache_root = Path(getattr(self.args, 'dependency_cache', None) or self.manifest.get('dependency_cache_root') or Path.home() / '.cache/arcadia-native-dependencies').expanduser()
+            self.dependency_guest('dependency-reset')
+        cache_root = Path(getattr(self.args, 'dependency_cache', None) or cache_state.get('dependency_cache_root') or self.manifest.get('dependency_cache_root') or Path.home() / '.cache/arcadia-native-dependencies').expanduser()
         cache = cache_root / (key + '.tgz')
-        self.manifest.update(dependency_cache_key=key, dependency_cache_root=str(cache_root), dependency_cache=str(cache))
+        cache_state.update(dependency_cache_key=key, dependency_cache_root=str(cache_root), dependency_cache=str(cache))
         self.save()
         seed = self.directory / 'artifacts/dependency-seed.tgz'
         seed.unlink(missing_ok=True)
@@ -405,35 +416,36 @@ class Task:
                     raise ValueError('checksum mismatch')
                 shutil.copy2(cache, seed)
                 progress(f'dependency cache hit: {key}; restoring private guest copy')
-                self.guest('dependency-restore')
-                self.manifest['dependency_cache_hit'] = True
+                self.dependency_guest('dependency-restore')
+                cache_state['dependency_cache_hit'] = True
             except (OSError, ValueError, KeyError) as error:
                 progress(f'dependency cache rejected ({type(error).__name__}); cold build')
-                self.manifest['dependency_cache_hit'] = False
+                cache_state['dependency_cache_hit'] = False
         else:
             progress(f'dependency cache miss: {key}; first build will compile dependencies')
-            self.manifest['dependency_cache_hit'] = False
+            cache_state['dependency_cache_hit'] = False
         seed.unlink(missing_ok=True)
         self.save()
 
     def publish_dependencies(self):
-        if self.manifest.get('dependency_cache_disabled') or self.manifest.get('dependency_cache_published') == self.manifest.get('dependency_cache_key'):
+        cache_state = self.dependency_state()
+        if self.manifest.get('dependency_cache_disabled') or cache_state.get('dependency_cache_published') == cache_state.get('dependency_cache_key'):
             return
-        target = Path(self.manifest['dependency_cache'])
+        target = Path(cache_state['dependency_cache'])
         if target.exists():
             try:
                 if json.loads(target.with_suffix('.json').read_text())['sha256'] == fingerprint(target):
-                    self.manifest['dependency_cache_published'] = self.manifest['dependency_cache_key']
+                    cache_state['dependency_cache_published'] = cache_state['dependency_cache_key']
                     self.save()
                     return
             except (OSError, ValueError, KeyError):
                 pass
         progress('saving versioned dependency cache (application outputs excluded)')
-        self.guest('dependency-save')
+        self.dependency_guest('dependency-save')
         candidate = self.directory / 'artifacts/dependency-candidate.tgz'
         publish_dependency_cache(candidate, target)
         candidate.unlink()
-        self.manifest['dependency_cache_published'] = self.manifest['dependency_cache_key']
+        cache_state['dependency_cache_published'] = cache_state['dependency_cache_key']
         self.save()
 
     def export(self):
@@ -587,10 +599,16 @@ class Task:
             self.manifest.pop('last_verification', None)
             self.save()
             try:
+                if self.args.platform == 'iphone':
+                    self.prepare_dependencies()
                 self.guest('iterate', self.args.platform, self.args.state, self.args.data_mode, self.args.scenario)
+                if self.args.platform == 'iphone':
+                    self.publish_dependencies()
             finally:
                 self.export()
             return
+        if self.args.platform != 'mac' and operation in {'build', 'oracle', 'release', 'review'}:
+            raise LoopError('Use test or iterate for iPhone builds')
         if operation in {'build', 'test', 'oracle', 'lint', 'release', 'review'}:
             self.sync_snapshot()
             self.manifest.pop('last_verification', None)
@@ -600,7 +618,7 @@ class Task:
                     self.ensure_lint(force=operation == 'lint')
                 if operation == 'lint':
                     return
-                if operation in {'build', 'test', 'review', 'oracle'} and self.args.platform == 'mac':
+                if operation in {'build', 'test', 'review', 'oracle'}:
                     self.prepare_dependencies()
                 arguments = []
                 if self.args.integration:
@@ -624,7 +642,7 @@ class Task:
                 self.manifest['last_verification'] = {'run_id': verification['id'], 'operation': operation, 'tests': verification.get('tests', operation), 'platform': self.args.platform}
                 if operation == 'test' and not getattr(self.args, 'only_testing', None) and not self.args.integration:
                     self.manifest['last_default_suite'] = {'run_id': self.manifest['last_verification']['run_id'], 'source_sha256': self.manifest['source_sha256']}
-                if operation in {'build', 'test', 'review'} and self.args.platform == 'mac':
+                if operation in {'build', 'test', 'review'}:
                     self.publish_dependencies()
             finally:
                 self.export()
