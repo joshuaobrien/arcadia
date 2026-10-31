@@ -102,6 +102,17 @@ class XCTestPublication(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'changed pinned'):record_integrity(workspace,archive,output)
             self.assertFalse(json.loads(output.read_text())['unchanged_after_test'])
 
+    def test_public_cli_rejects_missing_source_digest_with_a_clear_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);directory=self.fixture(root)
+            task=json.loads((root/'manifest.json').read_text());task['runs'][0]['source_sha256']=None;(root/'manifest.json').write_text(json.dumps(task))
+            self.update(directory/'verification.json',source_sha256=None)
+            self.update(directory/'source-integrity.json',source_sha256=None)
+            result=subprocess.run([sys.executable,str(Path(__file__).with_name('pr-screenshots')),'--pr','42','--xctest-pair','duo',TEST,NAME,str(directory),str(directory),'--token-file',str(root/'must-not-read')],capture_output=True,text=True)
+            self.assertNotEqual(result.returncode,0)
+            self.assertIn('lacks source/run provenance',result.stdout)
+            self.assertNotIn('Traceback',result.stderr)
+
     def test_public_cli_rejects_tampered_image_before_credentials_or_network(self):
         with tempfile.TemporaryDirectory() as tmp:
             directory=self.fixture(Path(tmp));(directory/'tests-attachments/app.png').write_bytes(b'tampered')

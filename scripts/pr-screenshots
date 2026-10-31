@@ -65,13 +65,13 @@ def read_capture(platform, directory):
         raise ValueError('Evidence must be a PNG no larger than 10 MiB')
     if receipt.get('captured') is not True or receipt.get('platform') != platform or receipt.get('image_sha256') != sha:
         raise ValueError('Screenshot does not match its successful platform/run receipt')
-    if not re.fullmatch('[a-f0-9]{64}', receipt.get('source_sha256', '')) or not receipt.get('run_id'):
+    if not isinstance(receipt.get('source_sha256'), str) or not re.fullmatch('[a-f0-9]{64}', receipt['source_sha256']) or not isinstance(receipt.get('run_id'), str) or not receipt['run_id']:
         raise ValueError('Screenshot lacks source/run provenance')
     return source_record(directory, data, receipt['source_sha256'], receipt['run_id'])
 
 
 def source_record(directory, data, source_sha, run_id):
-    if not re.fullmatch('[a-f0-9]{64}', source_sha) or not run_id:
+    if not isinstance(source_sha, str) or not re.fullmatch('[a-f0-9]{64}', source_sha) or not isinstance(run_id, str) or not run_id:
         raise ValueError('Screenshot lacks source/run provenance')
     if len(data) > 10485760 or data[:8] != b'\x89PNG\r\n\x1a\n':
         raise ValueError('Evidence must be a PNG no larger than 10 MiB')
