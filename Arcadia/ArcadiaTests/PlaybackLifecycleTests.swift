@@ -4,6 +4,42 @@ import XCTest
 
 final class PlaybackLifecycleTests: XCTestCase {
   @MainActor
+  func testSeekPublishesDestinationBeforeReturningInBothDirections() async throws {
+    let fixture = FixtureAlbumClient(scenario: .success)
+    let tracks = try await fixture.fetchAlbum(FetchAlbumRequest(albumId: "fixture-1")).items
+    let player = PlayerStore(source: fixture)
+    defer { player.stop() }
+    player.play([tracks[0]])
+    for _ in 0..<100 {
+      if player.isPlaying { break }
+      try await Task.sleep(for: .milliseconds(30))
+    }
+    XCTAssertTrue(player.isPlaying)
+    player.pause()
+    for destination in [8.0, 2.0, 7.0, 1.0] {
+      player.seek(to: destination, resumeAfterSeeking: false)
+      XCTAssertEqual(
+        player.currentTime, destination, accuracy: 0.01,
+        "Releasing the slider must not expose the old position while seeking")
+      try await Task.sleep(for: .milliseconds(350))
+      XCTAssertEqual(player.currentTime, destination, accuracy: 0.1)
+      XCTAssertFalse(player.isPlaybackRequested)
+    }
+    player.seek(to: 9, resumeAfterSeeking: false)
+    player.seek(to: 3, resumeAfterSeeking: false)
+    XCTAssertEqual(player.currentTime, 3, accuracy: 0.01)
+    try await Task.sleep(for: .milliseconds(350))
+    XCTAssertEqual(player.currentTime, 3, accuracy: 0.1)
+    player.seek(to: 5, resumeAfterSeeking: true)
+    XCTAssertEqual(player.currentTime, 5, accuracy: 0.01)
+    for _ in 0..<100 {
+      if player.isPlaying { break }
+      try await Task.sleep(for: .milliseconds(30))
+    }
+    XCTAssertTrue(player.isPlaying)
+  }
+
+  @MainActor
   func testRouteLossRejectsAPlaylistPreparedBeforeTheRouteChanged() async throws {
     try await assertPreparedPlaylistStaysCancelled(after: { player in
       let token = player.beginAudioInterruption()

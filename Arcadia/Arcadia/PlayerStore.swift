@@ -32,6 +32,7 @@ final class PlayerStore {
   @ObservationIgnored private let activateAudio: @MainActor () throws -> Void
   @ObservationIgnored private var player = AVPlayer()
   @ObservationIgnored private var generation = UUID()
+  @ObservationIgnored private var pendingSeek: UUID?
   @ObservationIgnored private var wantsPlayback = false
   @ObservationIgnored private var resolveTask: Task<Void, Never>?
   @ObservationIgnored private var durationTask: Task<Void, Never>?
@@ -121,6 +122,11 @@ final class PlayerStore {
     guard seconds.isFinite, duration > 0, player.currentItem?.status == .readyToPlay else { return }
     let target = min(max(seconds, 0), duration)
     let expected = generation
+    let seekID = UUID()
+    pendingSeek = seekID
+    // Keep the released thumb at its destination while AVPlayer seeks. Its
+    // periodic observer can still report the previous position in the meantime.
+    currentTime = target
     wantsPlayback = resumeAfterSeeking
     state = resumeAfterSeeking ? .loading : .paused
     player.pause()
@@ -128,15 +134,15 @@ final class PlayerStore {
       to: CMTime(seconds: target, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero
     ) { [weak self] finished in
       Task { @MainActor [weak self] in
-        guard let self, finished, self.generation == expected else { return }
+        guard let self, self.generation == expected, self.pendingSeek == seekID else { return }
+        self.pendingSeek = nil
         let actual = self.player.currentTime().seconds
         if actual.isFinite { self.currentTime = actual }
-        if self.wantsPlayback { self.startTransport() }
+        if finished && self.wantsPlayback { self.startTransport() }
         self.updateTransport(expected)
       }
     }
   }
-
   private func start(_ entry: QueueEntry, requestingPlayback: Bool = true) {
     restoration.cancel()
     clearTransport()
@@ -152,7 +158,6 @@ final class PlayerStore {
   private func startTransport() {
     if !PlaybackPreparation.play(player, activateAudio: activateAudio) { fail(generation) }
   }
-
   private func resolve(_ entry: QueueEntry) {
     let expected = generation
     resolveTask = PlaybackPreparation.resource(for: entry.track, source: source) { [weak self] resource in
@@ -160,7 +165,6 @@ final class PlayerStore {
       if let resource { self.load(resource, generation: expected) } else { self.fail(expected) }
     }
   }
-
   private func load(_ resource: PlayableResource, generation expected: UUID) {
     if let index = currentIndex { queue[index] = queue[index].withResolvedMetadata(resource.resolvedTrack) }
     let asset = AVURLAsset(url: resource.url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
@@ -179,20 +183,18 @@ final class PlayerStore {
     }
     if wantsPlayback && restoration.position == nil { startTransport() }
   }
-
   private func observe(_ item: AVPlayerItem, generation expected: UUID) {
     transportObservation = PlaybackObservation(player: player, item: item) { [weak self] event in
       guard let self, self.generation == expected else { return }
       switch event {
       case .transport: self.updateTransport(expected)
       case .position(let position):
-        if self.restoration.position == nil { self.currentTime = max(0, position) }
+        if self.restoration.position == nil && self.pendingSeek == nil { self.currentTime = max(0, position) }
       case .finished: self.finished(expected)
       case .failed: self.fail(expected)
       }
     }
   }
-
   private func updateTransport(_ expected: UUID) {
     guard generation == expected, state != .failed, state != .ended else { return }
     if player.currentItem?.status == .failed {
@@ -210,7 +212,6 @@ final class PlayerStore {
     @unknown default: state = .loading
     }
   }
-
   private func finished(_ expected: UUID) {
     guard generation == expected, state != .ended else { return }
     if canAdvance {
@@ -221,7 +222,6 @@ final class PlayerStore {
       currentTime = duration
     }
   }
-
   private func fail(_ expected: UUID) {
     guard generation == expected else { return }
     player.pause()
@@ -231,9 +231,9 @@ final class PlayerStore {
     errorText = "Couldn't play this song. Check your connection and try again."
     AppDiagnostics.event("player.failed")
   }
-
   private func clearTransport() {
     generation = UUID()
+    pendingSeek = nil
     resolveTask?.cancel()
     durationTask?.cancel()
     resolveTask = nil
