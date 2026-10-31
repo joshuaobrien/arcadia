@@ -28,8 +28,9 @@ async function run(pr = initial, env = {}, errorStatus = 0, mergeError = null, e
       }
       const isPR=url.endsWith('/pulls/28')&&options.method==='GET';
       if(isPR)reads++;
-      const current=evidence.newHead&&reads>1?{...pr,head:{...pr.head,sha:'new-head'}}:evidence.bodyRemoved&&reads>1?{...pr,body:'images removed'}:pr;
-      const result = treeRef ? trees[treeRef] : url.includes('/commits?') ? [] : url.includes('/files?') ? evidence.files ?? [] : url.endsWith('/assets') ? evidence.assets ?? [] : failedMerge ? { message: mergeError } : options.method === 'GET' ? current : options.method === 'PATCH' ? { ...pr, draft: false } : null;
+      const current=evidence.newHead&&reads>1?{...pr,head:{...pr.head,sha:'new-head'}}:evidence.withdrawn&&reads>1?{...pr,draft:true}:evidence.bodyRemoved&&reads>1?{...pr,body:'images removed'}:pr;
+      const policy = { encoding: 'base64', size: 500, content: Buffer.from(JSON.stringify(evidence.policy ?? {version:1,waivers:[]})).toString('base64') };
+      const result = url.includes('/contents/.gitea/evidence-waivers.json?ref=main') ? policy : treeRef ? trees[treeRef] : url.includes('/commits?') ? [] : url.includes('/files?') ? evidence.files ?? [] : url.endsWith('/assets') ? evidence.assets ?? [] : failedMerge ? { message: mergeError } : options.method === 'GET' ? current : options.method === 'PATCH' ? { ...pr, draft: false } : null;
       return { ok: status < 400, status, text: async () => JSON.stringify(result) };
     },
   });
@@ -38,8 +39,8 @@ async function run(pr = initial, env = {}, errorStatus = 0, mergeError = null, e
 test('queues exact bot head without force and requires first-party checks', async () => {
   const { calls, exitCode } = await run();
   assert.equal(exitCode, undefined);
-  assert.equal(calls.length, 3);
-  assert.deepEqual(calls[2].body, { do: 'squash', head_commit_id: 'abc', merge_when_checks_succeed: true, force_merge: false });
+  assert.equal(calls.length, 4);
+  assert.deepEqual(calls[3].body, { do: 'squash', head_commit_id: 'abc', merge_when_checks_succeed: true, force_merge: false });
 });
 test('superseded event cannot queue another head', async () => assert.equal((await run(initial, { EVENT_HEAD: 'old' })).calls.length, 1));
 test('human PR cannot be enrolled', async () => {
@@ -51,10 +52,11 @@ test('foreign source or base cannot be enrolled', async () => {
     const result = await run(pr); assert.equal(result.exitCode, 1); assert.equal(result.calls.length, 1);
   }
 });
-test('draft is promoted before queue request', async () => {
-  const result = await run({ ...initial, draft: true, title: 'WIP: Count fix' });
-  assert.equal(result.calls[2].method, 'PATCH'); assert.equal(result.calls[2].body.title, 'Count fix');
-  assert.equal(result.calls[3].method, 'POST');
+test('draft and withdrawn work is never promoted or queued', async () => {
+  for (const pr of [{...initial,draft:true}, {...initial,title:'WIP: Cancelled by Josh'}]) {
+    const r=await run(pr); assert.equal(r.exitCode,1);
+    assert.ok(!r.calls.some(c=>c.method==='POST'||c.method==='PATCH'));
+  }
 });
 test('missing token and API failure fail closed', async () => {
   const missing = await run(initial, { MERGE_TOKEN: '' });
@@ -68,10 +70,10 @@ test('closed or merged PR is untouched', async () => {
 
 test('already scheduled is an idempotent success, other conflicts still fail', async () => {
   const duplicate = await run(initial, {}, 0, 'pull request is already scheduled to auto merge when checks succeed [pull_id: 17]');
-  assert.equal(duplicate.exitCode, undefined); assert.equal(duplicate.calls.length, 3);
+  assert.equal(duplicate.exitCode, undefined); assert.equal(duplicate.calls.length, 4);
   for (const message of ['head out of date', 'merge push out of date', 'unknown conflict']) {
     const conflict = await run(initial, {}, 0, message);
-    assert.equal(conflict.exitCode, 1); assert.equal(conflict.calls.length, 5);
+    assert.equal(conflict.exitCode, 1); assert.equal(conflict.calls.length, 6);
   }
 });
 
@@ -162,4 +164,34 @@ test('mixed or renamed visual files retain screenshot requirements', async () =>
     assert.equal(r.exitCode, 1);
     assert.ok(!r.calls.some(c => c.method === 'POST'));
   }
+});
+
+
+test('Mac-only sidebar change accepts Mac evidence without phone captures', async()=>{
+ const f=visualFixture(); f.files=[{filename:'Arcadia/Arcadia/NowPlayingSidebar.swift'}];f.manifest.pairs.splice(1);f.update();
+ const r=await run(f.pr,{},0,null,f);assert.equal(r.exitCode,undefined);assert.ok(r.calls.some(c=>c.method==='POST'));
+});
+test('shared or renamed changes cannot claim Mac-only scope',async()=>{
+ for(const files of [
+  [{filename:'Arcadia/Arcadia/NowPlayingSidebar.swift'},{filename:'Arcadia/Arcadia/AlbumArtwork.swift'}],
+  [{filename:'Arcadia/Arcadia/NowPlayingSidebar.swift',previous_filename:'Arcadia/Arcadia/AlbumArtwork.swift'}]
+ ]) {
+  const f=visualFixture();f.files=files;f.manifest.pairs.splice(1);f.update();
+  const r=await run(f.pr,{},0,null,f);assert.equal(r.exitCode,1);assert.ok(!r.calls.some(c=>c.method==='POST'));
+ }
+});
+test('protected-main waiver is exact-head, expiring, and limited to listed platforms',async()=>{
+ for(const mode of ['valid','wrong-head','expired','wrong-pr','wrong-platform','body-only']) {
+  const f=visualFixture();f.manifest.pairs.pop();f.update();
+  const waiver={pr:28,head_sha:'abc',expires_at:'2099-01-01T00:00:00Z',platforms:['duo'],reason:'Owner approved capture waiver'};
+  if(mode==='wrong-head')waiver.head_sha='old';if(mode==='expired')waiver.expires_at='2020-01-01';if(mode==='wrong-pr')waiver.pr=29;if(mode==='wrong-platform')waiver.platforms=['mac'];
+  if(mode!=='body-only')f.policy={version:1,waivers:[waiver]};else f.pr.body+='\nDuo waived by owner';
+  const r=await run(f.pr,{},0,null,f);assert.equal(r.exitCode,mode==='valid'?undefined:1,mode);
+ }
+});
+
+test('withdrawal during verification prevents enqueueing',async()=>{
+ for(const f of [{withdrawn:true},Object.assign(visualFixture(),{withdrawn:true})]) {
+  const r=await run(f.pr??initial,{},0,null,f);assert.equal(r.exitCode,1);assert.ok(!r.calls.some(c=>c.method==='POST'||c.method==='PATCH'));
+ }
 });

@@ -10,7 +10,7 @@ jobs:
     runs-on: docker
     steps:
       # No checkout and no PR code execution: this only calls the Gitea API.
-      - name: Mark ready and queue behind required checks
+      - name: Queue ready work behind required checks
         env:
           MERGE_TOKEN: ${{ secrets.AGENTCONNECT_MERGE_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -53,8 +53,11 @@ jobs:
             }
             authorisedQueue = true;
             inspectedBody = pr.body;
+            const withdrawn = value => value.draft || /^(?:(?:WIP|Draft):\s*)?(?:Cancelled|Canceled|Withdrawn)\b/i.test(value.title);
+            if (withdrawn(pr)) throw new Error('Draft or cancelled work cannot enter the merge queue');
             // Inspect trusted Gitea metadata only; never check out or execute PR code.
             let visual = false;
+            const required = new Set();
             for (let page = 1; ; page++) {
               if (page > 100) throw new Error('PR file inventory exceeds evidence-check bound');
               const files = await api(path + `/files?limit=100&page=${page}`);
@@ -63,7 +66,13 @@ jobs:
               // Audio fixture generation has no visual presentation; changes to views still need images.
               const nonvisual = new Set(['Arcadia/Arcadia/Development/FixtureAudio.swift']);
               const needsImages = name => ui.test(name) && !nonvisual.has(name);
-              visual ||= files.some(file => needsImages(file.filename) || needsImages(file.previous_filename ?? ''));
+              for (const file of files) for (const name of [file.filename, file.previous_filename ?? '']) {
+                if (!needsImages(name)) continue;
+                visual = true;
+                // This view is referenced only by the macOS shell. Unknown/shared files stay conservative.
+                const platforms = name === 'Arcadia/Arcadia/NowPlayingSidebar.swift' ? ['mac'] : ['mac', 'iphone', 'duo'];
+                for (const platform of platforms) required.add(platform);
+              }
               if (files.length < 100) break;
             }
             if (visual) {
@@ -73,7 +82,16 @@ jobs:
               const evidence = JSON.parse(manifests[0][1]);
               if (evidence.head_sha !== pr.head.sha || !Array.isArray(evidence.pairs) || !evidence.pairs.length || evidence.pairs.length > 20) throw new Error('Missing or stale visual evidence');
               const platforms = evidence.pairs.map(pair => pair.platform).sort();
-              if (JSON.stringify(platforms) !== JSON.stringify(['duo', 'iphone', 'mac'])) throw new Error('Native app changes require exactly one Mac, iPhone and Duo comparison');
+              if (new Set(platforms).size !== platforms.length || platforms.some(p => !['mac', 'iphone', 'duo'].includes(p))) throw new Error('Invalid or duplicate screenshot platform');
+              const missing = [...required].filter(platform => !platforms.includes(platform));
+              if (missing.length) {
+                // Waivers come only from protected main, never the PR body or PR source.
+                const file = await api('/contents/.gitea/evidence-waivers.json?ref=main');
+                if (file.encoding !== 'base64' || file.size > 65536) throw new Error('Invalid evidence waiver policy');
+                const policy = JSON.parse(Buffer.from(file.content, 'base64').toString('utf8'));
+                const waiver = policy.version === 1 && policy.waivers?.find(w => String(w.pr) === number && w.head_sha === pr.head.sha && Date.parse(w.expires_at) > Date.now() && typeof w.reason === 'string' && w.reason.trim());
+                if (!waiver || missing.some(platform => !waiver.platforms?.includes(platform))) throw new Error('Missing affected-platform comparisons without a current protected-main waiver');
+              }
               const commits = await api(path + '/commits?limit=100');
               if (evidence.before_ref === pr.head.sha) throw new Error('Before evidence must precede the final implementation');
               if (evidence.before_ref !== pr.merge_base && !commits.some(c => c.sha === evidence.before_ref)) throw new Error('Invalid before-capture baseline');
@@ -122,11 +140,9 @@ jobs:
               const final = await api(path);
               if (final.head.sha !== pr.head.sha || final.body !== pr.body) throw new Error('PR source or evidence changed during verification');
             }
-            if (pr.draft) {
-              const title = pr.title.replace(/^(?:WIP:|Draft:|\[WIP\])\s*/i, '');
-              const ready = await api(path, 'PATCH', { title });
-              if (ready.draft) throw new Error('PR remains draft');
-            }
+            // Recheck readiness for every PR, including nonvisual changes, immediately before enqueueing.
+            const ready = await api(path);
+            if (ready.state !== 'open' || ready.head.sha !== pr.head.sha || ready.body !== pr.body || withdrawn(ready)) throw new Error('PR changed or was withdrawn before enqueue');
             await api(path + '/merge', 'POST', {
               do: 'squash', head_commit_id: pr.head.sha,
               merge_when_checks_succeed: true, force_merge: false,
