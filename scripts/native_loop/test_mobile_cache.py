@@ -25,6 +25,17 @@ class MobileCacheTests(unittest.TestCase):
             for name,data in [('Arcadia/Arcadia.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved',pins),('Arcadia/Arcadia.xcodeproj/project.pbxproj',b'project')]:
                 entry=tarfile.TarInfo(name);entry.size=len(data);archive.addfile(entry,io.BytesIO(data))
 
+    def test_mobile_seed_preserves_build_signature_timestamp_precision(self):
+        import os
+        import subprocess
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);source=root/'source';source.mkdir();output=root/'restored';output.mkdir()
+            file=source/'dependency.o';file.write_bytes(b'compiled dependency')
+            os.utime(file,ns=(1793449566123456789,1793449566123456789))
+            dependencies.create_archive(source,root/'seed.tgz','iphone')
+            subprocess.run(['/usr/bin/tar','-xzf',str(root/'seed.tgz'),'-C',str(output)],check=True)
+            self.assertEqual(file.stat().st_mtime_ns,(output/file.name).stat().st_mtime_ns)
+
     def test_mobile_identity_is_separate_without_invalidating_existing_mac_keys(self):
         import hashlib
         expected=hashlib.sha256(b'\0'.join([dependencies.VERSION.encode(),b'image',b'pins',b'project'])).hexdigest()[:24]

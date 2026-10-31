@@ -100,13 +100,13 @@ case "$operation" in
     ;;
   dependency-save)
     dependency_staging=$(mktemp -d /tmp/arcadia-dependencies.XXXXXX)
-    python3 - "$derived" "$dependency_staging" "$tools" <<'PYTHON'
+    python3 - "$derived" "$dependency_staging" "$tools" "$exchange/dependency-candidate.tgz" "${1:-mac}" <<'PYTHON'
 import sys
 sys.path.insert(0, sys.argv[3])
-from dependencies import stage
+from dependencies import stage, create_archive
 stage(sys.argv[1], sys.argv[2])
+create_archive(sys.argv[2], sys.argv[4], sys.argv[5])
 PYTHON
-    tar czf "$exchange/dependency-candidate.tgz" -C "$dependency_staging" .
     rm -rf "$dependency_staging"
     ;;
   build|test|oracle|review|lint|release)
