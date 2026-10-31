@@ -1,3 +1,5 @@
+> Supported destinations: macOS and standard iPhone. Duo support and folding/display validation were retired on 2026-10-31. Historical evidence remains archived.
+
 # Native development feedback loop
 
 Every Arcadia app build, launch and test runs in a disposable macOS VM. Reuse that VM within a task, export evidence, then discard it. The host only orchestrates; a new task gets a fresh clone. The implementation follows the [agreed plan](http://100.112.160.16:3456/tasks/34).
@@ -80,7 +82,7 @@ For a UI edit, keep one task VM warm and build only the platform you are editing
 ./scripts/native-loop --host paseo-host start player-layout --template arcadia-mobile-xcode-27-1-fastlane-2-241-1
 ./scripts/native-loop --host paseo-host iterate player-layout --platform mac --state songs
 ./scripts/native-loop --host paseo-host iterate player-layout --platform iphone --state albums
-./scripts/native-loop --host paseo-host iterate player-layout --platform duo --state artists
+./scripts/native-loop --host paseo-host iterate player-layout --platform iphone --state artists
 ./scripts/native-loop --host paseo-host finish player-layout
 ```
 
@@ -94,11 +96,11 @@ Guest iterations also hold a workspace lock. If SSH disconnects, the guest comma
 
 A visual iteration is **not a behavioral test pass**. Run the existing targeted `test --only-testing …` command when behavior changes, and preserve the normal acceptance checks before merging. SwiftUI component previews are also available for short and long album metadata, for convenient focused layout inspection in Xcode; they are not required for the command loop.
 
-For fixture UI tests on iPhone or Duo, select the platform and mobile test explicitly:
+For fixture UI tests on standard iPhone, select the platform and mobile test explicitly:
 
 ```sh
 ./scripts/native-loop --host paseo-host test artist-layout --platform iphone --only-testing ArcadiaMobileUITests/ArtistLoadingLayoutTests/testArtistSongLoadingPreservesRowPositions
-./scripts/native-loop --host paseo-host test artist-layout --platform duo --only-testing ArcadiaMobileUITests/ArtistLoadingLayoutTests/testArtistSongLoadingPreservesRowPositions
+./scripts/native-loop --host paseo-host test artist-layout --platform iphone --only-testing ArcadiaMobileUITests/ArtistLoadingLayoutTests/testArtistSongLoadingPreservesRowPositions
 ```
 
 These commands reuse the task's own simulator inventory and warm iOS build directory.
@@ -125,11 +127,11 @@ The behavioral suite checks:
 
 `oracle` changes the title only in the guest copy, verifies the success assertion fails, restores the file, and verifies the test passes. It rejects a build failure or a mutation that incorrectly passes. This is an assertion sensitivity check, not an audio playback test; track playback remains the existing stub.
 
-## Shared native player: Mac, iPhone and Duo
+## Shared native player: Mac and standard iPhone
 
-Use the explicit [iPhone validation entrypoint](../test-environment/native/phone/README.md) and [Duo validation entrypoint](../test-environment/native/duo/README.md) for mobile player work. These run inside an owned, logged-in task guest with Xcode27.1 and the matching27.1 simulator runtime; Duo additionally requires the genuine Duo runtime and owned device. Record the actual template/image provenance, Xcode/runtime versions, device UDID and tool hashes. Follow each entrypoint's native permission/preflight requirements before capture. The `scripts/native-loop` commands above describe the Mac loop; the existing26.5 Mac CI image and workflow remain unchanged.
+Use the explicit [iPhone validation entrypoint](../test-environment/native/phone/README.md) for mobile player work. These run inside an owned, logged-in task guest with Xcode27.1 and the matching27.1 simulator runtime. Record the actual template/image provenance, Xcode/runtime versions, device UDID and tool hashes. Follow each entrypoint's native permission/preflight requirements before capture. The `scripts/native-loop` commands above describe the Mac loop; the existing26.5 Mac CI image and workflow remain unchanged.
 
-The phone's eight `MobileListeningTests` are deterministic fixture UI checks, separate from real Jellyfin playback, playing-restart restoration and background/native-control validation. Select those additional modes explicitly using the phone instructions as they become available; a fixture pass does not establish real audio or background behavior. The checked-in `restore` mode requires real playback before restart, meaningful silent output while restored paused, and known-tone output after deliberate Resume. Follow the phone README's stated verification limits and accepted assumptions for native iOS controls. Duo similarly distinguishes `fixture`, `short` and `real` modes.
+The phone's eight `MobileListeningTests` are deterministic fixture UI checks, separate from real Jellyfin playback, playing-restart restoration and background/native-control validation. Select those additional modes explicitly using the phone instructions as they become available; a fixture pass does not establish real audio or background behavior. The checked-in `restore` mode requires real playback before restart, meaningful silent output while restored paused, and known-tone output after deliberate Resume. Follow the phone README's stated verification limits and accepted assumptions for native iOS controls.
 
 For every acceptance run, retain the immutable source archive and its SHA, verify archived files before and after execution, and record requested and executed XCTest identifiers. Every exact selected method must pass once with zero failures or skips. Export full result bundles, logs, native screenshots/recordings and applicable raw PCM/assertions, helper provenance and cleanup reports, including failure evidence, before releasing the owned guest. Missing output callbacks do not establish silence.
 
@@ -215,23 +217,21 @@ Automated development and verification continue to use the background task VM. F
 
 ```sh
 ./scripts/native-preview                         # Mac + regular iPhone
-./scripts/native-preview --device duo            # Mac + iPhone Duo
-./scripts/native-preview --device both           # Mac + both phones
-./scripts/native-preview --device both --check   # read-only capability check
-./scripts/native-preview --device duo --check --json
+./scripts/native-preview --device iphone            # Mac + standard iPhone
+./scripts/native-preview --device iphone --check --json
 ```
 
 Run it from any working directory using the path to this checkout's script. It always builds that checkout. It selects the highest installed Xcode in `/Applications`, respecting `DEVELOPER_DIR` or an explicit `--xcode /Applications/Xcode_27.1.app`. It never changes `xcode-select`, downloads runtimes, accepts licenses or erases devices. Finish Xcode's first-launch setup before running it.
 
-All mobile builds need an iOS Simulator SDK of at least 27.1 because the shared UI references those APIs at compile time. A regular iPhone needs an available iOS 26 or later runtime; Duo needs an available 27.1 or later runtime that supports the Duo device type. Install runtimes through the selected Xcode. The preflight checks actual SDK and runtime capabilities before building, with an actionable error for a missing capability.
+All mobile builds need an iOS Simulator SDK of at least 27.1 because the shared UI references those APIs at compile time. A regular iPhone needs an available iOS 26 or later runtime. Install runtimes through the selected Xcode. The preflight checks actual SDK and runtime capabilities before building, with an actionable error for a missing capability.
 
-Previews explicitly use direct Jellyfin mode, never the fixture default or the Arcadia backend. Connect through the app's source screen. The review bundle identifiers and credential namespace are separate from production. Existing `Arcadia PR12 iPhone` and `Arcadia PR12 Duo` devices and the previous review session are reused; otherwise the launcher creates its own `Arcadia Preview` devices. It does not modify unrelated simulators. A failed migration reported by `simctl bootstatus` stops launch even if that tool exits successfully.
+Previews explicitly use direct Jellyfin mode, never the fixture default or the Arcadia backend. Connect through the app's source screen. The review bundle identifiers and credential namespace are separate from production. Existing `Arcadia PR12 iPhone` devices and the previous review session are reused; otherwise the launcher creates its own `Arcadia Preview` devices. It does not modify unrelated simulators. A failed migration reported by `simctl bootstatus` stops launch even if that tool exits successfully.
 
 DerivedData, build logs, phase timings, simulator boot logs and `environment.json` persist under `~/Library/Caches/Arcadia/native-preview/<checkout-id>/`; `--cache PATH` overrides that location. Repeated runs reuse the cache. Compilation prints progress every 15 seconds. Concurrent launches from one checkout are rejected; Ctrl-C stops the owned build process. The selected viewer opens only for this explicit interactive command.
 
 ## Additive iOS compilation CI
 
-`.gitea/workflows/native-ios.yml` adds an independent check without changing the existing macOS workflow or `scripts/ci-native.sh`. It compiles the `ArcadiaMobile` app **and its UI-test bundle** with `build-for-testing`, using the resolved package versions. This catches mobile-only SDK and test compilation failures. It does not execute UI tests or establish behavioral coverage; retain the existing iPhone/Duo behavioral verification for that purpose.
+`.gitea/workflows/native-ios.yml` adds an independent check without changing the existing macOS workflow or `scripts/ci-native.sh`. It compiles the `ArcadiaMobile` app **and its UI-test bundle** with `build-for-testing`, using the resolved package versions. This catches mobile-only SDK and test compilation failures. It does not execute UI tests or establish behavioral coverage; retain the existing iPhone behavioral verification for that purpose.
 
 The macOS runner must have Tart and the prepared local template `arcadia-mobile-xcode-27-1-27a9275`, with Xcode 27.1 and a working Tart Guest Agent. `NATIVE_IOS_TEMPLATE` can select a replacement template; the guest still verifies its actual SDK and records the selected toolchain. Each run clones a uniquely named disposable VM, uses no graphics/audio/clipboard, shares an allowlisted source snapshot read-only, checks source integrity before and after compilation, and removes its own VM on completion or cancellation. It never changes the template or existing macOS CI cache.
 
@@ -250,16 +250,16 @@ python3 -m unittest discover -s scripts/native_preview -p 'test_*.py' -v
 
 ### Reuse UI-test screenshots for PR evidence
 
-When a relevant UI test already captures the changed app window, reuse its attachment instead of launching a second visual-capture pass. This is the preferred Duo evidence path when Device Hub cannot connect its display. It uses Apple's XCTest screenshot API and does not require a host viewer.
+When a relevant UI test already captures the changed app window, reuse its attachment instead of launching a second visual-capture pass. It uses Apple's XCTest screenshot API and does not require a host viewer.
 
 Run the selected test against the committed before source and final source in the task VM. For example:
 
 ```sh
-./scripts/native-loop --platform duo \
+./scripts/native-loop --platform iphone \
   --only-testing ArcadiaMobileUITests/AlbumLayoutTests/testNonSquareArtworkStaysInsideAlbumCards \
   test TASK
 ./scripts/pr-screenshots --pr NUMBER \
-  --xctest-pair duo \
+  --xctest-pair iphone \
   ArcadiaMobileUITests/AlbumLayoutTests/testNonSquareArtworkStaysInsideAlbumCards \
   "Mixed aspect ratios - album grid" BEFORE_TEST_RUN_DIR AFTER_TEST_RUN_DIR
 ```

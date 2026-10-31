@@ -827,7 +827,7 @@ def main():
     parser.add_argument('--source', default=os.getcwd())
     parser.add_argument('--artifacts')
     parser.add_argument('--mint-seed', default=os.environ.get('MINT_CACHE'), help='Read-only seed copied into the private task Mint cache (path on VM host)')
-    parser.add_argument('--platform', choices=['mac', 'iphone', 'duo'], default='mac')
+    parser.add_argument('--platform', choices=['mac', 'iphone'], default='mac')
     parser.add_argument('--state', choices=['songs', 'artists', 'albums', 'playlists', 'search'], default='songs')
     parser.add_argument('--data-mode', choices=['fixtures', 'jellyfin'], default='fixtures')
     parser.add_argument('--scenario', choices=['success', 'empty', 'failure', 'two-page', 'loading'], default='success')

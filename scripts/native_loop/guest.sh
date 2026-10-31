@@ -6,7 +6,7 @@ operation="$1"; task="$2"; run_id="$3"; shift 3
 platform=mac
 if [[ "$operation" == test && "${1:-}" == mobile ]]; then
   platform="${2:?Mobile platform required}"; shift 2
-  [[ "$platform" == iphone || "$platform" == duo ]] || exit 2
+  [[ "$platform" == iphone ]] || exit 2
 fi
 full_diagnostics=0
 if [[ "${1:-}" == full-diagnostics ]]; then full_diagnostics=1; shift; fi

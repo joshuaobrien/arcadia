@@ -9,7 +9,7 @@ from iteration import ROOT, WORKSPACE, EXCHANGE, command, digest, prepare_device
 
 
 def main(task, run_id, platform, marker, *selections):
-    if platform not in {'iphone', 'duo'} or marker != 'only-testing' or not selections:
+    if platform not in {'iphone'} or marker != 'only-testing' or not selections:
         raise RuntimeError('Mobile tests require a platform and explicit selections')
     if any(not selection.startswith('ArcadiaMobileUITests/') for selection in selections):
         raise RuntimeError('Mobile tests require mobile UI test identifiers')

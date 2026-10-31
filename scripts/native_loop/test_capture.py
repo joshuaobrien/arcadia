@@ -51,8 +51,8 @@ class CaptureFallback(unittest.TestCase):
     def test_device_switch_stops_only_the_inactive_task_simulator(self):
         calls = []
         runtime = {'identifier': 'runtime', 'version': '27.1', 'isAvailable': True,
-                   'supportedDeviceTypes': [{'identifier': 'com.apple.CoreSimulator.SimDeviceType.iPhone-Duo'}]}
-        devices = [{'udid': name, 'state': 'Booted'} for name in ['duo', 'phone', 'unrelated']]
+                   'supportedDeviceTypes': [{'identifier': 'com.apple.CoreSimulator.SimDeviceType.iPhone-17'}]}
+        devices = [{'udid': name, 'state': 'Booted'} for name in ['phone', 'old-phone', 'unrelated']]
 
         def external(*args, **kwargs):
             calls.append(args)
@@ -63,10 +63,10 @@ class CaptureFallback(unittest.TestCase):
             return ''
 
         with patch('iteration.command', side_effect=external):
-            self.assertEqual(iteration.prepare_device('duo', {'duo:runtime': 'duo', 'iphone:other': 'phone'}), 'duo')
-        self.assertIn(('xcrun', 'simctl', 'shutdown', 'phone'), calls)
+            self.assertEqual(iteration.prepare_device('iphone', {'iphone:runtime': 'phone', 'iphone:other': 'old-phone'}), 'phone')
+        self.assertIn(('xcrun', 'simctl', 'shutdown', 'old-phone'), calls)
         self.assertNotIn(('xcrun', 'simctl', 'shutdown', 'unrelated'), calls)
-        self.assertNotIn(('xcrun', 'simctl', 'shutdown', 'duo'), calls)
+        self.assertNotIn(('xcrun', 'simctl', 'shutdown', 'phone'), calls)
 
 
 if __name__ == '__main__':

@@ -77,7 +77,7 @@ final class MobileListeningTests: XCTestCase {
     XCTAssertGreaterThan(
       resume.frame.minY, seek.frame.maxY,
       "Expanded transport must have its own prominent row below seeking")
-    // Duo's display transform can report a 44pt bound a few floating-point ULPs below 44.
+    // Allow floating-point rounding when checking the 44pt control bounds.
     let geometryTolerance = 0.000_001
     for identifier in ["player.previous", "player.resume", "player.next"] {
       let button = app.buttons[identifier]
@@ -92,7 +92,7 @@ final class MobileListeningTests: XCTestCase {
     if navigationBack.exists {
       navigationBack.tap()
     } else {
-      // Duo places native navigation in its rail rather than the phone navigation bar.
+      // Adaptive layouts can place native navigation in a rail.
       let railBack = app.buttons["BackButton"]
       XCTAssertTrue(railBack.exists)
       railBack.tap()

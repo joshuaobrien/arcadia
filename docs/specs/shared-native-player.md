@@ -1,3 +1,5 @@
+> Current scope (2026-10-31): macOS and standard iPhone. The owner retired Duo support; older Duo requirements below are historical and no longer acceptance criteria.
+
 # Shared native Arcadia player
 
 ## Problem Statement
