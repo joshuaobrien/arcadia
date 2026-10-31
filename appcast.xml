@@ -2,11 +2,11 @@
 IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
 --><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0"><channel>
 <title>Arcadia for macOS</title><link>https://joshs-mac-mini.tail81f644.ts.net/jj/arcadia</link><description>Main builds</description>
-<item><title>Arcadia 152</title><description>Build 3dbcdf2f0f2e9191aba769802c0320a3b52833bd</description>
-<sparkle:version>152</sparkle:version><sparkle:shortVersionString>1.0 (152)</sparkle:shortVersionString>
+<item><title>Arcadia 153</title><description>Build ed3326eaeb03a932ca2f17bf2a5c450104edfc78</description>
+<sparkle:version>153</sparkle:version><sparkle:shortVersionString>1.0 (153)</sparkle:shortVersionString>
 <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
-<enclosure url="https://joshs-mac-mini.tail81f644.ts.net/attachments/7738bd7a-8c7b-457b-a106-0deef7fd6eb5" length="2379190" type="application/octet-stream" sparkle:edSignature="X2/UBvXbzhCjGS4ZvOlomZRL/x6EO79d7N3IMoik94/qg/zajbKkPiB+/uQIG9E4vuvd7cxDPy2ifpvG5+unCA=="></enclosure>
+<enclosure url="https://joshs-mac-mini.tail81f644.ts.net/attachments/7d7d449f-3d2c-4bc8-9175-0ea12e8a4dd2" length="2379203" type="application/octet-stream" sparkle:edSignature="+J4mkQU3jAb8ncw98Pn29/DDfWZ9M3TknmWNqJyigzyr3EmahudeGqtP+1ay3KESgdOWJR9MIyJZliihb5pgAg=="></enclosure>
 </item></channel></rss><!-- sparkle-signatures:
-edSignature: 9lFhCuNdk/EwxJPykZUEbk4O+yua0xlsjBcpppy71je3lIgHxfH07ko3ymCL5WS+NYKWj83Jo8FdHDdF12sWBQ==
+edSignature: Y/UC/SYDWugkkyxpO22RkpbEXqJCsAE6BFb3YYYQVlox/i2ktUFM/sxNa4LivljPZlGi50eONaMAHdlbfdsxDw==
 length: 1103
 -->
